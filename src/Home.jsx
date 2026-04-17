@@ -14,7 +14,7 @@ const TOOLS = [
     internal: false,
     name: 'Link Shortener',
     tagline: 'Short URLs',
-    desc: 'Shorten and share links under the hyphi.art domain. Fast, clean, no tracking.',
+    desc: 'Shorten and share links under the hyphi.art domain.',
     icon: '↗',
   },
 ]
