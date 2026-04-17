@@ -45,7 +45,7 @@ export default function Home() {
       <style>{css}</style>
       <div className="page">
         <div className="hero">
-          <div className="wordmark">hyp<em>hi</em>.tools</div>
+          <div className="wordmark">Hyp<em>hi</em> Tools</div>
           <div className="hero-sub">// a growing collection of useful stuff</div>
         </div>
 
