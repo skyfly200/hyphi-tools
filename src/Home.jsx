@@ -26,7 +26,7 @@ const css = `
   html,body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--t);min-height:100vh}
   .page{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:48px 24px;gap:48px}
   .hero{text-align:center;display:flex;flex-direction:column;align-items:center;gap:12px}
-  .wordmark{font-size:2.6rem;font-weight:800;letter-spacing:-.04em}
+  .wordmark{font-size:2.6rem;font-weight:800;letter-spacing:-.04em;color:var(--ac)}
   .wordmark em{color:var(--ac);font-style:normal}
   .hero-sub{font-family:'DM Mono',monospace;font-size:.78rem;color:var(--mu)}
   .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;width:100%;max-width:720px}
@@ -45,7 +45,7 @@ export default function Home() {
       <style>{css}</style>
       <div className="page">
         <div className="hero">
-          <div className="wordmark">Hyp<em>hi</em> Tools</div>
+          <div className="wordmark">Hyphi Tools</div>
           <div className="hero-sub">// a growing collection of useful stuff</div>
         </div>
 
