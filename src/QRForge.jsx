@@ -109,10 +109,23 @@ function generateSTL(matrix, opts) {
       modTris += box(off+c*modMM, off+r*modMM, baseH, modMM, modMM, moduleH);
     }
   } else {
-    baseTris += box(0,0,0,boardSize,boardSize,baseH);
+    // Inset: solid slab with dark modules recessed (engraved look).
+    // Border strips at full height.
+    const fullH = baseH + moduleH;
+    baseTris += box(0,         0,          0, boardSize, off,      fullH);
+    baseTris += box(0,         off+n*modMM,0, boardSize, off,      fullH);
+    baseTris += box(0,         off,        0, off,       n*modMM,  fullH);
+    baseTris += box(off+n*modMM, off,      0, off,       n*modMM,  fullH);
+    // QR cell columns: light = full height; dark = recessed to baseH.
     for(let r=0;r<n;r++) for(let c=0;c<n;c++) {
-      if(matrix[r][c]) continue;
-      modTris += box(off+c*modMM, off+r*modMM, baseH, modMM, modMM, moduleH);
+      const x=off+c*modMM, y=off+r*modMM;
+      if(!matrix[r][c]) {
+        baseTris += box(x, y, 0, modMM, modMM, fullH);
+      } else {
+        baseTris += box(x, y, 0, modMM, modMM, baseH);
+        // Body 2 fills the pocket with contrast color (multi-material only).
+        if(multiMat) modTris += box(x, y, baseH, modMM, modMM, moduleH);
+      }
     }
   }
   if(accessory==="keychain") {
