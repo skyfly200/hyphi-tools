@@ -34,7 +34,7 @@ const css = `
   .card:hover{border-color:var(--ac);background:var(--acd);transform:translateY(-2px)}
   .card-icon{font-size:2rem;line-height:1;color:var(--ac)}
   .card-name{font-size:1.15rem;font-weight:800;letter-spacing:-.02em}
-  .card-tag{font-family:'DM Mono',monospace;font-size:.65rem;color:var(--mu);margin-top:-6px}
+  .card-tag{font-family:'DM Mono',monospace;font-size:.65rem;color:var(--mu);margin-top:2px}
   .card-desc{font-size:.82rem;color:var(--mu);line-height:1.6}
   .footer{font-family:'DM Mono',monospace;font-size:.65rem;color:var(--mu)}
 `
