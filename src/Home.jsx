@@ -20,23 +20,22 @@ const TOOLS = [
 ]
 
 const css = `
-  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Bebas+Neue&family=DM+Sans:wght@300;400;500&display=swap');
   *{box-sizing:border-box;margin:0;padding:0}
-  :root{--bg:#080810;--s:#0f0f1a;--bd:#1c1c2e;--t:#ddddf0;--mu:#55556a;--ac:#b48eff;--acd:rgba(180,142,255,.1)}
-  html,body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--t);min-height:100vh}
+  :root{--bg:#0a0a0f;--s:#111118;--bd:#2a2a3a;--t:#e8e8f0;--sub:#7a7a9a;--ac:#ff6b35;--ac2:#7b5cfa;--acd:rgba(123,92,250,.12)}
+  html,body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);min-height:100vh}
   .page{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:48px 24px;gap:48px}
   .hero{text-align:center;display:flex;flex-direction:column;align-items:center;gap:12px}
-  .wordmark{font-size:2.6rem;font-weight:800;letter-spacing:-.04em;color:var(--ac)}
-  .wordmark em{color:var(--ac);font-style:normal}
-  .hero-sub{font-family:'DM Mono',monospace;font-size:.78rem;color:var(--mu)}
+  .wordmark{font-family:'Bebas Neue',sans-serif;font-size:3.6rem;letter-spacing:.04em;background:linear-gradient(135deg,#ff6b35,#7b5cfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+  .hero-sub{font-family:'DM Mono',monospace;font-size:.78rem;color:var(--sub)}
   .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;width:100%;max-width:720px}
-  .card{display:flex;flex-direction:column;gap:12px;padding:28px;background:var(--s);border:1px solid var(--bd);border-radius:16px;text-decoration:none;color:inherit;transition:.18s;cursor:pointer}
-  .card:hover{border-color:var(--ac);background:var(--acd);transform:translateY(-2px)}
+  .card{display:flex;flex-direction:column;gap:12px;padding:28px;background:var(--s);border:1px solid var(--bd);border-radius:12px;text-decoration:none;color:inherit;transition:.18s;cursor:pointer}
+  .card:hover{border-color:var(--ac2);background:var(--acd);transform:translateY(-2px)}
   .card-icon{font-size:2rem;line-height:1;color:var(--ac)}
-  .card-name{font-size:1.15rem;font-weight:800;letter-spacing:-.02em}
-  .card-tag{font-family:'DM Mono',monospace;font-size:.65rem;color:var(--mu);margin-top:2px}
-  .card-desc{font-size:.82rem;color:var(--mu);line-height:1.6}
-  .footer{font-family:'DM Mono',monospace;font-size:.65rem;color:var(--mu)}
+  .card-name{font-size:1.1rem;font-weight:500;letter-spacing:.01em}
+  .card-tag{font-family:'DM Mono',monospace;font-size:.65rem;color:var(--sub);margin-top:2px}
+  .card-desc{font-size:.84rem;color:var(--sub);line-height:1.6}
+  .footer{font-family:'DM Mono',monospace;font-size:.65rem;color:var(--sub)}
 `
 
 export default function Home() {
