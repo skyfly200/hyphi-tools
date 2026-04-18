@@ -151,8 +151,57 @@ function generateSTL(matrix, opts) {
     baseTris += box(lx, boardSize+legThick, 0, legW, hw, legThick);
     baseTris += box(lx, boardSize+legThick+hw-legThick, hh, legW, legThick, baseH-legThick+0.5);
   }
-  if(multiMat) return `solid base\n${baseTris}endsolid base\nsolid modules\n${modTris}endsolid modules\n`;
-  return `solid qrcode\n${baseTris}${modTris}endsolid qrcode\n`;
+  if(multiMat) return {
+    base: `solid base\n${baseTris}endsolid base\n`,
+    modules: `solid modules\n${modTris}endsolid modules\n`,
+  };
+  return { base: `solid qrcode\n${baseTris}${modTris}endsolid qrcode\n`, modules: null };
+}
+
+function makeZip(files) {
+  const enc = new TextEncoder();
+  const toU8 = d => typeof d === 'string' ? enc.encode(d) : d;
+  const crcT = new Uint32Array(256);
+  for (let i=0;i<256;i++){let c=i;for(let j=0;j<8;j++)c=(c&1)?0xEDB88320^(c>>>1):c>>>1;crcT[i]=c;}
+  const crc32 = b=>{let c=0xFFFFFFFF;for(let i=0;i<b.length;i++)c=crcT[(c^b[i])&0xFF]^(c>>>8);return(c^0xFFFFFFFF)>>>0;};
+  const w16=(v,b,o)=>{b[o]=v&0xFF;b[o+1]=(v>>8)&0xFF;};
+  const w32=(v,b,o)=>{b[o]=v&0xFF;b[o+1]=(v>>8)&0xFF;b[o+2]=(v>>16)&0xFF;b[o+3]=(v>>24)&0xFF;};
+  const entries=files.map(({name,data})=>{const nU8=enc.encode(name),dU8=toU8(data);return{nU8,dU8,crc:crc32(dU8)};});
+  // calc total buffer size
+  const cdOff=entries.reduce((s,e)=>s+30+e.nU8.length+e.dU8.length,0);
+  const cdSz=entries.reduce((s,e)=>s+46+e.nU8.length,0);
+  const buf=new Uint8Array(cdOff+cdSz+22); let pos=0;
+  const lOff=[];
+  // local file entries
+  for(const{nU8,dU8,crc}of entries){
+    lOff.push(pos);
+    const sz=dU8.length;
+    buf.set([0x50,0x4B,0x03,0x04],pos);pos+=4;
+    w16(20,buf,pos);pos+=2; w16(0,buf,pos);pos+=2; w16(0,buf,pos);pos+=2;
+    w16(0,buf,pos);pos+=2;  w16(0,buf,pos);pos+=2;
+    w32(crc,buf,pos);pos+=4; w32(sz,buf,pos);pos+=4; w32(sz,buf,pos);pos+=4;
+    w16(nU8.length,buf,pos);pos+=2; w16(0,buf,pos);pos+=2;
+    buf.set(nU8,pos);pos+=nU8.length; buf.set(dU8,pos);pos+=sz;
+  }
+  // central directory
+  const cdStart=pos;
+  for(let i=0;i<entries.length;i++){
+    const{nU8,dU8,crc}=entries[i],sz=dU8.length;
+    buf.set([0x50,0x4B,0x01,0x02],pos);pos+=4;
+    w16(20,buf,pos);pos+=2; w16(20,buf,pos);pos+=2; w16(0,buf,pos);pos+=2; w16(0,buf,pos);pos+=2;
+    w16(0,buf,pos);pos+=2;  w16(0,buf,pos);pos+=2;
+    w32(crc,buf,pos);pos+=4; w32(sz,buf,pos);pos+=4; w32(sz,buf,pos);pos+=4;
+    w16(nU8.length,buf,pos);pos+=2; w16(0,buf,pos);pos+=2; w16(0,buf,pos);pos+=2;
+    w16(0,buf,pos);pos+=2;  w16(0,buf,pos);pos+=2;  w32(0,buf,pos);pos+=4;
+    w32(lOff[i],buf,pos);pos+=4; buf.set(nU8,pos);pos+=nU8.length;
+  }
+  // end of central directory
+  buf.set([0x50,0x4B,0x05,0x06],pos);pos+=4;
+  w16(0,buf,pos);pos+=2; w16(0,buf,pos);pos+=2;
+  w16(entries.length,buf,pos);pos+=2; w16(entries.length,buf,pos);pos+=2;
+  w32(cdSz,buf,pos);pos+=4; w32(cdStart,buf,pos);pos+=4;
+  w16(0,buf,pos);
+  return buf;
 }
 
 function TooltipBtn({ title, sub, desc, activeId, id, setActive }) {
@@ -384,8 +433,13 @@ export default function QRForge() {
     if(exportFmt==="stl"){
       if(!qrMatrix)return;
       setStlMsg("Building STL…"); await new Promise(r=>setTimeout(r,20));
-      const stl=generateSTL(qrMatrix,{modMM,baseH,moduleH,margin:stlMargin,accessory,strapW:strapWidth,keychainR,standAngle,multiMat,reliefMode});
-      const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([stl],{type:"application/octet-stream"})); a.download="qrcode.stl"; a.click();
+      const {base,modules}=generateSTL(qrMatrix,{modMM,baseH,moduleH,margin:stlMargin,accessory,strapW:strapWidth,keychainR,standAngle,multiMat,reliefMode});
+      if(modules){
+        const zip=makeZip([{name:"qrcode_base.stl",data:base},{name:"qrcode_modules.stl",data:modules}]);
+        const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([zip],{type:"application/zip"})); a.download="qrcode.zip"; a.click();
+      } else {
+        const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([base],{type:"application/octet-stream"})); a.download="qrcode.stl"; a.click();
+      }
       setStlMsg("✓ Downloaded!"); setTimeout(()=>setStlMsg(""),2200); return;
     }
     if(!svgString)return;
