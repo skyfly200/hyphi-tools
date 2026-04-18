@@ -258,7 +258,17 @@ export default function QRForge() {
   const [stlMsg,      setStlMsg]      = useState("");
   const [previewCollapsed, setPreviewCollapsed] = useState(false);
   const [ecTooltip, setEcTooltip] = useState(null);
+  const [shortUrl,  setShortUrl]  = useState(null);
   const logoRef = useRef();
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const s = params.get('short');
+    if (s) {
+      setShortUrl(decodeURIComponent(s));
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   useEffect(() => {
     if (selectedIcon) {
@@ -270,7 +280,8 @@ export default function QRForge() {
   const buildMatrix = useCallback(() => {
     try {
       const qr = qrCodeGenerator(0, ecLevel);
-      qr.addData(buildQRData(ctab, fields), 'Byte');
+      const data = (ctab === 'url' && shortUrl) ? shortUrl : buildQRData(ctab, fields);
+      qr.addData(data, 'Byte');
       qr.make();
       const cnt = qr.getModuleCount();
       const mtx = [];
@@ -281,7 +292,7 @@ export default function QRForge() {
       }
       setQrMatrix(mtx);
     } catch(e) {}
-  }, [ctab, fields, ecLevel]);
+  }, [ctab, fields, ecLevel, shortUrl]);
 
   useEffect(() => { buildMatrix(); }, [buildMatrix]);
 
@@ -411,6 +422,16 @@ export default function QRForge() {
     .pill-thumb{position:absolute;top:3px;left:3px;width:12px;height:12px;border-radius:50%;background:var(--mu);transition:.2s}
     .pill-switch input:checked~.pill-track{background:var(--acd);border-color:var(--ac)}
     .pill-switch input:checked~.pill-track .pill-thumb{left:19px;background:var(--ac)}
+    .track-shorten{width:100%;padding:8px;background:none;border:1px dashed var(--ac);border-radius:8px;color:var(--ac);font-family:inherit;font-size:.78rem;font-weight:700;cursor:pointer;transition:.15s}
+    .track-shorten:hover{background:var(--acd)}
+    .track-result{display:flex;flex-direction:column;gap:6px;padding:9px 11px;background:var(--s);border:1px solid var(--ac);border-radius:8px}
+    .track-short{display:flex;align-items:center;gap:7px;min-width:0}
+    .track-label{font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--ac);flex-shrink:0}
+    .track-url{font-family:'DM Mono',monospace;font-size:.72rem;color:var(--t);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .track-url:hover{color:var(--ac)}
+    .track-btn{padding:4px 10px;background:var(--acd);border:1px solid var(--ac);border-radius:6px;color:var(--ac);font-family:inherit;font-size:.72rem;font-weight:700;text-decoration:none;cursor:pointer}
+    .track-clear{padding:4px 10px;background:none;border:1px solid var(--bd);border-radius:6px;color:var(--mu);font-family:inherit;font-size:.72rem;cursor:pointer}
+    .track-clear:hover{border-color:var(--rd);color:var(--rd)}
     .notice{font-size:.7rem;color:var(--mu);line-height:1.5;padding:8px 10px;background:var(--s);border-left:2px solid var(--ac);border-radius:0 6px 6px 0}
     .stlmsg{font-family:'DM Mono',monospace;font-size:.75rem;color:var(--ac);text-align:center;min-height:18px}
     .icon-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
@@ -470,7 +491,25 @@ export default function QRForge() {
             </div>
             <div className="sec">
               <div className="lbl">Data</div>
-              {ctab==="url"       && <input type="url" placeholder="https://" value={fields.url} onChange={e=>ff("url",e.target.value)}/>}
+              {ctab==="url"       && <>
+                <input type="url" placeholder="https://" value={fields.url} onChange={e=>{ff("url",e.target.value);setShortUrl(null);}}/>
+                {shortUrl
+                  ? <div className="track-result">
+                      <div className="track-short">
+                        <span className="track-label">↗ tracked</span>
+                        <a href={shortUrl} target="_blank" rel="noopener noreferrer" className="track-url">{shortUrl}</a>
+                      </div>
+                      <div style={{display:"flex",gap:6}}>
+                        <a href={`https://l.hyphi.art/dashboard`} target="_blank" rel="noopener noreferrer" className="track-btn">Stats →</a>
+                        <button className="track-clear" onClick={()=>setShortUrl(null)}>✕ clear</button>
+                      </div>
+                    </div>
+                  : <button className="track-shorten" onClick={()=>{
+                      const cb = encodeURIComponent(window.location.origin+'/qr');
+                      window.location.href=`https://l.hyphi.art/new?url=${encodeURIComponent(fields.url)}&callback=${cb}`;
+                    }}>↗ Shorten &amp; Track</button>
+                }
+              </>}
               {ctab==="text"      && <textarea placeholder="Enter any text…" value={fields.text} onChange={e=>ff("text",e.target.value)}/>}
               {ctab==="appstore"  && <><input type="url" placeholder="App Store or Play Store URL" value={fields.appUrl} onChange={e=>ff("appUrl",e.target.value)}/><div className="notice">Paste the full URL from the App Store, Google Play, or F-Droid listing page.</div></>}
               {ctab==="wifi"      && <><input type="text" placeholder="Network Name (SSID)" value={fields.wifiSSID} onChange={e=>ff("wifiSSID",e.target.value)}/><input type="password" placeholder="Password" value={fields.wifiPass} onChange={e=>ff("wifiPass",e.target.value)}/><div className="r2"><select value={fields.wifiSec} onChange={e=>ff("wifiSec",e.target.value)}><option>WPA</option><option>WEP</option><option>nopass</option></select><label className="tgl"><input type="checkbox" checked={fields.wifiHidden} onChange={e=>ff("wifiHidden",e.target.checked)}/> Hidden</label></div></>}
