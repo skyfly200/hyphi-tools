@@ -536,6 +536,11 @@ export default function QRForge() {
     .exp-mode-icon{font-size:1.5rem;line-height:1}
     .exp-mode-label{font-size:.76rem;font-weight:700;color:var(--mu)}
     .exp-mode.on .exp-mode-label{color:var(--ac)}
+    ::-webkit-scrollbar{width:6px;height:6px}
+    ::-webkit-scrollbar-track{background:transparent}
+    ::-webkit-scrollbar-thumb{background:var(--bd);border-radius:99px}
+    ::-webkit-scrollbar-thumb:hover{background:var(--mu)}
+    *{scrollbar-width:thin;scrollbar-color:var(--bd) transparent}
     @media(max-width:760px){html,body{overflow:auto;height:auto}.shell{grid-template-columns:1fr;height:auto;overflow:visible}.L{height:auto}.R{height:auto;order:-1}}
   `;
 
