@@ -35,7 +35,8 @@ const css = `
   .card-name{font-size:1.1rem;font-weight:500;letter-spacing:.01em}
   .card-tag{font-family:'DM Mono',monospace;font-size:.65rem;color:var(--sub);margin-top:2px}
   .card-desc{font-size:.84rem;color:var(--sub);line-height:1.6}
-  .footer{font-family:'DM Mono',monospace;font-size:.65rem;color:var(--sub)}
+  .footer{font-family:'DM Mono',monospace;font-size:.65rem;color:var(--sub);text-decoration:none}
+  .footer:hover{color:var(--t)}
 `
 
 export default function Home() {
@@ -69,7 +70,7 @@ export default function Home() {
           )}
         </div>
 
-        <div className="footer">hyphi.art</div>
+        <a href="https://hyphi.art" className="footer">hyphi.art</a>
       </div>
     </>
   )
