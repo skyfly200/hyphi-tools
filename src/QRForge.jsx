@@ -263,7 +263,7 @@ export default function QRForge() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const s = params.get('short');
+    const s = params.get('shortUrl') || params.get('short');
     if (s) {
       setShortUrl(decodeURIComponent(s));
       window.history.replaceState({}, '', window.location.pathname);
