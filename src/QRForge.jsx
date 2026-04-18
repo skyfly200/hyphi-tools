@@ -196,11 +196,17 @@ const ICON_PRESETS = [
   { id:"bt",    label:"BT",    svg:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6.5 6.5 17.5 17.5 12 23 12 1 17.5 6.5 6.5 17.5"/></svg>` },
 ];
 
-function svgToDataURL(svgStr, fg) {
-  const colored = svgStr.replace(/stroke="currentColor"/g, `stroke="${fg}"`).replace(/fill="currentColor"/g, `fill="${fg}"`);
-  const inner = colored.replace(/<svg[^>]*>/, '').replace('</svg>', '');
-  const sized = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="80" height="80">${inner}</svg>`;
-  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(sized);
+function extractSVGInner(svgStr) {
+  return svgStr.replace(/<svg[^>]*>/, '').replace(/<\/svg>/, '');
+}
+
+function IconSVG({ svg, color, size = 22 }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+      style={{color, stroke: 'currentColor', display: 'block'}}
+      dangerouslySetInnerHTML={{__html: extractSVGInner(svg)}}/>
+  );
 }
 
 const EC_INFO = [
@@ -294,8 +300,9 @@ export default function QRForge() {
     setSize(e.size); setDotStyle(e.dotStyle); setFinderSharp(e.finderSharp);
     setBgColor(e.bgColor); setFgColor(e.fgColor); setAccentColor(e.accentColor);
     setBgTransparent(e.bgTransparent||false); setMargin(e.margin);
-    setLogoEnabled(e.logoEnabled); setLogo(e.logo||null);
+    setLogoEnabled(e.logoEnabled);
     setSelectedIcon(e.selectedIcon||null);
+    setLogo(e.selectedIcon ? null : (e.logo||null));
     setIconColor(e.iconColor||e.fgColor||'#ffffff');
     setIconColorCustomized(!!e.iconColor && e.iconColor !== e.fgColor);
     setLogoSize(e.logoSize); setShortUrl(e.shortUrl||null);
@@ -312,13 +319,6 @@ export default function QRForge() {
       window.history.replaceState({}, '', window.location.pathname);
     }
   }, []);
-
-  useEffect(() => {
-    if (selectedIcon) {
-      const ic = ICON_PRESETS.find(i => i.id === selectedIcon);
-      if (ic) setLogo(svgToDataURL(ic.svg, iconColor));
-    }
-  }, [iconColor, selectedIcon]);
 
   useEffect(() => {
     if (!iconColorCustomized) setIconColor(fgColor);
@@ -352,20 +352,25 @@ export default function QRForge() {
     const inF=(r,c)=>fps.some(([fr,fc])=>r>=fr&&r<fr+7&&c>=fc&&c<fc+7);
     const lw=total*logoSize/100, lx=total/2-lw/2, ly=total/2-lw/2;
     const hw=lw/2+mod*0.5;
-    const inLogo=(r,c)=>{if(!logo||!logoEnabled)return false;const cx=off+(c+.5)*mod,cy=off+(r+.5)*mod;return Math.abs(cx-total/2)<hw&&Math.abs(cy-total/2)<hw;};
+    const hasLogo=logoEnabled&&(logo||selectedIcon);
+    const inLogo=(r,c)=>{if(!hasLogo)return false;const cx=off+(c+.5)*mod,cy=off+(r+.5)*mod;return Math.abs(cx-total/2)<hw&&Math.abs(cy-total/2)<hw;};
     let dots="";
     for(let r=0;r<n;r++) for(let c=0;c<n;c++){if(!qrMatrix[r][c]||inF(r,c)||inLogo(r,c))continue; dots+=dotPath(c,r,mod,dotStyle)+" ";}
     let finders="";
     const finderBg = bgTransparent ? "none" : bgColor;
     for(const [fr,fc] of fps) finders+=finderSVG(fc,fr,mod,accentColor,finderBg,finderSharp);
-    const logoDef=logo?`<clipPath id="lc"><rect x="${lx}" y="${ly}" width="${lw}" height="${lw}" rx="${lw*.16}"/></clipPath>`:"";
-    const logoMkp=logo?`<image href="${logo}" x="${lx}" y="${ly}" width="${lw}" height="${lw}" clip-path="url(#lc)" preserveAspectRatio="xMidYMid meet"/>`:"";    const bgFill = bgTransparent ? "none" : bgColor;
+    const iconInfo=selectedIcon?ICON_PRESETS.find(i=>i.id===selectedIcon):null;
+    const logoDef=logo&&!iconInfo?`<clipPath id="lc"><rect x="${lx}" y="${ly}" width="${lw}" height="${lw}" rx="${lw*.16}"/></clipPath>`:"";
+    const logoMkp=!hasLogo?"":iconInfo
+      ?`<g transform="translate(${lx},${ly}) scale(${lw/24})" style="color:${iconColor}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${extractSVGInner(iconInfo.svg)}</g>`
+      :`<image href="${logo}" x="${lx}" y="${ly}" width="${lw}" height="${lw}" clip-path="url(#lc)" preserveAspectRatio="xMidYMid meet"/>`;
+    const bgFill = bgTransparent ? "none" : bgColor;
     return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${total}" height="${total}" viewBox="0 0 ${total} ${total}">
   <defs>${logoDef}</defs>
   <rect width="${total}" height="${total}" fill="${bgFill}" rx="14"/>
   <g transform="translate(${off},${off})"><path d="${dots}" fill="${fgColor}" fill-rule="evenodd"/>${finders}</g>
   ${logoMkp}</svg>`;
-  },[qrMatrix,size,margin,dotStyle,finderSharp,fgColor,bgColor,accentColor,logo,logoSize,bgTransparent]);
+  },[qrMatrix,size,margin,dotStyle,finderSharp,fgColor,bgColor,accentColor,logo,logoEnabled,selectedIcon,iconColor,logoSize,bgTransparent]);
 
   const svgString = buildSVG();
 
@@ -668,23 +673,22 @@ export default function QRForge() {
                 <div className="icon-grid">
                   {ICON_PRESETS.map(ic=>{
                     const isOn=selectedIcon===ic.id;
-                    const url=svgToDataURL(ic.svg,iconColor);
                     return (
                       <div key={ic.id} className={"icon-opt"+(isOn?" on":"")}
-                        onClick={()=>{ if(isOn){setSelectedIcon(null);setLogo(null);}else{setSelectedIcon(ic.id);setLogo(svgToDataURL(ic.svg,iconColor));} }}>
-                        <img src={url} alt={ic.label} style={{width:22,height:22,display:"block"}}/>
+                        onClick={()=>setSelectedIcon(isOn?null:ic.id)}>
+                        <IconSVG svg={ic.svg} color={iconColor} size={22}/>
                         <span>{ic.label}</span>
                       </div>
                     );
                   })}
                 </div>
-                {logo && selectedIcon===null
-                  ? <div className="logo-row"><img src={logo} alt=""/><span>Custom image</span><button className="rm" onClick={()=>{setLogo(null);setSelectedIcon(null);}}>Remove</button></div>
+                {logo
+                  ? <div className="logo-row"><img src={logo} alt=""/><span>Custom image</span><button className="rm" onClick={()=>setLogo(null)}>Remove</button></div>
                   : <button className="logo-drop" onClick={()=>logoRef.current.click()}>＋ Upload custom logo</button>
                 }
-                {logo && <div className="cr"><input type="color" value={iconColor} onChange={e=>{setIconColorCustomized(true);setIconColor(e.target.value);if(selectedIcon){const ic=ICON_PRESETS.find(i=>i.id===selectedIcon);if(ic)setLogo(svgToDataURL(ic.svg,e.target.value));}}}/><span className="cl">Icon color<span className="ch">{iconColor}</span></span></div>}
-                {logo && <div className="rng"><label>Icon size</label><input type="range" min={10} max={35} value={logoSize} onChange={e=>setLogoSize(+e.target.value)}/><span className="rv">{logoSize}%</span></div>}
-                {logo && <div className="notice">Use EC level H with logos — enables 30% module recovery.</div>}
+                {(logo||selectedIcon) && <div className="cr"><input type="color" value={iconColor} onChange={e=>{setIconColorCustomized(true);setIconColor(e.target.value);}}/><span className="cl">Icon color<span className="ch">{iconColor}</span></span></div>}
+                {(logo||selectedIcon) && <div className="rng"><label>Icon size</label><input type="range" min={10} max={35} value={logoSize} onChange={e=>setLogoSize(+e.target.value)}/><span className="rv">{logoSize}%</span></div>}
+                {(logo||selectedIcon) && <div className="notice">Use EC level H with logos — enables 30% module recovery.</div>}
               </>}
             </div>
           </>}
