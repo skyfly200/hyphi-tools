@@ -176,6 +176,7 @@ function TooltipBtn({ title, sub, desc, activeId, id, setActive }) {
 }
 
 const PRESETS = [
+  {name:"Default", bg:"#000000",fg:"#ffffff",accent:"#ffffff"},
   {name:"Midnight",bg:"#0d0d0d",fg:"#e8ff4f",accent:"#e8ff4f"},
   {name:"Arctic",  bg:"#f0f4ff",fg:"#1a1a2e",accent:"#4361ee"},
   {name:"Biolum",  bg:"#030d1a",fg:"#00ffe0",accent:"#00ffe0"},
@@ -342,12 +343,14 @@ export default function QRForge() {
     const n=qrMatrix.length, mod=size/(n+2*margin), off=margin*mod, total=size;
     const fps=[[0,0],[0,n-7],[n-7,0]];
     const inF=(r,c)=>fps.some(([fr,fc])=>r>=fr&&r<fr+7&&c>=fc&&c<fc+7);
+    const lw=total*logoSize/100, lx=total/2-lw/2, ly=total/2-lw/2;
+    const hw=lw/2+mod*0.5;
+    const inLogo=(r,c)=>{if(!logo||!logoEnabled)return false;const cx=off+(c+.5)*mod,cy=off+(r+.5)*mod;return Math.abs(cx-total/2)<hw&&Math.abs(cy-total/2)<hw;};
     let dots="";
-    for(let r=0;r<n;r++) for(let c=0;c<n;c++){if(!qrMatrix[r][c]||inF(r,c))continue; dots+=dotPath(c,r,mod,dotStyle)+" ";}
+    for(let r=0;r<n;r++) for(let c=0;c<n;c++){if(!qrMatrix[r][c]||inF(r,c)||inLogo(r,c))continue; dots+=dotPath(c,r,mod,dotStyle)+" ";}
     let finders="";
     const finderBg = bgTransparent ? "none" : bgColor;
     for(const [fr,fc] of fps) finders+=finderSVG(fc,fr,mod,accentColor,finderBg,finderSharp);
-    const lw=total*logoSize/100, lx=total/2-lw/2, ly=total/2-lw/2;
     const logoBg = bgTransparent ? "none" : bgColor;
     const logoMkp=logo?`<rect x="${lx-5}" y="${ly-5}" width="${lw+10}" height="${lw+10}" rx="${lw*.18}" fill="${logoBg}"/>
       <image href="${logo}" x="${lx}" y="${ly}" width="${lw}" height="${lw}" clip-path="url(#lc)" preserveAspectRatio="xMidYMid slice"/>`:"";
@@ -493,8 +496,8 @@ export default function QRForge() {
     .track-clear:hover{border-color:var(--rd);color:var(--rd)}
     .notice{font-size:.7rem;color:var(--mu);line-height:1.5;padding:8px 10px;background:var(--s);border-left:2px solid var(--ac);border-radius:0 6px 6px 0}
     .stlmsg{font-family:'DM Mono',monospace;font-size:.75rem;color:var(--ac);text-align:center;min-height:18px}
-    .icon-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
-    .icon-opt{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px;border:1px solid var(--bd);border-radius:8px;background:var(--s);cursor:pointer;transition:.15s;font-size:.62rem;color:var(--mu);text-align:center}
+    .icon-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:4px}
+    .icon-opt{display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 2px;border:1px solid var(--bd);border-radius:8px;background:var(--s);cursor:pointer;transition:.15s;font-size:.58rem;color:var(--mu);text-align:center}
     .icon-opt.on{border-color:var(--ac);background:var(--acd);color:var(--ac)}
     .icon-opt:hover:not(.on){border-color:#333352;color:var(--t)}
     .ec-chips{display:flex;flex-wrap:wrap;gap:5px}
@@ -661,7 +664,7 @@ export default function QRForge() {
                 <div className="icon-grid">
                   {ICON_PRESETS.map(ic=>{
                     const isOn=selectedIcon===ic.id;
-                    const url=svgToDataURL(ic.svg,isOn?iconColor:fgColor);
+                    const url=svgToDataURL(ic.svg,isOn?iconColor:"#ddddf0");
                     return (
                       <div key={ic.id} className={"icon-opt"+(isOn?" on":"")}
                         onClick={()=>{ if(isOn){setSelectedIcon(null);setLogo(null);}else{setSelectedIcon(ic.id);setLogo(svgToDataURL(ic.svg,iconColor));} }}>
