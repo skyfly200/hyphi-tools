@@ -242,6 +242,7 @@ export default function QRForge() {
   const [logoEnabled,   setLogoEnabled]   = useState(false);
   const [selectedIcon, setSelectedIcon] = useState(null);
   const [iconColor,    setIconColor]    = useState("#ffffff");
+  const [iconColorCustomized, setIconColorCustomized] = useState(false);
   const [logoSize,    setLogoSize]    = useState(22);
   const [exportFmt,   setExportFmt]   = useState("png");
   const [qrMatrix,    setQrMatrix]    = useState(null);
@@ -294,7 +295,9 @@ export default function QRForge() {
     setBgColor(e.bgColor); setFgColor(e.fgColor); setAccentColor(e.accentColor);
     setBgTransparent(e.bgTransparent||false); setMargin(e.margin);
     setLogoEnabled(e.logoEnabled); setLogo(e.logo||null);
-    setSelectedIcon(e.selectedIcon||null); setIconColor(e.iconColor||'#ffffff');
+    setSelectedIcon(e.selectedIcon||null);
+    setIconColor(e.iconColor||e.fgColor||'#ffffff');
+    setIconColorCustomized(!!e.iconColor && e.iconColor !== e.fgColor);
     setLogoSize(e.logoSize); setShortUrl(e.shortUrl||null);
     setMainTab('Design');
   }
@@ -316,6 +319,10 @@ export default function QRForge() {
       if (ic) setLogo(svgToDataURL(ic.svg, iconColor));
     }
   }, [iconColor, selectedIcon]);
+
+  useEffect(() => {
+    if (!iconColorCustomized) setIconColor(fgColor);
+  }, [fgColor, iconColorCustomized]);
 
   const buildMatrix = useCallback(() => {
     try {
@@ -351,11 +358,8 @@ export default function QRForge() {
     let finders="";
     const finderBg = bgTransparent ? "none" : bgColor;
     for(const [fr,fc] of fps) finders+=finderSVG(fc,fr,mod,accentColor,finderBg,finderSharp);
-    const logoBg = bgTransparent ? "none" : bgColor;
-    const logoMkp=logo?`<rect x="${lx-5}" y="${ly-5}" width="${lw+10}" height="${lw+10}" rx="${lw*.18}" fill="${logoBg}"/>
-      <image href="${logo}" x="${lx}" y="${ly}" width="${lw}" height="${lw}" clip-path="url(#lc)" preserveAspectRatio="xMidYMid slice"/>`:"";
     const logoDef=logo?`<clipPath id="lc"><rect x="${lx}" y="${ly}" width="${lw}" height="${lw}" rx="${lw*.16}"/></clipPath>`:"";
-    const bgFill = bgTransparent ? "none" : bgColor;
+    const logoMkp=logo?`<image href="${logo}" x="${lx}" y="${ly}" width="${lw}" height="${lw}" clip-path="url(#lc)" preserveAspectRatio="xMidYMid meet"/>`:"";    const bgFill = bgTransparent ? "none" : bgColor;
     return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${total}" height="${total}" viewBox="0 0 ${total} ${total}">
   <defs>${logoDef}</defs>
   <rect width="${total}" height="${total}" fill="${bgFill}" rx="14"/>
@@ -630,7 +634,7 @@ export default function QRForge() {
                 <TooltipBtn id="colors" activeId={ecTooltip} setActive={setEcTooltip} title="Colors" sub="" desc="Ensure strong contrast — low contrast codes fail to scan."/>
               </div>
               <div className="presets">{PRESETS.map(p=>(
-                <div key={p.name} className="pset" onClick={()=>{setBgColor(p.bg);setFgColor(p.fg);setAccentColor(p.accent);setBgTransparent(false);}}>
+                <div key={p.name} className="pset" onClick={()=>{setBgColor(p.bg);setFgColor(p.fg);setAccentColor(p.accent);setBgTransparent(false);setIconColorCustomized(false);}}>
                   <span className="pset-dot" style={{background:p.bg,border:"1px solid #333"}}/>
                   <span className="pset-dot" style={{background:p.fg}}/>
                   <span className="pset-dot" style={{background:p.accent}}/>
@@ -664,7 +668,7 @@ export default function QRForge() {
                 <div className="icon-grid">
                   {ICON_PRESETS.map(ic=>{
                     const isOn=selectedIcon===ic.id;
-                    const url=svgToDataURL(ic.svg,isOn?iconColor:"#ddddf0");
+                    const url=svgToDataURL(ic.svg,iconColor);
                     return (
                       <div key={ic.id} className={"icon-opt"+(isOn?" on":"")}
                         onClick={()=>{ if(isOn){setSelectedIcon(null);setLogo(null);}else{setSelectedIcon(ic.id);setLogo(svgToDataURL(ic.svg,iconColor));} }}>
@@ -678,7 +682,7 @@ export default function QRForge() {
                   ? <div className="logo-row"><img src={logo} alt=""/><span>Custom image</span><button className="rm" onClick={()=>{setLogo(null);setSelectedIcon(null);}}>Remove</button></div>
                   : <button className="logo-drop" onClick={()=>logoRef.current.click()}>＋ Upload custom logo</button>
                 }
-                {logo && <div className="cr"><input type="color" value={iconColor} onChange={e=>{setIconColor(e.target.value);if(selectedIcon){const ic=ICON_PRESETS.find(i=>i.id===selectedIcon);if(ic)setLogo(svgToDataURL(ic.svg,e.target.value));}}}/><span className="cl">Icon color<span className="ch">{iconColor}</span></span></div>}
+                {logo && <div className="cr"><input type="color" value={iconColor} onChange={e=>{setIconColorCustomized(true);setIconColor(e.target.value);if(selectedIcon){const ic=ICON_PRESETS.find(i=>i.id===selectedIcon);if(ic)setLogo(svgToDataURL(ic.svg,e.target.value));}}}/><span className="cl">Icon color<span className="ch">{iconColor}</span></span></div>}
                 {logo && <div className="rng"><label>Icon size</label><input type="range" min={10} max={35} value={logoSize} onChange={e=>setLogoSize(+e.target.value)}/><span className="rv">{logoSize}%</span></div>}
                 {logo && <div className="notice">Use EC level H with logos — enables 30% module recovery.</div>}
               </>}
