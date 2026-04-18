@@ -318,6 +318,12 @@ export default function QRForge() {
       setShortUrl(decodeURIComponent(s));
       window.history.replaceState({}, '', window.location.pathname);
     }
+    const u = params.get('url');
+    if (u) {
+      setFields(p => ({...p, url: decodeURIComponent(u)}));
+      setCtab('url');
+      window.history.replaceState({}, '', window.location.pathname);
+    }
   }, []);
 
   useEffect(() => {
