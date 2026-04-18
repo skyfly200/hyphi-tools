@@ -257,8 +257,9 @@ export default function QRForge() {
   const [standAngle,  setStandAngle]  = useState(20);
   const [stlMsg,      setStlMsg]      = useState("");
   const [previewCollapsed, setPreviewCollapsed] = useState(false);
-  const [ecTooltip, setEcTooltip] = useState(null);
-  const [shortUrl,  setShortUrl]  = useState(null);
+  const [ecTooltip,     setEcTooltip]     = useState(null);
+  const [shortUrl,      setShortUrl]      = useState(null);
+  const [bgTransparent, setBgTransparent] = useState(false);
   const logoRef = useRef();
 
   useEffect(() => {
@@ -300,23 +301,26 @@ export default function QRForge() {
 
   const buildSVG = useCallback(() => {
     if (!qrMatrix) return "";
-    const n=qrMatrix.length, mod=(size-margin*2*(size/n))/n, off=margin*mod, total=size;
+    const n=qrMatrix.length, mod=size/(n+2*margin), off=margin*mod, total=size;
     const fps=[[0,0],[0,n-7],[n-7,0]];
     const inF=(r,c)=>fps.some(([fr,fc])=>r>=fr&&r<fr+7&&c>=fc&&c<fc+7);
     let dots="";
     for(let r=0;r<n;r++) for(let c=0;c<n;c++){if(!qrMatrix[r][c]||inF(r,c))continue; dots+=dotPath(c,r,mod,dotStyle)+" ";}
     let finders="";
-    for(const [fr,fc] of fps) finders+=finderSVG(fc,fr,mod,accentColor,bgColor,finderSharp);
+    const finderBg = bgTransparent ? "none" : bgColor;
+    for(const [fr,fc] of fps) finders+=finderSVG(fc,fr,mod,accentColor,finderBg,finderSharp);
     const lw=total*logoSize/100, lx=total/2-lw/2, ly=total/2-lw/2;
-    const logoMkp=logo?`<rect x="${lx-5}" y="${ly-5}" width="${lw+10}" height="${lw+10}" rx="${lw*.18}" fill="${bgColor}"/>
+    const logoBg = bgTransparent ? "none" : bgColor;
+    const logoMkp=logo?`<rect x="${lx-5}" y="${ly-5}" width="${lw+10}" height="${lw+10}" rx="${lw*.18}" fill="${logoBg}"/>
       <image href="${logo}" x="${lx}" y="${ly}" width="${lw}" height="${lw}" clip-path="url(#lc)" preserveAspectRatio="xMidYMid slice"/>`:"";
     const logoDef=logo?`<clipPath id="lc"><rect x="${lx}" y="${ly}" width="${lw}" height="${lw}" rx="${lw*.16}"/></clipPath>`:"";
+    const bgFill = bgTransparent ? "none" : bgColor;
     return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${total}" height="${total}" viewBox="0 0 ${total} ${total}">
   <defs>${logoDef}</defs>
-  <rect width="${total}" height="${total}" fill="${bgColor}" rx="14"/>
+  <rect width="${total}" height="${total}" fill="${bgFill}" rx="14"/>
   <g transform="translate(${off},${off})"><path d="${dots}" fill="${fgColor}" fill-rule="evenodd"/>${finders}</g>
   ${logoMkp}</svg>`;
-  },[qrMatrix,size,margin,dotStyle,finderSharp,fgColor,bgColor,accentColor,logo,logoSize]);
+  },[qrMatrix,size,margin,dotStyle,finderSharp,fgColor,bgColor,accentColor,logo,logoSize,bgTransparent]);
 
   const svgString = buildSVG();
 
@@ -375,9 +379,11 @@ export default function QRForge() {
     .chip{padding:5px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--s);color:var(--mu);font-size:.74rem;font-family:inherit;font-weight:600;cursor:pointer;transition:.15s}
     .chip.on{border-color:var(--ac);color:var(--ac);background:var(--acd)}
     .chip:hover:not(.on){color:var(--t);border-color:#333352}
-    .presets{display:flex;gap:5px;flex-wrap:wrap}
-    .pset{width:28px;height:28px;border-radius:50%;border:2px solid;cursor:pointer;transition:.15s;flex-shrink:0}
-    .pset:hover{transform:scale(1.18)}
+    .presets{display:flex;gap:6px;flex-wrap:wrap}
+    .pset{display:flex;align-items:center;gap:3px;padding:5px 8px;border-radius:20px;border:1px solid var(--bd);background:var(--s);cursor:pointer;transition:.15s;flex-shrink:0}
+    .pset:hover{border-color:var(--ac);transform:translateY(-1px)}
+    .pset-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0}
+    .pset-name{font-size:.62rem;color:var(--mu);margin-left:2px}
     .cr{display:grid;grid-template-columns:34px 1fr;align-items:center;gap:9px}
     input[type=color]{width:32px;height:28px;border-radius:6px;border:1px solid var(--bd);cursor:pointer;padding:2px;background:var(--s)}
     .cl{font-size:.77rem;color:var(--mu)} .ch{font-family:'DM Mono',monospace;font-size:.7rem;margin-left:6px;color:var(--t)}
@@ -420,8 +426,8 @@ export default function QRForge() {
     .pill-switch input{opacity:0;width:0;height:0;position:absolute}
     .pill-track{position:absolute;inset:0;border-radius:20px;background:var(--bd);border:1px solid var(--bd);transition:.2s}
     .pill-thumb{position:absolute;top:3px;left:3px;width:12px;height:12px;border-radius:50%;background:var(--mu);transition:.2s}
-    .pill-switch input:checked~.pill-track{background:var(--acd);border-color:var(--ac)}
-    .pill-switch input:checked~.pill-track .pill-thumb{left:19px;background:var(--ac)}
+    .pill-track.on{background:var(--acd);border-color:var(--ac)}
+    .pill-track.on .pill-thumb{left:19px;background:var(--ac)}
     .track-shorten{width:100%;padding:8px;background:none;border:1px dashed var(--ac);border-radius:8px;color:var(--ac);font-family:inherit;font-size:.78rem;font-weight:700;cursor:pointer;transition:.15s}
     .track-shorten:hover{background:var(--acd)}
     .track-result{display:flex;flex-direction:column;gap:6px;padding:9px 11px;background:var(--s);border:1px solid var(--ac);border-radius:8px}
@@ -567,8 +573,22 @@ export default function QRForge() {
                 <span className="lbl">Colors</span>
                 <TooltipBtn id="colors" activeId={ecTooltip} setActive={setEcTooltip} title="Colors" sub="" desc="Ensure strong contrast — low contrast codes fail to scan."/>
               </div>
-              <div className="presets">{PRESETS.map(p=><div key={p.name} title={p.name} className="pset" style={{background:p.bg,borderColor:p.fg}} onClick={()=>{setBgColor(p.bg);setFgColor(p.fg);setAccentColor(p.accent);}}/>)}</div>
-              {[["Background",bgColor,setBgColor],["Foreground",fgColor,setFgColor],["Finder Accent",accentColor,setAccentColor]].map(([l,v,s])=>(
+              <div className="presets">{PRESETS.map(p=>(
+                <div key={p.name} className="pset" onClick={()=>{setBgColor(p.bg);setFgColor(p.fg);setAccentColor(p.accent);setBgTransparent(false);}}>
+                  <span className="pset-dot" style={{background:p.bg,border:"1px solid #333"}}/>
+                  <span className="pset-dot" style={{background:p.fg}}/>
+                  <span className="pset-dot" style={{background:p.accent}}/>
+                  <span className="pset-name">{p.name}</span>
+                </div>
+              ))}</div>
+              <div className="cr">
+                <input type="color" value={bgColor} onChange={e=>{setBgColor(e.target.value);setBgTransparent(false);}} disabled={bgTransparent}/>
+                <span className="cl">
+                  Background<span className="ch">{bgTransparent?"transparent":bgColor}</span>
+                  <button onClick={()=>setBgTransparent(p=>!p)} className={"chip"+(bgTransparent?" on":"")} style={{marginLeft:8,padding:"2px 8px",fontSize:".62rem"}}>transparent</button>
+                </span>
+              </div>
+              {[["Foreground",fgColor,setFgColor],["Finder",accentColor,setAccentColor]].map(([l,v,s])=>(
                 <div key={l} className="cr"><input type="color" value={v} onChange={e=>s(e.target.value)}/><span className="cl">{l}<span className="ch">{v}</span></span></div>
               ))}
             </div>
@@ -579,8 +599,7 @@ export default function QRForge() {
                   <span className="lbl">Center Logo / Icon</span>
                 </span>
                 <span className="pill-switch">
-                  <input type="checkbox" checked={logoEnabled} onChange={()=>{}} style={{display:"none"}}/>
-                  <span className="pill-track"><span className="pill-thumb"/></span>
+                  <span className={`pill-track${logoEnabled?" on":""}`}><span className="pill-thumb"/></span>
                 </span>
               </label>
               <input ref={logoRef} type="file" accept="image/*" style={{display:"none"}}
@@ -704,7 +723,7 @@ export default function QRForge() {
             </button>
           </div>
           {!previewCollapsed && (
-            <div className="pw" style={{flexShrink:0}}>
+            <div className="pw" style={{flexShrink:0,background:bgTransparent?"repeating-conic-gradient(#333 0% 25%,#222 0% 50%) 0 0/16px 16px":undefined}}>
               {svgString
                 ? <div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center"}}
                     dangerouslySetInnerHTML={{__html:svgString.replace(/ width="\d+" height="\d+"/,' width="100%" height="100%"')}}/>
