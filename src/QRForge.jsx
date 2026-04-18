@@ -260,7 +260,45 @@ export default function QRForge() {
   const [ecTooltip,     setEcTooltip]     = useState(null);
   const [shortUrl,      setShortUrl]      = useState(null);
   const [bgTransparent, setBgTransparent] = useState(false);
+  const [savedCodes,   setSavedCodes]   = useState([]);
+  const [saveOpen,     setSaveOpen]     = useState(false);
+  const [saveName,     setSaveName]     = useState('');
   const logoRef = useRef();
+
+  useEffect(() => {
+    try { setSavedCodes(JSON.parse(localStorage.getItem('qrforge-saved') || '[]')); } catch {}
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem('qrforge-saved', JSON.stringify(savedCodes));
+  }, [savedCodes]);
+
+  function handleSave() {
+    const entry = {
+      id: Date.now(),
+      name: saveName.trim() || `QR Code ${savedCodes.length + 1}`,
+      savedAt: new Date().toISOString(),
+      ctab, fields, ecLevel, size, dotStyle, finderSharp,
+      bgColor, fgColor, accentColor, bgTransparent, margin,
+      logoEnabled, logo, selectedIcon, iconColor, logoSize, shortUrl,
+      thumb: svgString,
+    };
+    setSavedCodes(p => [entry, ...p]);
+    setSaveName(''); setSaveOpen(false);
+  }
+
+  function handleLoad(e) {
+    setCtab(e.ctab); setFields(e.fields); setEcLevel(e.ecLevel);
+    setSize(e.size); setDotStyle(e.dotStyle); setFinderSharp(e.finderSharp);
+    setBgColor(e.bgColor); setFgColor(e.fgColor); setAccentColor(e.accentColor);
+    setBgTransparent(e.bgTransparent||false); setMargin(e.margin);
+    setLogoEnabled(e.logoEnabled); setLogo(e.logo||null);
+    setSelectedIcon(e.selectedIcon||null); setIconColor(e.iconColor||'#ffffff');
+    setLogoSize(e.logoSize); setShortUrl(e.shortUrl||null);
+    setMainTab('Design');
+  }
+
+  function handleDelete(id) { setSavedCodes(p => p.filter(c => c.id !== id)); }
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -356,7 +394,7 @@ export default function QRForge() {
     .logo-mark{font-size:1.5rem;font-weight:800;letter-spacing:-.03em} .logo-mark em{color:var(--ac);font-style:normal}
     .mono{font-family:'DM Mono',monospace}
     .sub{font-family:'DM Mono',monospace;font-size:.65rem;color:var(--mu);margin-top:3px}
-    .mtabs{display:grid;grid-template-columns:1fr 1fr;gap:3px;background:var(--s);border:1px solid var(--bd);border-radius:var(--rr);padding:3px}
+    .mtabs{display:grid;grid-template-columns:1fr 1fr 1fr;gap:3px;background:var(--s);border:1px solid var(--bd);border-radius:var(--rr);padding:3px}
     .mtab{padding:8px;border-radius:8px;border:none;background:none;color:var(--mu);font-size:.82rem;font-family:inherit;font-weight:700;cursor:pointer;transition:.15s}
     .mtab.on{background:var(--ac);color:#000}
     .sec{display:flex;flex-direction:column;gap:9px}
@@ -428,6 +466,21 @@ export default function QRForge() {
     .pill-thumb{position:absolute;top:3px;left:3px;width:12px;height:12px;border-radius:50%;background:var(--mu);transition:.2s}
     .pill-track.on{background:var(--acd);border-color:var(--ac)}
     .pill-track.on .pill-thumb{left:19px;background:var(--ac)}
+    .save-bar{display:flex;gap:6px;align-items:center}
+    .save-bar input{flex:1}
+    .save-btn{padding:8px 14px;background:var(--ac);color:#000;border:none;border-radius:8px;font-family:inherit;font-size:.78rem;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0}
+    .save-btn:hover{background:#c9a8ff}
+    .save-open{width:100%;padding:8px;background:none;border:1px solid var(--bd);border-radius:8px;color:var(--mu);font-family:inherit;font-size:.78rem;cursor:pointer;transition:.15s;text-align:left}
+    .save-open:hover{border-color:var(--ac);color:var(--ac)}
+    .saved-empty{font-size:.8rem;color:var(--mu);text-align:center;padding:32px 0}
+    .saved-list{display:flex;flex-direction:column;gap:8px}
+    .saved-card{display:flex;align-items:center;gap:10px;padding:10px;background:var(--s);border:1px solid var(--bd);border-radius:10px}
+    .saved-thumb{width:48px;height:48px;flex-shrink:0;border-radius:6px;overflow:hidden;background:var(--s2)}
+    .saved-thumb svg{width:48px;height:48px}
+    .saved-info{flex:1;min-width:0}
+    .saved-name{font-size:.82rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .saved-date{font-family:'DM Mono',monospace;font-size:.62rem;color:var(--mu);margin-top:2px}
+    .saved-actions{display:flex;gap:5px;flex-shrink:0}
     .track-shorten{width:100%;padding:8px;background:none;border:1px dashed var(--ac);border-radius:8px;color:var(--ac);font-family:inherit;font-size:.78rem;font-weight:700;cursor:pointer;transition:.15s}
     .track-shorten:hover{background:var(--acd)}
     .track-result{display:flex;flex-direction:column;gap:6px;padding:9px 11px;background:var(--s);border:1px solid var(--ac);border-radius:8px}
@@ -478,7 +531,7 @@ export default function QRForge() {
             <div className="sub">// custom qr code generator</div>
           </div>
           <div className="mtabs">
-            {["Design","Export"].map(t=><button key={t} className={"mtab"+(mainTab===t?" on":"")} onClick={()=>setMainTab(t)}>{t}</button>)}
+            {["Design","Export","Saved"].map(t=><button key={t} className={"mtab"+(mainTab===t?" on":"")} onClick={()=>setMainTab(t)}>{t}{t==="Saved"&&savedCodes.length>0?` (${savedCodes.length})`:""}</button>)}
           </div>
 
           {mainTab==="Design" && <>
@@ -629,6 +682,19 @@ export default function QRForge() {
             </div>
           </>}
 
+          {mainTab==="Design" && (
+            <div className="sec">
+              {saveOpen
+                ? <div className="save-bar">
+                    <input type="text" placeholder="Name this QR code…" value={saveName} onChange={e=>setSaveName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSave()} autoFocus/>
+                    <button className="save-btn" onClick={handleSave}>Save</button>
+                    <button className="rm" onClick={()=>{setSaveOpen(false);setSaveName('');}}>✕</button>
+                  </div>
+                : <button className="save-open" onClick={()=>setSaveOpen(true)}>＋ Save this QR code…</button>
+              }
+            </div>
+          )}
+
           {mainTab==="Export" && <>
             <div className="sec">
               <div className="lbl">Mode</div>
@@ -712,6 +778,26 @@ export default function QRForge() {
               {stlMsg && <div className="stlmsg">{stlMsg}</div>}
             </div>
           </>}
+
+          {mainTab==="Saved" && (
+            savedCodes.length === 0
+              ? <div className="saved-empty">No saved QR codes yet.<br/>Design one and hit "Save this QR code…"</div>
+              : <div className="saved-list">
+                  {savedCodes.map(e=>(
+                    <div key={e.id} className="saved-card">
+                      <div className="saved-thumb" dangerouslySetInnerHTML={{__html:e.thumb?.replace(/width="\d+" height="\d+"/,'width="48" height="48"')||''}}/>
+                      <div className="saved-info">
+                        <div className="saved-name">{e.name}</div>
+                        <div className="saved-date">{new Date(e.savedAt).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'})}</div>
+                      </div>
+                      <div className="saved-actions">
+                        <button className="cb" style={{padding:"4px 10px",fontSize:".72rem"}} onClick={()=>handleLoad(e)}>Load</button>
+                        <button className="rm" onClick={()=>handleDelete(e.id)}>✕</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+          )}
         </div>
 
         <div className="R">
