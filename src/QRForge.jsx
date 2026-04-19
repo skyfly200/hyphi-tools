@@ -103,19 +103,30 @@ function generateSTL(matrix, opts) {
   const n=matrix.length, off=margin*modMM, boardSize=n*modMM+off*2;
   let baseTris="", modTris="";
   if (reliefMode === "raised") {
-    baseTris += box(0,0,0,boardSize,boardSize,baseH);
-    for(let r=0;r<n;r++) for(let c=0;c<n;c++) {
-      if(!matrix[r][c]) continue;
-      modTris += box(off+c*modMM, off+r*modMM, baseH, modMM, modMM, moduleH);
+    const fullH = baseH + moduleH;
+    if (multiMat) {
+      // Two separate bodies: flat base + individual module boxes
+      baseTris += box(0,0,0,boardSize,boardSize,baseH);
+      for(let r=0;r<n;r++) for(let c=0;c<n;c++) {
+        if(matrix[r][c]) modTris += box(off+c*modMM, off+r*modMM, baseH, modMM, modMM, moduleH);
+      }
+    } else {
+      // Single material: per-cell columns from z=0, no interior faces
+      baseTris += box(0,           0,          0, boardSize, off,     baseH);
+      baseTris += box(0,           off+n*modMM,0, boardSize, off,     baseH);
+      baseTris += box(0,           off,        0, off,       n*modMM, baseH);
+      baseTris += box(off+n*modMM, off,        0, off,       n*modMM, baseH);
+      for(let r=0;r<n;r++) for(let c=0;c<n;c++)
+        baseTris += box(off+c*modMM, off+r*modMM, 0, modMM, modMM, matrix[r][c] ? fullH : baseH);
     }
   } else {
     // Inset: solid slab with dark modules recessed (engraved look).
     // Border strips at full height.
     const fullH = baseH + moduleH;
-    baseTris += box(0,         0,          0, boardSize, off,      fullH);
-    baseTris += box(0,         off+n*modMM,0, boardSize, off,      fullH);
-    baseTris += box(0,         off,        0, off,       n*modMM,  fullH);
-    baseTris += box(off+n*modMM, off,      0, off,       n*modMM,  fullH);
+    baseTris += box(0,           0,          0, boardSize, off,     fullH);
+    baseTris += box(0,           off+n*modMM,0, boardSize, off,     fullH);
+    baseTris += box(0,           off,        0, off,       n*modMM, fullH);
+    baseTris += box(off+n*modMM, off,        0, off,       n*modMM, fullH);
     // QR cell columns: light = full height; dark = recessed to baseH.
     for(let r=0;r<n;r++) for(let c=0;c<n;c++) {
       const x=off+c*modMM, y=off+r*modMM;
@@ -123,7 +134,6 @@ function generateSTL(matrix, opts) {
         baseTris += box(x, y, 0, modMM, modMM, fullH);
       } else {
         baseTris += box(x, y, 0, modMM, modMM, baseH);
-        // Body 2 fills the pocket with contrast color (multi-material only).
         if(multiMat) modTris += box(x, y, baseH, modMM, modMM, moduleH);
       }
     }
