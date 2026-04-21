@@ -10,6 +10,14 @@ const TOOLS = [
     icon: '▦',
   },
   {
+    href: '/fold',
+    internal: true,
+    name: 'FoldPress',
+    tagline: 'Origami crease press generator',
+    desc: 'Upload a .fold or SVG crease pattern and export two 3D-printable press plates for pre-creasing origami paper.',
+    icon: '⬡',
+  },
+  {
     href: 'https://l.hyphi.art',
     internal: false,
     name: 'Link Shortener',
