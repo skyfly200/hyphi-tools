@@ -438,7 +438,11 @@ export default function FoldPress() {
     const zip=makeZip([{name:'press_top.stl',data:top},{name:'press_bottom.stl',data:bot}]);
     const a=document.createElement('a');
     a.href=URL.createObjectURL(new Blob([zip],{type:'application/zip'}));
-    a.download='foldpress.zip';
+    const base = fileName
+      ? fileName.replace(/\.[^.]+$/, '').replace(/[^\w\-]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '')
+      : 'foldpress';
+    const ts = new Date().toISOString().slice(0,16).replace('T','_').replace(':','');
+    a.download=`${base}_${ts}.zip`;
     a.click();
     setMsg('✓ Downloaded!'); setTimeout(()=>setMsg(''),2500);
   }
