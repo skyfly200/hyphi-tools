@@ -182,12 +182,17 @@ function heightGridToSTL(grid) {
     dv.setUint16(p,0,true); p+=2;
   };
 
-  // Top surface (heightfield)
+  // Top surface (heightfield) — adaptive diagonal to avoid spikes along anti-diagonal folds
   for (let r=0; r<N; r++) for (let c=0; c<N; c++) {
     const h00=H[r*(N+1)+c], h10=H[r*(N+1)+c+1], h01=H[(r+1)*(N+1)+c], h11=H[(r+1)*(N+1)+c+1];
     const x0=c*step, x1=(c+1)*step, y0=r*step, y1=(r+1)*step;
-    tri(x0,y0,h00, x1,y0,h10, x1,y1,h11);
-    tri(x0,y0,h00, x1,y1,h11, x0,y1,h01);
+    if (Math.abs(h00-h11) <= Math.abs(h10-h01)) {
+      tri(x0,y0,h00, x1,y0,h10, x1,y1,h11);
+      tri(x0,y0,h00, x1,y1,h11, x0,y1,h01);
+    } else {
+      tri(x0,y0,h00, x1,y0,h10, x0,y1,h01);
+      tri(x1,y0,h10, x1,y1,h11, x0,y1,h01);
+    }
   }
   // Bottom (z=0)
   tri(0,0,0, S,S,0, S,0,0);
