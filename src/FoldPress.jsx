@@ -91,22 +91,141 @@ function parseSVG(text) {
   } catch { return null; }
 }
 
-// ── Plate generator ────────────────────────────────────────────────────────
-function generatePlates(pattern,{paperMM,baseH,ridgeH,ridgeW,clearance,directed}) {
-  const S=paperMM, sc=([x,y])=>[x*S,y*S];
-  let topT=stlBox(0,0,0,S,S,baseH), botT=stlBox(0,0,0,S,S,baseH);
-  for(const e of pattern.edges){
-    if(e.type==='B') continue;
-    const [x1,y1]=sc(pattern.vertices[e.v1]);
-    const [x2,y2]=sc(pattern.vertices[e.v2]);
-    const onTop=!directed||e.type!=='V';
-    const onBot=!directed||e.type!=='M';
-    if(onTop) topT+=ridgePrism(x1,y1,x2,y2,baseH,ridgeH,ridgeW,clearance);
-    if(onBot) botT+=ridgePrism(x1,y1,x2,y2,baseH,ridgeH,ridgeW,clearance);
+// ── Plate generator (heightfield) ─────────────────────────────────────────
+// Each plate is a grid of N×N cells. For every fold edge we raise (ridge) or
+// lower (groove) the surface using a triangular cross-section profile.
+// Top plate:  M → ridge,  V → groove,  F/U → ridge on both
+// Bottom plate: V → ridge, M → groove, F/U → ridge on both
+// Clearance gaps only where an M edge and V edge share a vertex.
+
+function buildHeightGrid(pattern, {paperMM:S, baseH, ridgeH, ridgeW, clearance, isTop}) {
+  const N = 200;
+  const step = S / N;
+  const H = new Float32Array((N+1)*(N+1)).fill(baseH);
+
+  // Find vertices that are shared between M and V edges (gap points)
+  const mvVerts = new Set();
+  if (clearance > 0) {
+    const vTypeSet = new Map(); // vertex → Set of edge types
+    for (const e of pattern.edges) {
+      if (e.type !== 'M' && e.type !== 'V') continue;
+      for (const vi of [e.v1, e.v2]) {
+        if (!vTypeSet.has(vi)) vTypeSet.set(vi, new Set());
+        vTypeSet.get(vi).add(e.type);
+      }
+    }
+    for (const [vi, types] of vTypeSet)
+      if (types.has('M') && types.has('V')) mvVerts.add(vi);
   }
+
+  for (const e of pattern.edges) {
+    if (e.type === 'B') continue;
+    const isRidge = e.type === 'M' ? isTop  :
+                    e.type === 'V' ? !isTop  : true;   // F/U → always ridge
+
+    const [x1,y1] = [pattern.vertices[e.v1][0]*S, pattern.vertices[e.v1][1]*S];
+    const [x2,y2] = [pattern.vertices[e.v2][0]*S, pattern.vertices[e.v2][1]*S];
+    const len = Math.hypot(x2-x1, y2-y1);
+    if (len < 1e-6) continue;
+    const dx=(x2-x1)/len, dy=(y2-y1)/len;
+
+    // Shrink endpoints only at M/V junction vertices
+    const shrink1 = mvVerts.has(e.v1) ? clearance : 0;
+    const shrink2 = mvVerts.has(e.v2) ? clearance : 0;
+    const ax=x1+dx*shrink1, ay=y1+dy*shrink1;
+    const bx=x2-dx*shrink2, by=y2-dy*shrink2;
+    const elen = Math.hypot(bx-ax, by-ay);
+    if (elen < 1e-6) continue;
+    const ex=(bx-ax)/elen, ey=(by-ay)/elen;
+
+    const pad = ridgeW + step;
+    const c0=Math.max(0,Math.floor((Math.min(ax,bx)-pad)/step));
+    const c1=Math.min(N,Math.ceil( (Math.max(ax,bx)+pad)/step));
+    const r0=Math.max(0,Math.floor((Math.min(ay,by)-pad)/step));
+    const r1=Math.min(N,Math.ceil( (Math.max(ay,by)+pad)/step));
+
+    for (let row=r0; row<=r1; row++) {
+      for (let col=c0; col<=c1; col++) {
+        const px=col*step, py=row*step;
+        const t  = Math.max(0, Math.min(elen, (px-ax)*ex+(py-ay)*ey));
+        const dist = Math.hypot(px-ax-t*ex, py-ay-t*ey);
+        if (dist >= ridgeW) continue;
+        const frac = 1 - dist/ridgeW;
+        const idx  = row*(N+1)+col;
+        if (isRidge) H[idx] = Math.max(H[idx], baseH + ridgeH*frac);
+        else         H[idx] = Math.min(H[idx], baseH - ridgeH*frac);
+      }
+    }
+  }
+  return {H, N, step, S};
+}
+
+function heightGridToSTL(grid) {
+  const {H, N, step, S} = grid;
+  // Binary STL: 80-byte header + uint32 count + 50 bytes per triangle
+  const nTris = N*N*2 + N*4*2 + 2;
+  const buf = new ArrayBuffer(80 + 4 + nTris*50);
+  const dv  = new DataView(buf);
+  dv.setUint32(80, nTris, true);
+  let p = 84;
+
+  const wv = (x,y,z) => { dv.setFloat32(p,x,true);p+=4; dv.setFloat32(p,y,true);p+=4; dv.setFloat32(p,z,true);p+=4; };
+  const wn = (ax,ay,az,bx,by,bz,cx,cy,cz) => {
+    const ux=bx-ax,uy=by-ay,uz=bz-az, vx=cx-ax,vy=cy-ay,vz=cz-az;
+    const nx=uy*vz-uz*vy, ny=uz*vx-ux*vz, nz=ux*vy-uy*vx;
+    const l=Math.hypot(nx,ny,nz)||1;
+    dv.setFloat32(p,nx/l,true);p+=4; dv.setFloat32(p,ny/l,true);p+=4; dv.setFloat32(p,nz/l,true);p+=4;
+  };
+  const tri = (ax,ay,az,bx,by,bz,cx,cy,cz) => {
+    wn(ax,ay,az,bx,by,bz,cx,cy,cz);
+    wv(ax,ay,az); wv(bx,by,bz); wv(cx,cy,cz);
+    dv.setUint16(p,0,true); p+=2;
+  };
+
+  // Top surface (heightfield)
+  for (let r=0; r<N; r++) for (let c=0; c<N; c++) {
+    const h00=H[r*(N+1)+c], h10=H[r*(N+1)+c+1], h01=H[(r+1)*(N+1)+c], h11=H[(r+1)*(N+1)+c+1];
+    const x0=c*step, x1=(c+1)*step, y0=r*step, y1=(r+1)*step;
+    tri(x0,y0,h00, x1,y0,h10, x1,y1,h11);
+    tri(x0,y0,h00, x1,y1,h11, x0,y1,h01);
+  }
+  // Bottom (z=0)
+  tri(0,0,0, S,S,0, S,0,0);
+  tri(0,0,0, 0,S,0, S,S,0);
+  // Front (y=0)
+  for (let c=0; c<N; c++) {
+    const x0=c*step, x1=(c+1)*step, h0=H[c], h1=H[c+1];
+    tri(x0,0,0, x1,0,0, x1,0,h1);
+    tri(x0,0,0, x1,0,h1, x0,0,h0);
+  }
+  // Back (y=S)
+  for (let c=0; c<N; c++) {
+    const x0=c*step, x1=(c+1)*step, h0=H[N*(N+1)+c], h1=H[N*(N+1)+c+1];
+    tri(x0,S,0, x0,S,h0, x1,S,h1);
+    tri(x0,S,0, x1,S,h1, x1,S,0);
+  }
+  // Left (x=0)
+  for (let r=0; r<N; r++) {
+    const y0=r*step, y1=(r+1)*step, h0=H[r*(N+1)], h1=H[(r+1)*(N+1)];
+    tri(0,y0,0, 0,y1,h1, 0,y1,0);
+    tri(0,y0,0, 0,y0,h0, 0,y1,h1);
+  }
+  // Right (x=S)
+  for (let r=0; r<N; r++) {
+    const y0=r*step, y1=(r+1)*step, h0=H[r*(N+1)+N], h1=H[(r+1)*(N+1)+N];
+    tri(S,y0,0, S,y1,0, S,y1,h1);
+    tri(S,y0,0, S,y1,h1, S,y0,h0);
+  }
+
+  return new Uint8Array(buf);
+}
+
+function generatePlates(pattern, opts) {
+  const topGrid = buildHeightGrid(pattern, {...opts, isTop:true});
+  const botGrid = buildHeightGrid(pattern, {...opts, isTop:false});
   return {
-    top:`solid top_plate\n${topT}endsolid top_plate\n`,
-    bot:`solid bottom_plate\n${botT}endsolid bottom_plate\n`,
+    top: heightGridToSTL(topGrid),
+    bot: heightGridToSTL(botGrid),
   };
 }
 
@@ -207,7 +326,7 @@ export default function FoldPress() {
   async function doExport() {
     if(!pattern) return;
     setMsg('Building…'); await new Promise(r=>setTimeout(r,20));
-    const {top,bot}=generatePlates(pattern,{paperMM,baseH,ridgeH,ridgeW,clearance,directed});
+    const {top,bot}=generatePlates(pattern,{paperMM,baseH,ridgeH,ridgeW,clearance});
     const zip=makeZip([{name:'press_top.stl',data:top},{name:'press_bottom.stl',data:bot}]);
     const a=document.createElement('a');
     a.href=URL.createObjectURL(new Blob([zip],{type:'application/zip'}));
@@ -318,15 +437,15 @@ export default function FoldPress() {
           {/* Directed mode */}
           <div className="sec">
             <label className="toggle-row" onClick={()=>setDirected(p=>!p)}>
-              <span className="lbl" style={{margin:0}}>Directed M/V folds</span>
+              <span className="lbl" style={{margin:0}}>Use M/V assignments</span>
               <span className="pill-switch">
                 <span className={`pill-track${directed?' on':''}`}><span className="pill-thumb"/></span>
               </span>
             </label>
             <div className="notice">
               {directed
-                ? 'Mountain folds → top plate · Valley folds → bottom plate. Plates are different.'
-                : 'All folds on both plates — use when the pattern has no M/V distinction.'}
+                ? 'Top plate: mountain = ridge, valley = groove. Bottom plate: valley = ridge, mountain = groove. Plates interlock.'
+                : 'All fold lines are ridges on both plates — use when the file has no M/V distinction.'}
             </div>
           </div>
         </div>
