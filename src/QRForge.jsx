@@ -646,7 +646,7 @@ export default function QRForge() {
                         <a href={shortUrl} target="_blank" rel="noopener noreferrer" className="track-url">{shortUrl}</a>
                       </div>
                       <div style={{display:"flex",gap:6}}>
-                        <a href={`https://l.hyphi.art/dashboard`} target="_blank" rel="noopener noreferrer" className="track-btn">Stats →</a>
+                        <a href={`https://l.hyphi.art/dashboard/${new URL(shortUrl).pathname.slice(1)}`} target="_blank" rel="noopener noreferrer" className="track-btn">Stats →</a>
                         <button className="track-clear" onClick={()=>setShortUrl(null)}>✕ clear</button>
                       </div>
                     </div>
