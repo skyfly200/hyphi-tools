@@ -271,6 +271,41 @@ function makeZip(files) {
   return buf;
 }
 
+// ── Demo pattern: lily / preliminary base ─────────────────────────────────
+// Vertices: corners (0,1,2,3), edge midpoints (4-7), center (8)
+// Diagonals = Mountain, center-lines = Valley, perimeter = Boundary
+const LILY_DEMO = (()=>{
+  const v = [
+    [0,0],[1,0],[1,1],[0,1],   // 0-3 corners
+    [0.5,0],[1,0.5],[0.5,1],[0,0.5], // 4-7 edge mids
+    [0.5,0.5],                        // 8 center
+  ];
+  const edges = [
+    // Boundary perimeter
+    {v1:0,v2:4,type:'B'},{v1:4,v2:1,type:'B'},
+    {v1:1,v2:5,type:'B'},{v1:5,v2:2,type:'B'},
+    {v1:2,v2:6,type:'B'},{v1:6,v2:3,type:'B'},
+    {v1:3,v2:7,type:'B'},{v1:7,v2:0,type:'B'},
+    // Valley center-lines (horizontal + vertical)
+    {v1:4,v2:8,type:'V'},{v1:8,v2:6,type:'V'},
+    {v1:7,v2:8,type:'V'},{v1:8,v2:5,type:'V'},
+    // Mountain diagonals
+    {v1:0,v2:8,type:'M'},{v1:8,v2:2,type:'M'},
+    {v1:1,v2:8,type:'M'},{v1:8,v2:3,type:'M'},
+    // Additional folds for blintz base (fold corners to center — Valley)
+    {v1:0,v2:4,type:'V'},{v1:0,v2:7,type:'V'},
+    {v1:1,v2:4,type:'V'},{v1:1,v2:5,type:'V'},
+    {v1:2,v2:5,type:'V'},{v1:2,v2:6,type:'V'},
+    {v1:3,v2:6,type:'V'},{v1:3,v2:7,type:'V'},
+  ];
+  // De-dup (boundary already covers perimeter, remove V corner duplicates that overlap B)
+  const deduped = edges.filter((e,i,arr)=>{
+    const key=`${Math.min(e.v1,e.v2)}-${Math.max(e.v1,e.v2)}`;
+    return arr.findIndex(x=>`${Math.min(x.v1,x.v2)}-${Math.max(x.v1,x.v2)}`===key)===i;
+  });
+  return {vertices:v, edges:deduped};
+})();
+
 // ── Preview ────────────────────────────────────────────────────────────────
 const EDGE_COLOR = {M:'#ff5555',V:'#5599ff',B:'#444',F:'#888',U:'#666'};
 
@@ -413,6 +448,12 @@ export default function FoldPress() {
             {msg && <div className="stlmsg">{msg}</div>}
             <input ref={fileRef} type="file" accept=".fold,.svg" style={{display:'none'}}
               onChange={e=>loadFile(e.target.files[0])}/>
+            <button
+              style={{background:'none',border:'1px solid var(--bd)',borderRadius:8,padding:'7px 12px',color:'var(--mu)',fontFamily:'inherit',fontSize:'.72rem',cursor:'pointer',transition:'.15s',textAlign:'left'}}
+              onMouseOver={e=>e.currentTarget.style.borderColor='var(--ac)'}
+              onMouseOut={e=>e.currentTarget.style.borderColor='var(--bd)'}
+              onClick={()=>{setPattern(LILY_DEMO);setFileName('lily-demo (preliminary base)');setMsg('');}}
+            >⬡ Load lily demo pattern</button>
           </div>
 
           {/* Paper size */}
