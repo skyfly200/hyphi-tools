@@ -91,24 +91,24 @@ function parseSVG(text) {
   } catch { return null; }
 }
 
-// ── Plate generator (boolean cell approach) ────────────────────────────────
-// Each plate is a grid of N×N cells. Every cell is classified as FLAT (0),
-// RIDGE (1), or GROOVE (-1) based on whether its centre falls within ridgeW
-// of any fold line.  Explicit vertical walls are emitted at every height
-// transition between adjacent cells, producing crisp rectangular cross-
-// sections with no tent-function gradients or diagonal aliasing.
+// ── Plate generator (heightfield + adaptive triangulation) ─────────────────
+// Each vertex in an N×N grid is assigned a height by accumulating a tent
+// profile (peak at the fold line, linear falloff to zero at ±ridgeW) from
+// every fold edge. Ridges raise the surface; grooves lower it. The grid is
+// triangulated with an adaptive diagonal per quad so that fold lines running
+// along either diagonal never produce the saw-tooth spikes caused by a fixed
+// split direction.
 //
 // Top plate:  M → ridge, V → groove, F/U → ridge on both
 // Bottom plate: V → ridge, M → groove, F/U → ridge on both
 // Clearance gaps only where an M edge and V edge share a vertex.
 
-function buildBinaryPlate(pattern, {paperMM:S, baseH, ridgeH, ridgeW, clearance, isTop}) {
+function buildPlate(pattern, {paperMM:S, baseH, ridgeH, ridgeW, clearance, isTop}) {
   const N    = 300;
   const step = S / N;
+  const H    = new Float32Array((N+1)*(N+1)).fill(baseH);
 
-  // ── classify cells ─────────────────────────────────────────────────────────
-  const state = new Int8Array(N * N); // 0=flat  1=ridge  -1=groove
-
+  // Find M/V junction vertices so clearance is only applied there
   const mvVerts = new Set();
   if (clearance > 0) {
     const vt = new Map();
@@ -126,7 +126,6 @@ function buildBinaryPlate(pattern, {paperMM:S, baseH, ridgeH, ridgeW, clearance,
   for (const e of pattern.edges) {
     if (e.type === 'B') continue;
     const isRidge = e.type === 'M' ? isTop : e.type === 'V' ? !isTop : true;
-    const val = isRidge ? 1 : -1;
 
     const [x1,y1] = [pattern.vertices[e.v1][0]*S, pattern.vertices[e.v1][1]*S];
     const [x2,y2] = [pattern.vertices[e.v2][0]*S, pattern.vertices[e.v2][1]*S];
@@ -143,162 +142,88 @@ function buildBinaryPlate(pattern, {paperMM:S, baseH, ridgeH, ridgeW, clearance,
     const ex=(bx-ax)/elen, ey=(by-ay)/elen;
 
     const pad = ridgeW + step;
-    const c0=Math.max(0,   Math.floor((Math.min(ax,bx)-pad)/step));
-    const c1=Math.min(N-1, Math.ceil( (Math.max(ax,bx)+pad)/step));
-    const r0=Math.max(0,   Math.floor((Math.min(ay,by)-pad)/step));
-    const r1=Math.min(N-1, Math.ceil( (Math.max(ay,by)+pad)/step));
+    const c0=Math.max(0, Math.floor((Math.min(ax,bx)-pad)/step));
+    const c1=Math.min(N, Math.ceil( (Math.max(ax,bx)+pad)/step));
+    const r0=Math.max(0, Math.floor((Math.min(ay,by)-pad)/step));
+    const r1=Math.min(N, Math.ceil( (Math.max(ay,by)+pad)/step));
 
     for (let row=r0; row<=r1; row++) {
       for (let col=c0; col<=c1; col++) {
-        const px=(col+0.5)*step, py=(row+0.5)*step; // cell centre
+        const px=col*step, py=row*step;
         const t    = Math.max(0, Math.min(elen, (px-ax)*ex+(py-ay)*ey));
         const dist = Math.hypot(px-ax-t*ex, py-ay-t*ey);
         if (dist >= ridgeW) continue;
-        const idx = row*N+col;
-        if (val === -1) state[idx] = -1;          // groove always wins
-        else if (state[idx] === 0) state[idx] = 1; // ridge only if flat
+        const frac = 1 - dist/ridgeW; // tent: peak at fold, zero at ±ridgeW
+        const idx  = row*(N+1)+col;
+        if (isRidge) H[idx] = Math.max(H[idx], baseH + ridgeH*frac);
+        else         H[idx] = Math.min(H[idx], baseH - ridgeH*frac);
       }
     }
   }
 
-  // ── geometry helpers ───────────────────────────────────────────────────────
-  const cellH = s => s === 1 ? baseH+ridgeH : s === -1 ? baseH-ridgeH : baseH;
-
-  // Collect raw triangle vertices [ax,ay,az, bx,by,bz, cx,cy,cz, ...]
-  // We use a plain JS array so the count doesn't need to be known in advance.
-  const verts = [];
-  const tri = (ax,ay,az,bx,by,bz,cx,cy,cz) =>
-    verts.push(ax,ay,az,bx,by,bz,cx,cy,cz);
-
-  // ── bottom face (z=0, normal −z) ──────────────────────────────────────────
-  tri(0,0,0, S,0,0, S,S,0);
-  tri(0,0,0, S,S,0, 0,S,0);
-
-  // ── per-cell surfaces + interior transition walls ─────────────────────────
-  for (let r=0; r<N; r++) {
-    for (let c=0; c<N; c++) {
-      const h  = cellH(state[r*N+c]);
-      const x0 = c*step, x1=(c+1)*step;
-      const y0 = r*step, y1=(r+1)*step;
-
-      // top face (normal +z)
-      tri(x0,y0,h, x1,y0,h, x1,y1,h);
-      tri(x0,y0,h, x1,y1,h, x0,y1,h);
-
-      // right wall (+x boundary) — only when right neighbour has a different height
-      if (c+1 < N) {
-        const hr = cellH(state[r*N+c+1]);
-        if (hr !== h) {
-          if (h > hr) { // this cell taller → outward normal +x
-            tri(x1,y0,hr, x1,y0,h,  x1,y1,h );
-            tri(x1,y0,hr, x1,y1,h,  x1,y1,hr);
-          } else {      // right cell taller → outward normal −x
-            tri(x1,y0,h,  x1,y1,hr, x1,y0,hr);
-            tri(x1,y0,h,  x1,y1,h,  x1,y1,hr);
-          }
-        }
-      }
-
-      // top wall (+y boundary) — only when above neighbour differs
-      if (r+1 < N) {
-        const ht = cellH(state[(r+1)*N+c]);
-        if (ht !== h) {
-          if (h > ht) { // this cell taller → outward normal +y
-            tri(x0,y1,ht, x1,y1,ht, x1,y1,h );
-            tri(x0,y1,ht, x1,y1,h,  x0,y1,h );
-          } else {      // above cell taller → outward normal −y
-            tri(x0,y1,h,  x1,y1,h,  x1,y1,ht);
-            tri(x0,y1,h,  x1,y1,ht, x0,y1,ht);
-          }
-        }
-      }
-    }
-  }
-
-  // ── plate side walls (z=0 → cell top, per edge strip) ─────────────────────
-  // Front (y=0, normal −y)
-  for (let c=0; c<N; c++) {
-    const h=cellH(state[c]), x0=c*step, x1=(c+1)*step;
-    tri(x0,0,0, x1,0,0, x1,0,h); tri(x0,0,0, x1,0,h, x0,0,h);
-  }
-  // Back (y=S, normal +y)
-  for (let c=0; c<N; c++) {
-    const h=cellH(state[(N-1)*N+c]), x0=c*step, x1=(c+1)*step;
-    tri(x0,S,0, x1,S,h, x1,S,0); tri(x0,S,0, x0,S,h, x1,S,h);
-  }
-  // Left (x=0, normal −x)
-  for (let r=0; r<N; r++) {
-    const h=cellH(state[r*N]), y0=r*step, y1=(r+1)*step;
-    tri(0,y0,0, 0,y0,h, 0,y1,h); tri(0,y0,0, 0,y1,h, 0,y1,0);
-  }
-  // Right (x=S, normal +x)
-  for (let r=0; r<N; r++) {
-    const h=cellH(state[r*N+N-1]), y0=r*step, y1=(r+1)*step;
-    tri(S,y0,0, S,y1,0, S,y1,h); tri(S,y0,0, S,y1,h, S,y0,h);
-  }
-
-  // ── side-wall step caps ────────────────────────────────────────────────────
-  // Where adjacent edge cells differ in height the side-wall panels leave a
-  // gap strip. Fill each with two triangles flush with the outer face.
-  // Front edge (y=0, normal −y): step at x=(c+1)*step
-  for (let c=0; c<N-1; c++) {
-    const h0=cellH(state[c]), h1=cellH(state[c+1]);
-    if (h0===h1) continue;
-    const x=(c+1)*step, lo=Math.min(h0,h1), hi=Math.max(h0,h1);
-    if (h0>h1) { tri(x,0,lo,x,0,hi,x-step,0,lo); tri(x,0,hi,x-step,0,lo,x-step,0,hi); }
-    else        { tri(x,0,lo,x+step,0,lo,x,0,hi); tri(x,0,hi,x+step,0,lo,x+step,0,hi); }
-  }
-  // Back edge (y=S, normal +y)
-  for (let c=0; c<N-1; c++) {
-    const h0=cellH(state[(N-1)*N+c]), h1=cellH(state[(N-1)*N+c+1]);
-    if (h0===h1) continue;
-    const x=(c+1)*step, lo=Math.min(h0,h1), hi=Math.max(h0,h1);
-    if (h0>h1) { tri(x,S,hi,x,S,lo,x-step,S,hi); tri(x,S,lo,x-step,S,lo,x-step,S,hi); }
-    else        { tri(x,S,lo,x,S,hi,x+step,S,lo); tri(x,S,hi,x+step,S,hi,x+step,S,lo); }
-  }
-  // Left edge (x=0, normal −x)
-  for (let r=0; r<N-1; r++) {
-    const h0=cellH(state[r*N]), h1=cellH(state[(r+1)*N]);
-    if (h0===h1) continue;
-    const y=(r+1)*step, lo=Math.min(h0,h1), hi=Math.max(h0,h1);
-    if (h0>h1) { tri(0,y,hi,0,y,lo,0,y-step,hi); tri(0,y,lo,0,y-step,lo,0,y-step,hi); }
-    else        { tri(0,y,lo,0,y,hi,0,y+step,lo); tri(0,y,hi,0,y+step,hi,0,y+step,lo); }
-  }
-  // Right edge (x=S, normal +x)
-  for (let r=0; r<N-1; r++) {
-    const h0=cellH(state[r*N+N-1]), h1=cellH(state[(r+1)*N+N-1]);
-    if (h0===h1) continue;
-    const y=(r+1)*step, lo=Math.min(h0,h1), hi=Math.max(h0,h1);
-    if (h0>h1) { tri(S,y,lo,S,y,hi,S,y-step,lo); tri(S,y,hi,S,y-step,hi,S,y-step,lo); }
-    else        { tri(S,y,hi,S,y,lo,S,y+step,hi); tri(S,y,lo,S,y+step,lo,S,y+step,hi); }
-  }
-
-  // ── write binary STL ───────────────────────────────────────────────────────
-  const nTris = verts.length / 9;
+  // Pre-allocate STL buffer — triangle count is exact for a heightfield mesh
+  const nTris = N*N*2 + N*4*2 + 2;
   const buf   = new ArrayBuffer(80 + 4 + nTris*50);
   const dv    = new DataView(buf);
   dv.setUint32(80, nTris, true);
   let p = 84;
-  for (let i=0; i<verts.length; i+=9) {
-    const ax=verts[i],ay=verts[i+1],az=verts[i+2];
-    const bx=verts[i+3],by=verts[i+4],bz=verts[i+5];
-    const cx=verts[i+6],cy=verts[i+7],cz=verts[i+8];
+
+  const wv = (x,y,z) => { dv.setFloat32(p,x,true);p+=4; dv.setFloat32(p,y,true);p+=4; dv.setFloat32(p,z,true);p+=4; };
+  const wn = (ax,ay,az,bx,by,bz,cx,cy,cz) => {
     const ux=bx-ax,uy=by-ay,uz=bz-az, vx=cx-ax,vy=cy-ay,vz=cz-az;
     const nx=uy*vz-uz*vy, ny=uz*vx-ux*vz, nz=ux*vy-uy*vx;
     const l=Math.hypot(nx,ny,nz)||1;
     dv.setFloat32(p,nx/l,true);p+=4; dv.setFloat32(p,ny/l,true);p+=4; dv.setFloat32(p,nz/l,true);p+=4;
-    dv.setFloat32(p,ax,true);p+=4; dv.setFloat32(p,ay,true);p+=4; dv.setFloat32(p,az,true);p+=4;
-    dv.setFloat32(p,bx,true);p+=4; dv.setFloat32(p,by,true);p+=4; dv.setFloat32(p,bz,true);p+=4;
-    dv.setFloat32(p,cx,true);p+=4; dv.setFloat32(p,cy,true);p+=4; dv.setFloat32(p,cz,true);p+=4;
+  };
+  const tri = (ax,ay,az,bx,by,bz,cx,cy,cz) => {
+    wn(ax,ay,az,bx,by,bz,cx,cy,cz);
+    wv(ax,ay,az); wv(bx,by,bz); wv(cx,cy,cz);
     dv.setUint16(p,0,true); p+=2;
+  };
+
+  // Top surface — adaptive diagonal prevents anti-diagonal fold spikes
+  for (let r=0; r<N; r++) for (let c=0; c<N; c++) {
+    const h00=H[r*(N+1)+c], h10=H[r*(N+1)+c+1], h01=H[(r+1)*(N+1)+c], h11=H[(r+1)*(N+1)+c+1];
+    const x0=c*step, x1=(c+1)*step, y0=r*step, y1=(r+1)*step;
+    if (Math.abs(h00-h11) <= Math.abs(h10-h01)) {
+      tri(x0,y0,h00, x1,y0,h10, x1,y1,h11);
+      tri(x0,y0,h00, x1,y1,h11, x0,y1,h01);
+    } else {
+      tri(x0,y0,h00, x1,y0,h10, x0,y1,h01);
+      tri(x1,y0,h10, x1,y1,h11, x0,y1,h01);
+    }
   }
+  // Bottom (z=0)
+  tri(0,0,0, S,S,0, S,0,0);
+  tri(0,0,0, 0,S,0, S,S,0);
+  // Front (y=0)
+  for (let c=0; c<N; c++) {
+    const x0=c*step, x1=(c+1)*step, h0=H[c], h1=H[c+1];
+    tri(x0,0,0, x1,0,0, x1,0,h1); tri(x0,0,0, x1,0,h1, x0,0,h0);
+  }
+  // Back (y=S)
+  for (let c=0; c<N; c++) {
+    const x0=c*step, x1=(c+1)*step, h0=H[N*(N+1)+c], h1=H[N*(N+1)+c+1];
+    tri(x0,S,0, x0,S,h0, x1,S,h1); tri(x0,S,0, x1,S,h1, x1,S,0);
+  }
+  // Left (x=0)
+  for (let r=0; r<N; r++) {
+    const y0=r*step, y1=(r+1)*step, h0=H[r*(N+1)], h1=H[(r+1)*(N+1)];
+    tri(0,y0,0, 0,y1,h1, 0,y1,0); tri(0,y0,0, 0,y0,h0, 0,y1,h1);
+  }
+  // Right (x=S)
+  for (let r=0; r<N; r++) {
+    const y0=r*step, y1=(r+1)*step, h0=H[r*(N+1)+N], h1=H[(r+1)*(N+1)+N];
+    tri(S,y0,0, S,y1,0, S,y1,h1); tri(S,y0,0, S,y1,h1, S,y0,h0);
+  }
+
   return new Uint8Array(buf);
 }
 
 function generatePlates(pattern, opts) {
   return {
-    top: buildBinaryPlate(pattern, {...opts, isTop:true}),
-    bot: buildBinaryPlate(pattern, {...opts, isTop:false}),
+    top: buildPlate(pattern, {...opts, isTop:true}),
+    bot: buildPlate(pattern, {...opts, isTop:false}),
   };
 }
 
