@@ -18,6 +18,14 @@ const TOOLS = [
     icon: '⬡',
   },
   {
+    href: '/foldform',
+    internal: true,
+    name: 'FoldForm',
+    tagline: 'Living-hinge origami model generator',
+    desc: 'Turn a .fold or SVG crease pattern into a 3D-printable living-hinge model with rigid panels and flexible fold lines. Optionally add SVG artwork as a multi-color design layer.',
+    icon: '◈',
+  },
+  {
     href: 'https://l.hyphi.art',
     internal: false,
     name: 'Link Shortener',
