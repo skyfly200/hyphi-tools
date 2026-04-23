@@ -103,7 +103,7 @@ function parseSVG(text) {
 // Bottom plate: V → ridge, M → groove, F/U → ridge on both
 // Clearance gaps only where an M edge and V edge share a vertex.
 
-function buildPlate(pattern, {paperMM:S, baseH, ridgeH, ridgeW, clearance, isTop}) {
+function buildPlate(pattern, {paperMM:S, baseH, ridgeH, ridgeW, clearance, isTop, rails=false, railH=4, railW=4, railGap=0.3}) {
   const N    = 300;
   const step = S / N;
   const H    = new Float32Array((N+1)*(N+1)).fill(baseH);
@@ -162,7 +162,8 @@ function buildPlate(pattern, {paperMM:S, baseH, ridgeH, ridgeW, clearance, isTop
   }
 
   // Pre-allocate STL buffer — triangle count is exact for a heightfield mesh
-  const nTris = N*N*2 + N*4*2 + 2;
+  const railTris = rails ? (!isTop ? 60 : 12) : 0;
+  const nTris = N*N*2 + N*4*2 + 2 + railTris;
   const buf   = new ArrayBuffer(80 + 4 + nTris*50);
   const dv    = new DataView(buf);
   dv.setUint32(80, nTris, true);
@@ -179,6 +180,15 @@ function buildPlate(pattern, {paperMM:S, baseH, ridgeH, ridgeW, clearance, isTop
     wn(ax,ay,az,bx,by,bz,cx,cy,cz);
     wv(ax,ay,az); wv(bx,by,bz); wv(cx,cy,cz);
     dv.setUint16(p,0,true); p+=2;
+  };
+  const box = (x,y,z,w,d,h) => {
+    const [x2,y2,z2]=[x+w,y+d,z+h];
+    tri(x,y,z2, x2,y,z2, x2,y2,z2); tri(x,y,z2, x2,y2,z2, x,y2,z2);
+    tri(x,y,z, x2,y2,z, x2,y,z);    tri(x,y,z, x,y2,z, x2,y2,z);
+    tri(x,y,z, x2,y,z, x2,y,z2);    tri(x,y,z, x2,y,z2, x,y,z2);
+    tri(x,y2,z, x,y2,z2, x2,y2,z2); tri(x,y2,z, x2,y2,z2, x2,y2,z);
+    tri(x,y,z, x,y,z2, x,y2,z2);    tri(x,y,z, x,y2,z2, x,y2,z);
+    tri(x2,y,z, x2,y2,z, x2,y2,z2); tri(x2,y,z, x2,y2,z2, x2,y,z2);
   };
 
   // Top surface — adaptive diagonal prevents anti-diagonal fold spikes
@@ -215,6 +225,19 @@ function buildPlate(pattern, {paperMM:S, baseH, ridgeH, ridgeW, clearance, isTop
   for (let r=0; r<N; r++) {
     const y0=r*step, y1=(r+1)*step, h0=H[r*(N+1)+N], h1=H[(r+1)*(N+1)+N];
     tri(S,y0,0, S,y1,0, S,y1,h1); tri(S,y0,0, S,y1,h1, S,y0,h0);
+  }
+
+  if (rails) {
+    const ri = railGap, ro = railW, wH = baseH + railH, cs = ro;
+    if (!isTop) {
+      box(-ri-ro, -ri-ro, 0, ro, S+2*(ri+ro), wH);  // left wall (includes corners)
+      box(S+ri,   -ri-ro, 0, ro, S+2*(ri+ro), wH);  // right wall
+      box(-ri,    -ri-ro, 0, S+2*ri, ro, wH);         // front wall
+      box(-ri,    S+ri,   0, S+2*ri, ro, wH);         // back wall
+      box(-ri-ro, -ri-ro, wH, cs, cs, cs*0.5);        // asymmetric corner tab (origin corner)
+    } else {
+      box(0, 0, H[0], cs*0.5, cs*0.5, cs*0.5);        // matching corner pip on top plate
+    }
   }
 
   return new Uint8Array(buf);
@@ -339,6 +362,10 @@ export default function FoldPress() {
   const [ridgeW,   setRidgeW]   = useState(0.6);
   const [clearance,setClearance]= useState(0.8);
   const [directed, setDirected] = useState(true);
+  const [rails,    setRails]    = useState(true);
+  const [railH,    setRailH]    = useState(4.0);
+  const [railW,    setRailW]    = useState(4.0);
+  const [railGap,  setRailGap]  = useState(0.3);
   const [msg,      setMsg]      = useState('');
   const [dragging, setDragging] = useState(false);
   const fileRef = useRef();
@@ -359,7 +386,7 @@ export default function FoldPress() {
   async function doExport() {
     if(!pattern) return;
     setMsg('Building…'); await new Promise(r=>setTimeout(r,20));
-    const {top,bot}=generatePlates(pattern,{paperMM,baseH,ridgeH,ridgeW,clearance});
+    const {top,bot}=generatePlates(pattern,{paperMM,baseH,ridgeH,ridgeW,clearance,rails,railH,railW,railGap});
     const zip=makeZip([{name:'press_top.stl',data:top},{name:'press_bottom.stl',data:bot}]);
     const a=document.createElement('a');
     a.href=URL.createObjectURL(new Blob([zip],{type:'application/zip'}));
@@ -489,6 +516,26 @@ export default function FoldPress() {
               {directed
                 ? 'Top plate: mountain = ridge, valley = groove. Bottom plate: valley = ridge, mountain = groove. Plates interlock.'
                 : 'All fold lines are ridges on both plates — use when the file has no M/V distinction.'}
+            </div>
+          </div>
+
+          {/* Alignment rails */}
+          <div className="sec">
+            <label className="toggle-row" onClick={()=>setRails(p=>!p)}>
+              <span className="lbl" style={{margin:0}}>Alignment rails</span>
+              <span className="pill-switch">
+                <span className={`pill-track${rails?' on':''}`}><span className="pill-thumb"/></span>
+              </span>
+            </label>
+            {rails && <>
+              <div className="rng"><label>Rail height</label><input type="range" min={1} max={12} step={0.5} value={railH} onChange={e=>setRailH(+e.target.value)}/><span className="rv">{railH} mm</span></div>
+              <div className="rng"><label>Wall thickness</label><input type="range" min={1} max={10} step={0.5} value={railW} onChange={e=>setRailW(+e.target.value)}/><span className="rv">{railW} mm</span></div>
+              <div className="rng"><label>Rail clearance</label><input type="range" min={0.1} max={1.0} step={0.05} value={railGap} onChange={e=>setRailGap(+e.target.value)}/><span className="rv">{railGap} mm</span></div>
+            </>}
+            <div className="notice">
+              {rails
+                ? 'Bottom plate has a guide-wall frame. Top plate slides into it for automatic alignment. One corner has an asymmetric tab/pip so the orientation is always obvious.'
+                : 'No alignment aids — plates must be manually aligned before pressing.'}
             </div>
           </div>
         </div>
