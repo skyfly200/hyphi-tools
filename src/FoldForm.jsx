@@ -378,6 +378,9 @@ export default function FoldForm() {
     .rng label{font-size:.76rem;color:var(--mu);min-width:110px}
     .rng input[type=range]{flex:1;accent-color:var(--ac);cursor:pointer}
     .rv{font-family:'DM Mono',monospace;font-size:.74rem;color:var(--ac);min-width:48px;text-align:right}
+    .num-in{width:54px;background:transparent;border:none;border-bottom:1px solid var(--bd);color:var(--ac);font-family:'DM Mono',monospace;font-size:.74rem;text-align:right;padding:1px 2px;outline:none;-moz-appearance:textfield}
+    .num-in::-webkit-inner-spin-button,.num-in::-webkit-outer-spin-button{-webkit-appearance:none}
+    .num-in:focus{border-bottom-color:var(--ac)}
     .drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:24px 16px;border:1.5px dashed var(--bd);border-radius:12px;cursor:pointer;transition:.15s;text-align:center}
     .drop:hover,.drop.over{border-color:var(--ac);background:var(--acd)}
     .drop-icon{font-size:1.8rem;line-height:1}
@@ -443,16 +446,16 @@ export default function FoldForm() {
             <div className="lbl">Dimensions</div>
             <div className="rng"><label>Paper size</label>
               <input type="range" min={30} max={300} step={5} value={paperMM} onChange={e => setPaperMM(+e.target.value)} />
-              <span className="rv">{paperMM} mm</span></div>
-            <div className="rng"><label>Panel thickness</label>
-              <input type="range" min={0.4} max={6} step={0.1} value={panelH} onChange={e => setPanelH(+e.target.value)} />
-              <span className="rv">{panelH} mm</span></div>
+              <input type="number" className="num-in" min={1} step={1} value={paperMM} onChange={e => setPaperMM(+e.target.value || 1)} /></div>
+            <div className="rng"><label>Paper thickness</label>
+              <input type="range" min={0.1} max={2} step={0.05} value={panelH} onChange={e => setPanelH(+e.target.value)} />
+              <input type="number" className="num-in" min={0.05} step={0.05} value={panelH} onChange={e => setPanelH(+e.target.value || 0.1)} /></div>
             <div className="rng"><label>Hinge thickness</label>
               <input type="range" min={0.1} max={2} step={0.05} value={hingeH} onChange={e => setHingeH(+e.target.value)} />
-              <span className="rv">{hingeH} mm</span></div>
+              <input type="number" className="num-in" min={0.05} step={0.05} value={hingeH} onChange={e => setHingeH(+e.target.value || 0.05)} /></div>
             <div className="rng"><label>Hinge width</label>
               <input type="range" min={0.3} max={6} step={0.1} value={hingeW} onChange={e => setHingeW(+e.target.value)} />
-              <span className="rv">{hingeW} mm</span></div>
+              <input type="number" className="num-in" min={0.1} step={0.1} value={hingeW} onChange={e => setHingeW(+e.target.value || 0.1)} /></div>
             <div className="notice">
               Print flat in PETG or flexible PLA. Hinge zones flex along every fold line; panels stay rigid.
             </div>
@@ -483,10 +486,10 @@ export default function FoldForm() {
             {designSVG && <>
               <div className="rng"><label>Base height</label>
                 <input type="range" min={0.1} max={2} step={0.05} value={designBaseH} onChange={e => setDesignBaseH(+e.target.value)} />
-                <span className="rv">{designBaseH} mm</span></div>
+                <input type="number" className="num-in" min={0.05} step={0.05} value={designBaseH} onChange={e => setDesignBaseH(+e.target.value || 0.05)} /></div>
               <div className="rng"><label>Emboss height</label>
                 <input type="range" min={0.1} max={2} step={0.05} value={designEmb} onChange={e => setDesignEmb(+e.target.value)} />
-                <span className="rv">{designEmb} mm</span></div>
+                <input type="number" className="num-in" min={0.05} step={0.05} value={designEmb} onChange={e => setDesignEmb(+e.target.value || 0.05)} /></div>
             </>}
             <div className="notice">
               {designSVG
