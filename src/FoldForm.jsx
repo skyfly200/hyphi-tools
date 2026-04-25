@@ -347,14 +347,16 @@ export default function FoldForm() {
       }
 
       const zip  = makeZip(files);
-      const a    = document.createElement('a');
-      a.href     = URL.createObjectURL(new Blob([zip], { type: 'application/zip' }));
+      const url  = URL.createObjectURL(new Blob([zip], { type: 'application/zip' }));
       const base = fileName
         ? fileName.replace(/\.[^.]+$/, '').replace(/[^\w\-]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '')
         : 'foldform';
       const ts   = new Date().toISOString().slice(0,16).replace('T','_').replace(':','');
-      a.download = `${base}_${ts}.zip`;
+      const a    = Object.assign(document.createElement('a'), { href: url, download: `${base}_${ts}.zip` });
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
       setMsg('✓ Downloaded!'); setTimeout(() => setMsg(''), 2500);
     } catch (err) {
       setMsg(`Error: ${err.message}`);

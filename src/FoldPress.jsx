@@ -388,14 +388,13 @@ export default function FoldPress() {
     setMsg('Building…'); await new Promise(r=>setTimeout(r,20));
     const {top,bot}=generatePlates(pattern,{paperMM,baseH,ridgeH,ridgeW,clearance,rails,railH,railW,railGap});
     const zip=makeZip([{name:'press_top.stl',data:top},{name:'press_bottom.stl',data:bot}]);
-    const a=document.createElement('a');
-    a.href=URL.createObjectURL(new Blob([zip],{type:'application/zip'}));
+    const url=URL.createObjectURL(new Blob([zip],{type:'application/zip'}));
     const base = fileName
       ? fileName.replace(/\.[^.]+$/, '').replace(/[^\w\-]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '')
       : 'foldpress';
     const ts = new Date().toISOString().slice(0,16).replace('T','_').replace(':','');
-    a.download=`${base}_${ts}.zip`;
-    a.click();
+    const a=Object.assign(document.createElement('a'),{href:url,download:`${base}_${ts}.zip`});
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
     setMsg('✓ Downloaded!'); setTimeout(()=>setMsg(''),2500);
   }
 
