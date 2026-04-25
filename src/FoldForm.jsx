@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 // ── Parsers ────────────────────────────────────────────────────────────────
 function parseFOLD(text) {
@@ -294,6 +294,9 @@ export default function FoldForm() {
   const [panelH,      setPanelH]      = useState(2.0);
   const [hingeH,      setHingeH]      = useState(0.4);
   const [hingeW,      setHingeW]      = useState(1.5);
+
+  // Keep hinge thickness <= paper thickness
+  useEffect(() => { if (hingeH > panelH) setHingeH(panelH); }, [panelH]);
   const [designBaseH, setDesignBaseH] = useState(0.4);
   const [designEmb,   setDesignEmb]   = useState(0.4);
   const [msg,         setMsg]         = useState('');
@@ -451,8 +454,8 @@ export default function FoldForm() {
               <input type="range" min={0.1} max={2} step={0.05} value={panelH} onChange={e => setPanelH(+e.target.value)} />
               <input type="number" className="num-in" min={0.05} step={0.05} value={panelH} onChange={e => setPanelH(+e.target.value || 0.1)} /></div>
             <div className="rng"><label>Hinge thickness</label>
-              <input type="range" min={0.1} max={2} step={0.05} value={hingeH} onChange={e => setHingeH(+e.target.value)} />
-              <input type="number" className="num-in" min={0.05} step={0.05} value={hingeH} onChange={e => setHingeH(+e.target.value || 0.05)} /></div>
+              <input type="range" min={0.1} max={panelH} step={0.05} value={hingeH} onChange={e => setHingeH(+e.target.value)} />
+              <input type="number" className="num-in" min={0.05} max={panelH} step={0.05} value={hingeH} onChange={e => setHingeH(Math.min(+e.target.value || 0.05, panelH))} /></div>
             <div className="rng"><label>Hinge width</label>
               <input type="range" min={0.3} max={6} step={0.1} value={hingeW} onChange={e => setHingeW(+e.target.value)} />
               <input type="number" className="num-in" min={0.1} step={0.1} value={hingeW} onChange={e => setHingeW(+e.target.value || 0.1)} /></div>
