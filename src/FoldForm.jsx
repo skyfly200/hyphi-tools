@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 
 // ── Parsers ────────────────────────────────────────────────────────────────
 function parseFOLD(text) {
@@ -50,6 +50,68 @@ function parseSVGPattern(text) {
     }
     return vertices.length ? { vertices, edges } : null;
   } catch { return null; }
+}
+
+// ── Face computation (planar graph traversal) ─────────────────────────────
+// Finds all bounded faces of the crease pattern by following half-edges.
+// Returns array of vertex-index arrays (one per face, CCW winding).
+function computeFaces(vertices, edges) {
+  const adj = {};
+  for (let i = 0; i < vertices.length; i++) adj[i] = [];
+  for (const e of edges) {
+    if (!adj[e.v1].includes(e.v2)) adj[e.v1].push(e.v2);
+    if (!adj[e.v2].includes(e.v1)) adj[e.v2].push(e.v1);
+  }
+  // Sort each neighbor list CCW by angle
+  for (const v in adj) {
+    const [px, py] = vertices[v];
+    adj[v].sort((a, b) =>
+      Math.atan2(vertices[a][1]-py, vertices[a][0]-px) -
+      Math.atan2(vertices[b][1]-py, vertices[b][0]-px)
+    );
+  }
+  const used = new Set();
+  const faces = [];
+  for (const e of edges) {
+    for (const [u0, v0] of [[e.v1, e.v2], [e.v2, e.v1]]) {
+      if (used.has(`${u0},${v0}`)) continue;
+      const fv = []; let u = u0, v = v0, iter = 0;
+      while (!used.has(`${u},${v}`) && iter++ < 2000) {
+        used.add(`${u},${v}`); fv.push(u);
+        const nb = adj[v], idx = nb.indexOf(u);
+        [u, v] = [v, nb[(idx - 1 + nb.length) % nb.length]];
+      }
+      if (fv.length >= 3) {
+        // Shoelace signed area — positive = CCW = interior face
+        let area = 0;
+        for (let i = 0; i < fv.length; i++) {
+          const [x1,y1] = vertices[fv[i]], [x2,y2] = vertices[fv[(i+1)%fv.length]];
+          area += x1*y2 - x2*y1;
+        }
+        if (area > 0) faces.push(fv);
+      }
+    }
+  }
+  return faces;
+}
+
+const FACE_PALETTE = [
+  '#e8a87c','#7cb8e8','#a8e87c','#e87ca8','#7ce8c8',
+  '#c87ce8','#e8d87c','#7c9ce8','#e87c7c','#7ce888',
+];
+
+// ── FOLD export ────────────────────────────────────────────────────────────
+function toFOLD(pattern, faces, faceColors, paperMM) {
+  return JSON.stringify({
+    file_spec: 1,
+    file_creator: 'FoldForm — hyphi.tools',
+    file_classes: ['singleModel'],
+    vertices_coords: pattern.vertices.map(([x,y]) => [+(x*paperMM).toFixed(4), +(y*paperMM).toFixed(4)]),
+    edges_vertices: pattern.edges.map(e => [e.v1, e.v2]),
+    edges_assignment: pattern.edges.map(e => e.type === 'U' ? 'U' : e.type),
+    faces_vertices: faces,
+    faces_color: faceColors,
+  }, null, 2);
 }
 
 // ── Shared heightfield → binary STL ───────────────────────────────────────
@@ -262,7 +324,7 @@ const LILY_DEMO = (() => {
 // ── Pattern preview ────────────────────────────────────────────────────────
 const EDGE_COLOR = { M:'#ff5555', V:'#5599ff', B:'#444', F:'#888', U:'#666' };
 
-function PatternPreview({ pattern }) {
+function PatternPreview({ pattern, faces, faceColors, selectedFace, onFaceClick }) {
   if (!pattern) return (
     <div style={{display:'flex',alignItems:'center',justifyContent:'center',width:'100%',aspectRatio:'1',background:'var(--s)',border:'1px solid var(--bd)',borderRadius:12,color:'var(--mu)',fontSize:'.8rem'}}>
       upload a .fold or .svg to preview
@@ -270,7 +332,21 @@ function PatternPreview({ pattern }) {
   );
   const sz = 300;
   return (
-    <svg viewBox={`0 0 ${sz} ${sz}`} width="100%" style={{display:'block',borderRadius:12,background:'var(--s)',border:'1px solid var(--bd)'}}>
+    <svg viewBox={`0 0 ${sz} ${sz}`} width="100%" style={{display:'block',borderRadius:12,background:'var(--s)',border:'1px solid var(--bd)',cursor:'default'}}
+      onClick={() => onFaceClick?.(null)}>
+      {/* Colored face polygons */}
+      {faces?.map((fv, i) => (
+        <polygon key={i}
+          points={fv.map(vi => `${pattern.vertices[vi][0]*sz},${(1-pattern.vertices[vi][1])*sz}`).join(' ')}
+          fill={faceColors?.[i] || '#333'}
+          opacity={selectedFace === i ? 1 : 0.75}
+          stroke={selectedFace === i ? '#fff' : 'none'}
+          strokeWidth={1.5}
+          style={{cursor:'pointer'}}
+          onClick={e => { e.stopPropagation(); onFaceClick?.(i); }}
+        />
+      ))}
+      {/* Fold lines on top */}
       {pattern.edges.map((e, i) => {
         const [x1,y1] = pattern.vertices[e.v1], [x2,y2] = pattern.vertices[e.v2];
         return <line key={i}
@@ -278,6 +354,7 @@ function PatternPreview({ pattern }) {
           stroke={EDGE_COLOR[e.type] || '#888'}
           strokeWidth={e.type==='B' ? 1.5 : 1}
           strokeDasharray={e.type==='V' ? '4,3' : undefined}
+          style={{pointerEvents:'none'}}
         />;
       })}
     </svg>
@@ -298,12 +375,41 @@ export default function FoldForm() {
   // Keep hinge thickness <= paper thickness
   useEffect(() => { if (hingeH > panelH) setHingeH(panelH); }, [panelH]);
   const [designBaseH, setDesignBaseH] = useState(0.4);
-  const [designEmb,   setDesignEmb]   = useState(0.4);
-  const [msg,         setMsg]         = useState('');
-  const [dragging,    setDragging]    = useState(false);
-  const [dragDes,     setDragDes]     = useState(false);
+  const [designEmb,    setDesignEmb]    = useState(0.4);
+  const [faceColors,   setFaceColors]   = useState([]);
+  const [selectedFace, setSelectedFace] = useState(null);
+  const [msg,          setMsg]          = useState('');
+  const [dragging,     setDragging]     = useState(false);
+  const [dragDes,      setDragDes]      = useState(false);
   const fileRef   = useRef();
   const designRef = useRef();
+
+  const faces = useMemo(() => {
+    if (!pattern) return [];
+    try { return computeFaces(pattern.vertices, pattern.edges); } catch { return []; }
+  }, [pattern]);
+
+  useEffect(() => {
+    setFaceColors(faces.map((_, i) => FACE_PALETTE[i % FACE_PALETTE.length]));
+    setSelectedFace(null);
+  }, [faces]);
+
+  function handleExportFOLD() {
+    if (!pattern) return;
+    const json = toFOLD(pattern, faces, faceColors, paperMM);
+    const url  = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+    const base = fileName.replace(/\.[^.]+$/, '') || 'pattern';
+    const a    = Object.assign(document.createElement('a'), { href: url, download: `${base}.fold` });
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function handleOpenSimulator() {
+    if (!pattern) return;
+    const json = toFOLD(pattern, faces, faceColors, paperMM);
+    const b64  = btoa(unescape(encodeURIComponent(json)));
+    window.open(`https://origamisimulator.org/?pattern=data:text/plain;base64,${b64}`, '_blank');
+  }
 
   function loadPattern(file) {
     if (!file) return;
@@ -505,7 +611,39 @@ export default function FoldForm() {
         </div>
 
         <div className="R">
-          <PatternPreview pattern={pattern} />
+          <PatternPreview pattern={pattern} faces={faces} faceColors={faceColors}
+            selectedFace={selectedFace} onFaceClick={setSelectedFace} />
+
+          {/* Face color painter */}
+          {faces.length > 0 && (
+            <div className="sec">
+              <div className="lbl">Panel Colors
+                <span style={{fontWeight:400,textTransform:'none',letterSpacing:0,fontSize:'.6rem',marginLeft:6}}>click a panel to paint</span>
+              </div>
+              {selectedFace !== null ? (
+                <div style={{display:'flex',alignItems:'center',gap:10}}>
+                  <span style={{fontSize:'.76rem',color:'var(--mu)'}}>Panel {selectedFace+1}</span>
+                  <input type="color" value={faceColors[selectedFace] || '#888888'}
+                    onChange={e => setFaceColors(prev => { const c=[...prev]; c[selectedFace]=e.target.value; return c; })}
+                    style={{width:36,height:28,borderRadius:6,border:'1px solid var(--bd)',cursor:'pointer',padding:2,background:'none'}} />
+                  <button className="rm-btn" onClick={() => setSelectedFace(null)}>Done</button>
+                </div>
+              ) : (
+                <div className="notice" style={{fontSize:'.68rem'}}>
+                  {faces.length} panel{faces.length!==1?'s':''} detected. Click any panel to change its color, then export the colored .fold file or open directly in Origami Simulator to see how it folds.
+                </div>
+              )}
+              <div style={{display:'flex',gap:8}}>
+                <button className="eb" style={{fontSize:'.76rem',padding:'8px 10px'}} onClick={handleExportFOLD} disabled={!pattern}>
+                  Export .fold
+                </button>
+                <button className="eb" style={{fontSize:'.76rem',padding:'8px 10px',background:'var(--acd)',border:'1px solid var(--ac)',color:'var(--ac)'}}
+                  onClick={handleOpenSimulator} disabled={!pattern}>
+                  Open in Origami Simulator
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="legend">
             {[['M','Mountain','#ff5555',false],['V','Valley','#5599ff',true],['F','Flat','#888',false],['B','Boundary','#444',false]].map(([k,label,color,dash]) => (
