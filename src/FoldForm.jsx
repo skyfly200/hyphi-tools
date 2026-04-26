@@ -642,6 +642,9 @@ export default function FoldForm() {
                   Open in Origami Simulator
                 </button>
               </div>
+              <div style={{fontSize:'.62rem',color:'var(--sub)',lineHeight:1.5}}>
+                If the pattern doesn&apos;t load in Origami Simulator, use <em>Export .fold</em> above and drag the file directly into <a href="https://origamisimulator.org" target="_blank" rel="noopener noreferrer" style={{color:'var(--sub)'}}>origamisimulator.org</a>.
+              </div>
             </div>
           )}
 
