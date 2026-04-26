@@ -332,7 +332,7 @@ function PatternPreview({ pattern, faces, faceColors, selectedFace, onFaceClick 
   );
   const sz = 300;
   return (
-    <svg viewBox={`0 0 ${sz} ${sz}`} width="100%" style={{display:'block',borderRadius:12,background:'var(--s)',border:'1px solid var(--bd)',cursor:'default'}}
+    <svg viewBox={`0 0 ${sz} ${sz}`} width="100%" style={{display:'block',borderRadius:4,background:'var(--s)',border:'1px solid var(--bd)',cursor:'default'}}
       onClick={() => onFaceClick?.(null)}>
       {/* Colored face polygons */}
       {faces?.map((fv, i) => (
