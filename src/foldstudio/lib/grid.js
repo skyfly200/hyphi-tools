@@ -88,25 +88,38 @@ function clipLineToBox(x0, y0, m, [xMin, xMax, yMin, yMax]) {
   return bd > 1e-6 ? best : null;
 }
 
-export function radialGrid(rings, sectors) {
-  const nodes = [], lines = [];
+export function radialGrid(rings, sectors, range = [0, 1, 0, 1]) {
+  const [x0, x1, y0, y1] = range;
   const cx = 0.5, cy = 0.5;
-  const rMax = 0.5;
+  // Reach the farthest corner of the requested range so the grid covers the
+  // whole paper and any workspace beyond it.
+  const rMax = Math.max(
+    Math.hypot(cx - x0, cy - y0),
+    Math.hypot(cx - x1, cy - y0),
+    Math.hypot(cx - x0, cy - y1),
+    Math.hypot(cx - x1, cy - y1),
+  );
+  const nodes = [], lines = [];
+  const inRange = (x, y) =>
+    x >= x0 - 1e-9 && x <= x1 + 1e-9 && y >= y0 - 1e-9 && y <= y1 + 1e-9;
+
   for (let r = 1; r <= rings; r++) {
     const radius = (r / rings) * rMax;
-    // approximate circle as polyline
-    const segs = Math.max(24, sectors * 4);
+    const segs = Math.max(48, sectors * 4);
     for (let i = 0; i < segs; i++) {
       const a1 = (i / segs) * Math.PI * 2;
       const a2 = ((i + 1) / segs) * Math.PI * 2;
-      lines.push([
-        [cx + Math.cos(a1) * radius, cy + Math.sin(a1) * radius],
-        [cx + Math.cos(a2) * radius, cy + Math.sin(a2) * radius],
-      ]);
+      const p1 = [cx + Math.cos(a1) * radius, cy + Math.sin(a1) * radius];
+      const p2 = [cx + Math.cos(a2) * radius, cy + Math.sin(a2) * radius];
+      // Render only the arc segments that are inside the range.
+      if (inRange(p1[0], p1[1]) || inRange(p2[0], p2[1])) {
+        lines.push([p1, p2]);
+      }
     }
     for (let s = 0; s < sectors; s++) {
       const a = (s / sectors) * Math.PI * 2;
-      nodes.push([cx + Math.cos(a) * radius, cy + Math.sin(a) * radius]);
+      const n = [cx + Math.cos(a) * radius, cy + Math.sin(a) * radius];
+      if (inRange(n[0], n[1])) nodes.push(n);
     }
   }
   for (let s = 0; s < sectors; s++) {
@@ -117,8 +130,22 @@ export function radialGrid(rings, sectors) {
   return { nodes, lines };
 }
 
-export function buildGrid(type, density, range = [0, 1, 0, 1]) {
-  if (type === 'triangular') return triangularGrid(density, range);
-  if (type === 'radial') return radialGrid(Math.max(1, Math.floor(density / 2)), Math.max(4, density * 2));
-  return squareGrid(density, range);
+const SINGLE_GRID = {
+  square: (d, r) => squareGrid(d, r),
+  triangular: (d, r) => triangularGrid(d, r),
+  radial: (d, r) => radialGrid(Math.max(2, Math.floor(d / 2)), Math.max(4, d * 2), r),
+};
+
+// Accepts a single type string for back-compat or an array of types to merge.
+export function buildGrid(typeOrTypes, density, range = [0, 1, 0, 1]) {
+  const types = Array.isArray(typeOrTypes) ? typeOrTypes : [typeOrTypes];
+  const nodes = [], lines = [];
+  for (const t of types) {
+    const g = SINGLE_GRID[t];
+    if (!g) continue;
+    const out = g(density, range);
+    nodes.push(...out.nodes);
+    lines.push(...out.lines);
+  }
+  return { nodes, lines };
 }

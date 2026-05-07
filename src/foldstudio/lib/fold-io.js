@@ -74,16 +74,21 @@ export function downloadText(filename, text, mime = 'image/svg+xml') {
   setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 0);
 }
 
-const STROKE = { M: '#e23b3b', V: '#3a7bd5', B: '#111111', F: '#999999', U: '#666666' };
+// Brand colors for on-screen rendering.
+const STROKE_UI = { M: '#e23b3b', V: '#3a7bd5', B: '#111111', F: '#999999', U: '#666666' };
+// Origami Simulator's SVG importer matches creases by exact stroke color:
+// pure red = mountain, pure blue = valley, black = boundary,
+// yellow = unfolded/flat reference, green = unknown.
+const STROKE_OS = { M: '#FF0000', V: '#0000FF', B: '#000000', F: '#FFFF00', U: '#00FF00' };
 
-export function modelToSVG(model, size = 600) {
+export function modelToSVG(model, { size = 600, simulator = true } = {}) {
+  const palette = simulator ? STROKE_OS : STROKE_UI;
   const lines = model.edges.map(e => {
     const a = model.vertices[e.v1], b = model.vertices[e.v2];
-    const dash = e.assignment === 'F' ? ' stroke-dasharray="4 3"' : '';
-    return `<line x1="${a[0] * size}" y1="${(1 - a[1]) * size}" x2="${b[0] * size}" y2="${(1 - b[1]) * size}" stroke="${STROKE[e.assignment] || '#333'}" stroke-width="1.5"${dash} />`;
+    return `<line x1="${a[0] * size}" y1="${(1 - a[1]) * size}" x2="${b[0] * size}" y2="${(1 - b[1]) * size}" stroke="${palette[e.assignment] || '#000'}" stroke-width="1.5" />`;
   }).join('\n');
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">
-<rect x="0" y="0" width="${size}" height="${size}" fill="white"/>
+<rect x="0" y="0" width="${size}" height="${size}" fill="white" stroke="none"/>
 ${lines}
 </svg>`;
 }

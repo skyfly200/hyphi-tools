@@ -21,11 +21,17 @@ import {
 
 const persisted = (typeof localStorage !== 'undefined' && loadPrefs()) || null;
 
+// Migration: older prefs used grid.type (string) — fold it into grid.types[].
+if (persisted?.grid && !persisted.grid.types) {
+  persisted.grid.types = [persisted.grid.type || 'square'];
+  delete persisted.grid.type;
+}
+
 export const state = reactive({
   model: emptyModel(),
   tool: 'draw',          // draw | select | mirror | repeat | angle
   assignment: persisted?.assignment || 'V',
-  grid: persisted?.grid || { type: 'square', density: 8, snap: true, visible: true, extend: false },
+  grid: persisted?.grid || { types: ['square'], density: 8, snap: true, visible: true, extend: false },
   labels: persisted?.labels || { vertices: false, edges: false, faces: false, oneBased: false },
   selection: { edges: new Set(), vertices: new Set() },
   view: { zoom: 1, pan: [0, 0] },
@@ -92,7 +98,7 @@ export const workspaceRange = computed(() => state.grid.extend
   ? [-WORKSPACE_PAD, 1 + WORKSPACE_PAD, -WORKSPACE_PAD, 1 + WORKSPACE_PAD]
   : [0, 1, 0, 1]
 );
-export const gridGeom = computed(() => buildGrid(state.grid.type, state.grid.density, workspaceRange.value));
+export const gridGeom = computed(() => buildGrid(state.grid.types, state.grid.density, workspaceRange.value));
 
 export function pushHistory() {
   history.push(state.model);
