@@ -8,10 +8,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@vitejs/plugin-vue": "^5.2.4",
     "qrcode-generator": "^1.4.4",
+    "rabbit-ear": "^0.9.32",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^7.14.1"
+    "react-router-dom": "^7.14.1",
+    "vue": "^3.5.34"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",

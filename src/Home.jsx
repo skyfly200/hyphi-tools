@@ -26,6 +26,14 @@ const TOOLS = [
     icon: '◈',
   },
   {
+    href: '/foldstudio',
+    internal: true,
+    name: 'FoldStudio',
+    tagline: 'Crease pattern editor',
+    desc: 'Draw FOLD crease patterns on a dynamic grid with mirror, repeat, and angle-defined creases. Number vertices, edges, and faces. Validates flat-foldability via rabbit-ear.',
+    icon: '✦',
+  },
+  {
     href: 'https://l.hyphi.art',
     internal: false,
     name: 'Link Shortener',
