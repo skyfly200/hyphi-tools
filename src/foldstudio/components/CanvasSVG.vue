@@ -203,6 +203,6 @@ const ghostLine = computed(() => {
 </template>
 
 <style scoped>
-.canvas-wrap { display: flex; align-items: center; justify-content: center; padding: 12px; flex: 1; min-height: 0; }
-.surface { width: 100%; max-width: 720px; max-height: 100%; aspect-ratio: 1 / 1; background: #fff; border-radius: 8px; box-shadow: 0 0 0 1px var(--bd); cursor: crosshair; }
+.canvas-wrap { display: flex; align-items: center; justify-content: center; padding: 12px; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.surface { width: auto; height: auto; max-width: 100%; max-height: 100%; aspect-ratio: 1 / 1; background: #fff; border-radius: 8px; box-shadow: 0 0 0 1px var(--bd); cursor: crosshair; display: block; }
 </style>
