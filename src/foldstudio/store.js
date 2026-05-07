@@ -4,7 +4,7 @@
 import { reactive, computed, ref, watch } from 'vue';
 import {
   emptyModel, cloneModel, addEdgeWithSplits, deleteEdges, setEdgeAssignment,
-  History, repeatTransform,
+  History, repeatTransform, repairPlanarGraph,
 } from './lib/model.js';
 import { buildGrid } from './lib/grid.js';
 import { computeFaces, validateFlatFoldability } from './lib/rabbitear.js';
@@ -236,6 +236,9 @@ export function drawAngleCrease({ anchor, angle, length, extend = false }) {
 
 export function loadModel(newModel) {
   state.model = cloneModel(newModel);
+  // Imported / older patterns can have T-junctions where a vertex sits on the
+  // interior of an unsplit edge — repair so face computation works.
+  repairPlanarGraph(state.model);
   state.selection.edges.clear();
   state.selection.vertices.clear();
   history.push(state.model);

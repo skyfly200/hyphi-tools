@@ -3,6 +3,8 @@
 // is provided ([xMin, xMax, yMin, yMax]), the grid is generated to fill that
 // range so callers can extend the grid beyond the paper into the workspace.
 
+const clamp01 = v => Math.max(0, Math.min(1, v));
+
 export function squareGrid(n, range = [0, 1, 0, 1]) {
   const [x0, x1, y0, y1] = range;
   const step = 1 / n;
@@ -127,6 +129,58 @@ export function radialGrid(rings, sectors, range = [0, 1, 0, 1]) {
     lines.push([[cx, cy], [cx + Math.cos(a) * rMax, cy + Math.sin(a) * rMax]]);
   }
   nodes.push([cx, cy]);
+
+  // Snap targets at the paper boundary [0,1]² where each ring or spoke crosses.
+  // Independent of the workspace range — these reflect where the radial grid
+  // visually meets the paper edge so users can grab those intersections.
+  const PAPER = [
+    { kind: 'h', y: 0, x0: 0, x1: 1 },
+    { kind: 'h', y: 1, x0: 0, x1: 1 },
+    { kind: 'v', x: 0, y0: 0, y1: 1 },
+    { kind: 'v', x: 1, y0: 0, y1: 1 },
+  ];
+  // Spoke × paper edge.
+  for (let s = 0; s < sectors; s++) {
+    const a = (s / sectors) * Math.PI * 2;
+    const dx = Math.cos(a), dy = Math.sin(a);
+    const ts = [];
+    if (Math.abs(dx) > 1e-9) {
+      ts.push((0 - cx) / dx, (1 - cx) / dx);
+    }
+    if (Math.abs(dy) > 1e-9) {
+      ts.push((0 - cy) / dy, (1 - cy) / dy);
+    }
+    for (const t of ts) {
+      if (t < 1e-9 || t > rMax + 1e-9) continue;
+      const x = cx + dx * t, y = cy + dy * t;
+      if (x >= -1e-9 && x <= 1 + 1e-9 && y >= -1e-9 && y <= 1 + 1e-9) {
+        nodes.push([clamp01(x), clamp01(y)]);
+      }
+    }
+  }
+  // Ring × paper edge.
+  for (let r = 1; r <= rings; r++) {
+    const radius = (r / rings) * rMax;
+    for (const e of PAPER) {
+      if (e.kind === 'h') {
+        const dy = e.y - cy;
+        const inside = radius * radius - dy * dy;
+        if (inside < 0) continue;
+        const dx = Math.sqrt(inside);
+        for (const x of [cx - dx, cx + dx]) {
+          if (x >= e.x0 - 1e-9 && x <= e.x1 + 1e-9) nodes.push([clamp01(x), e.y]);
+        }
+      } else {
+        const dx = e.x - cx;
+        const inside = radius * radius - dx * dx;
+        if (inside < 0) continue;
+        const dy = Math.sqrt(inside);
+        for (const y of [cy - dy, cy + dy]) {
+          if (y >= e.y0 - 1e-9 && y <= e.y1 + 1e-9) nodes.push([e.x, clamp01(y)]);
+        }
+      }
+    }
+  }
   return { nodes, lines };
 }
 
