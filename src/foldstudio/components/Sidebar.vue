@@ -6,31 +6,34 @@ import { state } from '../store.js';
   <aside class="sidebar">
     <section>
       <h3>Grid</h3>
-      <label>Type
+      <label title="Square: aligned grid; Triangular: 60° lines; Radial: rings + sectors centered on the paper">Type
         <select v-model="state.grid.type">
           <option value="square">Square</option>
           <option value="triangular">Triangular</option>
           <option value="radial">Radial</option>
         </select>
       </label>
-      <label>Density
+      <label title="Number of divisions across the paper">Density
         <input type="range" min="2" max="32" v-model.number="state.grid.density" />
         <span class="meta">{{ state.grid.density }}</span>
       </label>
-      <label class="check">
+      <label class="check" title="When drawing, snap pointer to nearest grid node or existing vertex">
         <input type="checkbox" v-model="state.grid.snap" /> Snap to grid + vertices
       </label>
-      <label class="check">
+      <label class="check" title="Toggle grid visibility on the canvas">
         <input type="checkbox" v-model="state.grid.visible" /> Show grid
+      </label>
+      <label class="check" title="Render the grid into the workspace area beyond the paper edges">
+        <input type="checkbox" v-model="state.grid.extend" /> Extend grid past paper
       </label>
     </section>
 
     <section>
       <h3>Labels</h3>
-      <label class="check"><input type="checkbox" v-model="state.labels.vertices" /> Vertex IDs</label>
-      <label class="check"><input type="checkbox" v-model="state.labels.edges" /> Edge IDs</label>
-      <label class="check"><input type="checkbox" v-model="state.labels.faces" /> Face IDs</label>
-      <label class="check"><input type="checkbox" v-model="state.labels.oneBased" /> 1-based numbering</label>
+      <label class="check" title="Show v0, v1, … on every vertex"><input type="checkbox" v-model="state.labels.vertices" /> Vertex IDs</label>
+      <label class="check" title="Show e0, e1, … on every edge midpoint"><input type="checkbox" v-model="state.labels.edges" /> Edge IDs</label>
+      <label class="check" title="Show f0, f1, … on every face centroid"><input type="checkbox" v-model="state.labels.faces" /> Face IDs</label>
+      <label class="check" title="Number from 1 instead of 0"><input type="checkbox" v-model="state.labels.oneBased" /> 1-based numbering</label>
     </section>
 
   </aside>

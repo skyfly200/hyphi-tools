@@ -9,7 +9,15 @@ import Icon from './Icon.vue';
 
 const showSave = ref(false);
 const showLoad = ref(false);
+const showHelp = ref(false);
 const projectName = ref('');
+
+function openInOrigamiSimulator() {
+  const fold = modelToFOLD(state.model, { ids: false });
+  const json = JSON.stringify(fold);
+  const b64 = btoa(unescape(encodeURIComponent(json)));
+  window.open(`https://origamisimulator.org/?pattern=data:text/plain;base64,${b64}`, '_blank', 'noopener');
+}
 
 function openSave() {
   projectName.value = state.currentProject || '';
@@ -75,6 +83,16 @@ const fmt = ts => new Date(ts).toLocaleString();
       <button @click="exportSVG" title="Export SVG">
         <Icon name="download" /><span>SVG</span>
       </button>
+      <button @click="openInOrigamiSimulator"
+              title="Open this pattern in origamisimulator.org with the configured fold angles">
+        <Icon name="open" /><span>Simulator</span>
+      </button>
+
+      <div class="divider" />
+
+      <button @click="showHelp = true" title="Help / shortcuts / FOLD basics">
+        <span class="qmark">?</span>
+      </button>
     </div>
 
     <!-- Save modal -->
@@ -111,6 +129,62 @@ const fmt = ts => new Date(ts).toLocaleString();
         </div>
       </div>
     </div>
+
+    <!-- Help modal -->
+    <div v-if="showHelp" class="modal-bg" @click.self="showHelp = false">
+      <div class="modal help">
+        <h3>FoldStudio · Help</h3>
+        <div class="help-grid">
+          <section>
+            <h4>Tools</h4>
+            <dl>
+              <dt>Draw <kbd>D</kbd></dt><dd>Click two points to place a crease. Snaps to grid + existing vertices. Esc cancels mid-draw.</dd>
+              <dt>Select <kbd>S</kbd></dt><dd>Click an edge to select. Shift-click adds. <kbd>1</kbd>–<kbd>5</kbd> reassigns M/V/B/F/U.</dd>
+              <dt>Mirror <kbd>M</kbd></dt><dd>Reflect selected creases across the H or V axis (Inspector). Optionally flip M↔V.</dd>
+              <dt>Rotate <kbd>R</kbd></dt><dd>Repeat selected creases rotationally or translationally (Inspector controls count, angle, center).</dd>
+              <dt>Angle <kbd>A</kbd></dt><dd>Click an anchor point, the crease extends at the configured angle/length from there.</dd>
+            </dl>
+          </section>
+
+          <section>
+            <h4>Crease types</h4>
+            <dl>
+              <dt><span class="sw" style="background:#e23b3b"></span>M Mountain</dt><dd>Folds away from you (default angle −180°).</dd>
+              <dt><span class="sw" style="background:#3a7bd5"></span>V Valley</dt><dd>Folds toward you (default angle +180°).</dd>
+              <dt><span class="sw" style="background:#111"></span>B Border</dt><dd>Paper boundary, doesn't fold.</dd>
+              <dt><span class="sw" style="background:#999"></span>F Flat</dt><dd>Drawn but flat (0°), used as a reference line.</dd>
+              <dt><span class="sw" style="background:#777"></span>U Unknown</dt><dd>Type not yet decided.</dd>
+            </dl>
+          </section>
+
+          <section>
+            <h4>Shortcuts</h4>
+            <dl>
+              <dt><kbd>Ctrl/⌘</kbd>+<kbd>Z</kbd></dt><dd>Undo</dd>
+              <dt><kbd>Ctrl/⌘</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></dt><dd>Redo</dd>
+              <dt><kbd>Ctrl/⌘</kbd>+<kbd>A</kbd></dt><dd>Select all edges</dd>
+              <dt><kbd>Del</kbd> / <kbd>Backspace</kbd></dt><dd>Delete selected edges</dd>
+              <dt><kbd>1</kbd>–<kbd>5</kbd></dt><dd>Set paint to M / V / B / F / U</dd>
+              <dt><kbd>Esc</kbd></dt><dd>Cancel current draw or clear selection</dd>
+            </dl>
+          </section>
+
+          <section>
+            <h4>Fold angles &amp; simulation</h4>
+            <p>By default M = −180°, V = +180°, F = 0°. With edges selected, the Inspector lets you override the angle to model partial folds. <strong>Open in Simulator</strong> sends the FOLD with these angles to <a href="https://origamisimulator.org" target="_blank" rel="noopener">origamisimulator.org</a>.</p>
+            <p>If a vertex has a red ring, it doesn't fold flat. Hover the issue in the Inspector for the explanation.</p>
+          </section>
+
+          <section>
+            <h4>Storage</h4>
+            <p>Projects and preferences are stored in your browser's localStorage — they don't leave this machine. Use Export FOLD to back them up.</p>
+          </section>
+        </div>
+        <div class="row">
+          <button class="primary" @click="showHelp = false">Got it</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -142,4 +216,18 @@ button.danger { color: var(--ac); padding: 4px 6px; }
 .proj-list li:hover { background: var(--acd); }
 .when { font-family: 'DM Mono', monospace; font-size: 0.7rem; color: var(--sub); }
 .hint { font-family: 'DM Mono', monospace; font-size: 0.78rem; color: var(--sub); }
+
+.qmark { font-weight: 700; color: var(--ac2); width: 14px; text-align: center; }
+.modal.help { min-width: 640px; max-width: 760px; max-height: 80vh; overflow-y: auto; }
+.help-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 28px; }
+.help-grid section { display: flex; flex-direction: column; gap: 6px; }
+.help-grid h4 { font: 500 0.8rem 'DM Sans'; color: var(--ac2); margin: 0; padding-bottom: 4px; border-bottom: 1px solid var(--bd); }
+.help-grid dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; font-size: 0.8rem; }
+.help-grid dt { color: var(--t); font-weight: 500; display: flex; align-items: center; gap: 6px; }
+.help-grid dd { color: var(--sub); margin: 0; line-height: 1.45; }
+.help-grid p { margin: 0; font-size: 0.8rem; color: var(--sub); line-height: 1.5; }
+.help-grid p strong { color: var(--t); font-weight: 500; }
+.help-grid p a { color: var(--ac2); }
+.help-grid kbd { background: var(--bg); border: 1px solid var(--bd); border-radius: 3px; padding: 0 5px; font: 500 0.7rem 'DM Mono', monospace; color: var(--t); }
+.help-grid .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
 </style>

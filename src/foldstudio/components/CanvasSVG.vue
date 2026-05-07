@@ -7,7 +7,7 @@ import { closestOnSegment } from '../lib/geometry.js';
 import { edgeMidpoint, faceCentroid, formatId } from '../lib/ids.js';
 
 const SIZE = 720;
-const MARGIN = 40;
+const MARGIN = 80;
 const INNER = SIZE - MARGIN * 2;
 const STROKE = { M: '#e23b3b', V: '#3a7bd5', B: '#111', F: '#999', U: '#777' };
 
@@ -118,6 +118,9 @@ const ghostLine = computed(() => {
          @pointerdown="onPointerDown"
          @pointerleave="cursor = null">
 
+      <!-- Workspace background -->
+      <rect x="0" y="0" :width="SIZE" :height="SIZE" fill="#1a1a24" />
+      <!-- Paper -->
       <rect :x="MARGIN" :y="MARGIN" :width="INNER" :height="INNER" fill="#fff" stroke="#ddd" />
 
       <!-- Grid -->
