@@ -6,12 +6,15 @@ import { state } from '../store.js';
   <aside class="sidebar">
     <section>
       <h3>Grid</h3>
-      <label title="Square: aligned grid; Triangular: 60° lines; Radial: rings + sectors centered on the paper">Type
-        <select v-model="state.grid.type">
-          <option value="square">Square</option>
-          <option value="triangular">Triangular</option>
-          <option value="radial">Radial</option>
-        </select>
+      <div class="meta">Types <span class="hint-inline">(stack as many as you like)</span></div>
+      <label class="check" title="Square / aligned grid">
+        <input type="checkbox" :value="'square'" v-model="state.grid.types" /> Square
+      </label>
+      <label class="check" title="60° triangular grid (good for tessellations)">
+        <input type="checkbox" :value="'triangular'" v-model="state.grid.types" /> Triangular
+      </label>
+      <label class="check" title="Concentric rings + sectors centered on the paper, extended to the corners">
+        <input type="checkbox" :value="'radial'" v-model="state.grid.types" /> Radial
       </label>
       <label title="Number of divisions across the paper">Density
         <input type="range" min="2" max="32" v-model.number="state.grid.density" />
@@ -50,4 +53,5 @@ input[type=range] { padding: 0; }
 button, .filebtn { background: var(--bg); color: var(--t); border: 1px solid var(--bd); border-radius: 6px; padding: 7px 10px; font: 500 0.78rem 'DM Sans'; cursor: pointer; text-align: center; }
 button:hover, .filebtn:hover { border-color: var(--ac2); }
 .meta { font: 400 0.7rem 'DM Mono'; color: var(--sub); }
+.hint-inline { color: var(--sub); font-size: 0.7em; margin-left: 4px; }
 </style>
