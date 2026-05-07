@@ -88,12 +88,13 @@ export function deleteSelection() {
 }
 
 export function assignSelection(letter) {
-  if (state.selection.edges.size === 0) {
-    state.assignment = letter;
-    return;
+  // Always update the active paint so the toolbar highlight reflects the
+  // current draw color. If edges are selected, also reassign them.
+  state.assignment = letter;
+  if (state.selection.edges.size > 0) {
+    setEdgeAssignment(state.model, [...state.selection.edges], letter);
+    pushHistory();
   }
-  setEdgeAssignment(state.model, [...state.selection.edges], letter);
-  pushHistory();
 }
 
 export function selectAll() {
