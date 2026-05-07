@@ -54,10 +54,13 @@ function dotPath(col, row, mod, style) {
   }
 }
 
+// ─── STL helpers ────────────────────────────────────────────────────────────
+
 const v = (x,y,z) => `${x.toFixed(4)} ${y.toFixed(4)} ${z.toFixed(4)}`;
 const tri = (a,b,c,n) => `facet normal ${v(...n)}\nouter loop\nvertex ${v(...a)}\nvertex ${v(...b)}\nvertex ${v(...c)}\nendloop\nendfacet\n`;
 
 function box(x,y,z,w,d,h) {
+  if (w<=0||d<=0||h<=0) return "";
   const [x2,y2,z2]=[x+w,y+d,z+h];
   return [
     tri([x,y,z2],[x2,y,z2],[x2,y2,z2],[0,0,1]), tri([x,y,z2],[x2,y2,z2],[x,y2,z2],[0,0,1]),
@@ -98,75 +101,283 @@ function ring(cx,cy,z,R,r,seg=32,rseg=12) {
   return t;
 }
 
+// ─── Bitmap font (5×7) ──────────────────────────────────────────────────────
+// Each entry = 7 row masks; bit4=leftmost col, bit0=rightmost col.
+
+const F={
+  ' ':[0,0,0,0,0,0,0],
+  '0':[14,17,19,21,25,17,14],
+  '1':[4,12,4,4,4,4,14],
+  '2':[14,17,1,6,8,16,31],
+  '3':[14,17,1,6,1,17,14],
+  '4':[2,6,10,18,31,2,2],
+  '5':[31,16,30,1,1,17,14],
+  '6':[14,16,16,30,17,17,14],
+  '7':[31,1,2,4,8,8,8],
+  '8':[14,17,17,14,17,17,14],
+  '9':[14,17,17,15,1,1,14],
+  'A':[14,17,17,31,17,17,17],
+  'B':[30,17,17,30,17,17,30],
+  'C':[14,17,16,16,16,17,14],
+  'D':[30,17,17,17,17,17,30],
+  'E':[31,16,16,30,16,16,31],
+  'F':[31,16,16,30,16,16,16],
+  'G':[14,16,16,23,17,17,14],
+  'H':[17,17,17,31,17,17,17],
+  'I':[14,4,4,4,4,4,14],
+  'J':[7,1,1,1,1,17,14],
+  'K':[17,18,20,24,20,18,17],
+  'L':[16,16,16,16,16,16,31],
+  'M':[17,27,21,17,17,17,17],
+  'N':[17,25,21,19,17,17,17],
+  'O':[14,17,17,17,17,17,14],
+  'P':[30,17,17,30,16,16,16],
+  'Q':[14,17,17,17,21,18,13],
+  'R':[30,17,17,30,20,18,17],
+  'S':[14,17,16,14,1,17,14],
+  'T':[31,4,4,4,4,4,4],
+  'U':[17,17,17,17,17,17,14],
+  'V':[17,17,17,17,17,10,4],
+  'W':[17,17,17,21,21,27,17],
+  'X':[17,17,10,4,10,17,17],
+  'Y':[17,17,10,4,4,4,4],
+  'Z':[31,1,2,4,8,16,31],
+  '.':[0,0,0,0,0,4,4],
+  ',':[0,0,0,0,0,4,8],
+  '!':[4,4,4,4,0,0,4],
+  '?':[14,17,1,6,4,0,4],
+  '-':[0,0,0,31,0,0,0],
+  '_':[0,0,0,0,0,0,31],
+  ':':[0,4,4,0,4,4,0],
+  '/':[1,2,2,4,8,8,16],
+  '@':[14,17,23,21,23,16,14],
+  '#':[10,10,31,10,31,10,10],
+};
+
+function edgeTextSTL(text, boardSize, baseH, charH, depth, placement) {
+  const upper = text.toUpperCase();
+  const pixW = charH / 7;
+  const charW = pixW * 6;
+  const totalW = upper.length * charW;
+  let t = "";
+  for (let ci = 0; ci < upper.length; ci++) {
+    const glyph = F[upper[ci]] || F[" "];
+    for (let row = 0; row < 7; row++) {
+      for (let col = 0; col < 5; col++) {
+        if (!(glyph[row] & (1 << (4 - col)))) continue;
+        const u = (boardSize - totalW) / 2 + ci * charW + col * pixW;
+        const vv = Math.max(0, (baseH - charH) / 2) + (6 - row) * pixW;
+        switch (placement) {
+          case "bottom": t += box(u, -depth, vv, pixW, depth, pixW); break;
+          case "top":    t += box(boardSize - u - pixW, boardSize, vv, pixW, depth, pixW); break;
+          case "left":   t += box(-depth, u, vv, depth, pixW, pixW); break;
+          case "right":  t += box(boardSize, boardSize - u - pixW, vv, depth, pixW, pixW); break;
+        }
+      }
+    }
+  }
+  return t;
+}
+
+// ─── STL model builder ──────────────────────────────────────────────────────
+
 function generateSTL(matrix, opts) {
-  const {modMM=2,baseH=1.5,moduleH=1.2,margin=2,accessory="none",strapW=20,keychainR=5,standAngle=20,multiMat=true,reliefMode="inset"}=opts;
-  const n=matrix.length, off=margin*modMM, boardSize=n*modMM+off*2;
-  let baseTris="", modTris="";
+  const {
+    modMM=2, baseH=1.5, moduleH=1.2, margin=2,
+    accessory="none", strapW=20, keychainR=5, standAngle=20,
+    multiMat=true, reliefMode="inset",
+    cityMode=false, cityMin=0.4, cityMax=2.0,
+    blockScale=1.0,
+    invertQR=false,
+    borderFrame=false, borderFrameW=2, borderFrameH=1.0,
+    nfcIndent=false, nfcShape="round", nfcSize=25, nfcDepth=0.8,
+    keychainPlacement="top", keychainMirror=false,
+    edgeText=false, edgeTextContent="", edgeTextPlacement="bottom",
+    edgeTextSize=4, edgeTextDepth=0.5,
+    multiPart=false,
+  } = opts;
+
+  const n = matrix.length;
+  const off = margin * modMM;
+  const bs = boardSize => boardSize; // alias
+  const boardSz = n * modMM + off * 2;
+
+  const isDark = (r,c) => invertQR ? !matrix[r][c] : matrix[r][c];
+
+  const mh = (r,c) => {
+    if (!cityMode) return moduleH;
+    const seed = ((r*137 + c*251) % 997 + 997) % 997;
+    return cityMin + (seed/997)*(cityMax - cityMin);
+  };
+
+  const bOff = modMM*(1-blockScale)/2;
+  const bSz  = modMM*blockScale;
+
+  // NFC pocket parameters
+  const nfcND = Math.min(nfcDepth, baseH*0.8);
+  const nfcNS = Math.min(nfcSize, boardSz*0.85);
+  const nfcNX = (boardSz - nfcNS)/2;
+  const nfcNY = (boardSz - nfcNS)/2;
+
+  // Generate base slab with optional NFC pocket from the bottom
+  const makeBaseSlab = (z0, z1) => {
+    if (z1 <= z0) return "";
+    if (!nfcIndent || z0 >= nfcND) return box(0, 0, z0, boardSz, boardSz, z1-z0);
+    let t = "";
+    const pocketH = Math.min(nfcND, z1) - z0;
+    if (pocketH > 0) {
+      // 4 strips around pocket void
+      t += box(0,          0,           z0, boardSz, nfcNY,               pocketH);
+      t += box(0,          nfcNY+nfcNS, z0, boardSz, boardSz-nfcNY-nfcNS, pocketH);
+      t += box(0,          nfcNY,       z0, nfcNX,   nfcNS,               pocketH);
+      t += box(nfcNX+nfcNS,nfcNY,      z0, boardSz-nfcNX-nfcNS, nfcNS,  pocketH);
+      if (nfcShape === "round") {
+        // Add a cylindrical floor and remove the square floor by leaving it open — add cylinder wall
+        t += cylinder(boardSz/2, boardSz/2, z0, Math.min(nfcND,z1), nfcNS/2);
+      }
+    }
+    if (nfcND < z1) t += box(0, 0, nfcND, boardSz, boardSz, z1-nfcND);
+    return t;
+  };
+
+  let baseTris="", modTris="", frameTris="", textTris="", accTris="";
+
+  // ── Raised mode ────────────────────────────────────────────────────────────
   if (reliefMode === "raised") {
-    const fullH = baseH + moduleH;
-    if (multiMat) {
-      // Two separate bodies: flat base + individual module boxes
-      baseTris += box(0,0,0,boardSize,boardSize,baseH);
-      for(let r=0;r<n;r++) for(let c=0;c<n;c++) {
-        if(matrix[r][c]) modTris += box(off+c*modMM, off+r*modMM, baseH, modMM, modMM, moduleH);
+    if (multiMat || multiPart) {
+      baseTris += makeBaseSlab(0, baseH);
+      for (let r=0;r<n;r++) for (let c=0;c<n;c++) {
+        if (isDark(r,c))
+          modTris += box(off+c*modMM+bOff, off+r*modMM+bOff, baseH, bSz, bSz, mh(r,c));
       }
     } else {
-      // Single material: per-cell columns from z=0, no interior faces
-      baseTris += box(0,           0,          0, boardSize, off,     baseH);
-      baseTris += box(0,           off+n*modMM,0, boardSize, off,     baseH);
-      baseTris += box(0,           off,        0, off,       n*modMM, baseH);
-      baseTris += box(off+n*modMM, off,        0, off,       n*modMM, baseH);
-      for(let r=0;r<n;r++) for(let c=0;c<n;c++)
-        baseTris += box(off+c*modMM, off+r*modMM, 0, modMM, modMM, matrix[r][c] ? fullH : baseH);
+      // Single material
+      baseTris += box(0,           0,          0, boardSz, off,     baseH);
+      baseTris += box(0,           off+n*modMM,0, boardSz, off,     baseH);
+      baseTris += box(0,           off,        0, off,     n*modMM, baseH);
+      baseTris += box(off+n*modMM, off,        0, off,     n*modMM, baseH);
+      for (let r=0;r<n;r++) for (let c=0;c<n;c++) {
+        const cellH = isDark(r,c) ? baseH+mh(r,c) : baseH;
+        baseTris += box(off+c*modMM+bOff, off+r*modMM+bOff, 0, bSz, bSz, cellH);
+        if (blockScale < 1 && bOff > 0) {
+          // Fill the gap around the scaled block with base-height filler
+          const cx=off+c*modMM, cy=off+r*modMM;
+          baseTris += box(cx,      cy,      0, modMM, bOff, baseH);
+          baseTris += box(cx,      cy+bOff+bSz,0,modMM,bOff,baseH);
+          baseTris += box(cx,      cy+bOff, 0, bOff,  bSz,  baseH);
+          baseTris += box(cx+bOff+bSz,cy+bOff,0,bOff,bSz,   baseH);
+        }
+      }
     }
+  // ── Inset mode ─────────────────────────────────────────────────────────────
   } else {
-    // Inset: solid slab with dark modules recessed (engraved look).
-    // Border strips at full height.
     const fullH = baseH + moduleH;
-    baseTris += box(0,           0,          0, boardSize, off,     fullH);
-    baseTris += box(0,           off+n*modMM,0, boardSize, off,     fullH);
-    baseTris += box(0,           off,        0, off,       n*modMM, fullH);
-    baseTris += box(off+n*modMM, off,        0, off,       n*modMM, fullH);
-    // QR cell columns: light = full height; dark = recessed to baseH.
-    for(let r=0;r<n;r++) for(let c=0;c<n;c++) {
+    baseTris += box(0,           0,          0, boardSz, off,     fullH);
+    baseTris += box(0,           off+n*modMM,0, boardSz, off,     fullH);
+    baseTris += box(0,           off,        0, off,     n*modMM, fullH);
+    baseTris += box(off+n*modMM, off,        0, off,     n*modMM, fullH);
+    for (let r=0;r<n;r++) for (let c=0;c<n;c++) {
       const x=off+c*modMM, y=off+r*modMM;
-      if(!matrix[r][c]) {
-        baseTris += box(x, y, 0, modMM, modMM, fullH);
+      if (!isDark(r,c)) {
+        baseTris += box(x+bOff, y+bOff, 0, bSz, bSz, fullH);
+        if (blockScale < 1 && bOff > 0) {
+          // Fill corners to base height
+          baseTris += box(x,      y,      0, modMM, bOff, baseH);
+          baseTris += box(x,      y+bOff+bSz,0,modMM,bOff,baseH);
+          baseTris += box(x,      y+bOff, 0, bOff,  bSz,  baseH);
+          baseTris += box(x+bOff+bSz,y+bOff,0,bOff, bSz,  baseH);
+        }
       } else {
         baseTris += box(x, y, 0, modMM, modMM, baseH);
-        if(multiMat) modTris += box(x, y, baseH, modMM, modMM, moduleH);
+        if (multiMat || multiPart)
+          modTris += box(x+bOff, y+bOff, baseH, bSz, bSz, moduleH);
       }
     }
   }
-  if(accessory==="keychain") {
-    const rx=boardSize/2, ry=-(keychainR*2.2);
-    baseTris += box(rx-strapW/4, -(keychainR*2.2), 0, strapW/2, keychainR*2.2, baseH);
-    baseTris += ring(rx, ry, baseH*0.5, keychainR, keychainR*0.28);
+
+  // ── Border frame ───────────────────────────────────────────────────────────
+  if (borderFrame) {
+    const fw = borderFrameW, fh = baseH + borderFrameH;
+    frameTris += box(-fw,     -fw,      0, boardSz+2*fw, fw,      fh);
+    frameTris += box(-fw,     boardSz,  0, boardSz+2*fw, fw,      fh);
+    frameTris += box(-fw,     0,        0, fw,           boardSz, fh);
+    frameTris += box(boardSz, 0,        0, fw,           boardSz, fh);
   }
-  if(accessory==="strap") {
-    const lugH=baseH, lugDepth=4, lx=(boardSize-strapW)/2;
-    baseTris += box(lx-3, -lugDepth, 0, 3, lugDepth, lugH);
-    baseTris += box(lx+strapW, -lugDepth, 0, 3, lugDepth, lugH);
-    baseTris += box(lx-3, -lugDepth, 0, strapW+6, 2.5, lugH);
-    baseTris += box(lx-3, boardSize, 0, 3, lugDepth, lugH);
-    baseTris += box(lx+strapW, boardSize, 0, 3, lugDepth, lugH);
-    baseTris += box(lx-3, boardSize+lugDepth-2.5, 0, strapW+6, 2.5, lugH);
+
+  // ── Edge text ──────────────────────────────────────────────────────────────
+  if (edgeText && edgeTextContent.trim()) {
+    textTris += edgeTextSTL(edgeTextContent.trim(), boardSz, baseH, edgeTextSize, edgeTextDepth, edgeTextPlacement);
   }
-  if(accessory==="stand") {
-    const rad=standAngle*Math.PI/180;
-    const legW=boardSize*0.55, legLen=boardSize*0.6, legThick=2.5;
-    const lx=(boardSize-legW)/2;
-    const hw=legLen*Math.cos(rad), hh=legLen*Math.sin(rad);
-    baseTris += box(lx, boardSize, 0, legW, legThick, baseH);
-    baseTris += box(lx, boardSize+legThick, 0, legW, hw, legThick);
-    baseTris += box(lx, boardSize+legThick+hw-legThick, hh, legW, legThick, baseH-legThick+0.5);
-  }
-  if(multiMat) return {
-    base: `solid base\n${baseTris}endsolid base\n`,
-    modules: `solid modules\n${modTris}endsolid modules\n`,
+
+  // ── Accessories ────────────────────────────────────────────────────────────
+  const addKeychain = (cx, cy, dir) => {
+    const tabLen = keychainR * 2.4;
+    const tw = Math.min(strapW / 2, boardSz * 0.35);
+    if (dir === 0) { // top
+      accTris += box(cx-tw/2, boardSz, 0, tw, tabLen, baseH);
+      accTris += ring(cx, boardSz+tabLen, baseH*0.5, keychainR, keychainR*0.28);
+    } else if (dir === 1) { // bottom
+      accTris += box(cx-tw/2, -tabLen, 0, tw, tabLen, baseH);
+      accTris += ring(cx, -tabLen, baseH*0.5, keychainR, keychainR*0.28);
+    } else if (dir === 2) { // left
+      accTris += box(-tabLen, cy-tw/2, 0, tabLen, tw, baseH);
+      accTris += ring(-tabLen, cy, baseH*0.5, keychainR, keychainR*0.28);
+    } else { // right
+      accTris += box(boardSz, cy-tw/2, 0, tabLen, tw, baseH);
+      accTris += ring(boardSz+tabLen, cy, baseH*0.5, keychainR, keychainR*0.28);
+    }
   };
-  return { base: `solid qrcode\n${baseTris}${modTris}endsolid qrcode\n`, modules: null };
+
+  const cx = boardSz/2, cy = boardSz/2;
+  if (accessory === "keychain") {
+    const dirMap = {"top":0,"bottom":1,"left":2,"right":3};
+    const mirrorDir = [1,0,3,2];
+    const d = dirMap[keychainPlacement] ?? 0;
+    addKeychain(cx, cy, d);
+    if (keychainMirror) addKeychain(cx, cy, mirrorDir[d]);
+  }
+  if (accessory === "strap") {
+    const lugH=baseH, lugDepth=4, lx=(boardSz-strapW)/2;
+    accTris += box(lx-3,-lugDepth,0,3,lugDepth,lugH); accTris += box(lx+strapW,-lugDepth,0,3,lugDepth,lugH);
+    accTris += box(lx-3,-lugDepth,0,strapW+6,2.5,lugH);
+    accTris += box(lx-3,boardSz,0,3,lugDepth,lugH);   accTris += box(lx+strapW,boardSz,0,3,lugDepth,lugH);
+    accTris += box(lx-3,boardSz+lugDepth-2.5,0,strapW+6,2.5,lugH);
+  }
+  if (accessory === "stand") {
+    const rad=standAngle*Math.PI/180;
+    const legW=boardSz*0.55, legLen=boardSz*0.6, legThick=2.5;
+    const lx=(boardSz-legW)/2;
+    const hw=legLen*Math.cos(rad), hh=legLen*Math.sin(rad);
+    accTris += box(lx,boardSz,0,legW,legThick,baseH);
+    accTris += box(lx,boardSz+legThick,0,legW,hw,legThick);
+    accTris += box(lx,boardSz+legThick+hw-legThick,hh,legW,legThick,baseH-legThick+0.5);
+  }
+
+  const wrap = (name, t) => `solid ${name}\n${t}endsolid ${name}\n`;
+
+  if (multiPart) {
+    return {
+      base:      wrap("base",      baseTris),
+      modules:   modTris  ? wrap("modules",   modTris)  : null,
+      frame:     frameTris? wrap("frame",     frameTris): null,
+      text:      textTris ? wrap("text",      textTris) : null,
+      accessory: accTris  ? wrap("accessory", accTris)  : null,
+    };
+  } else if (multiMat && modTris) {
+    return {
+      base:    wrap("base",    baseTris + frameTris + textTris + accTris),
+      modules: wrap("modules", modTris),
+      frame: null, text: null, accessory: null,
+    };
+  } else {
+    return {
+      base: wrap("qrcode", baseTris + modTris + frameTris + textTris + accTris),
+      modules: null, frame: null, text: null, accessory: null,
+    };
+  }
 }
+
+// ─── ZIP builder ─────────────────────────────────────────────────────────────
 
 function makeZip(files) {
   const enc = new TextEncoder();
@@ -177,12 +388,10 @@ function makeZip(files) {
   const w16=(v,b,o)=>{b[o]=v&0xFF;b[o+1]=(v>>8)&0xFF;};
   const w32=(v,b,o)=>{b[o]=v&0xFF;b[o+1]=(v>>8)&0xFF;b[o+2]=(v>>16)&0xFF;b[o+3]=(v>>24)&0xFF;};
   const entries=files.map(({name,data})=>{const nU8=enc.encode(name),dU8=toU8(data);return{nU8,dU8,crc:crc32(dU8)};});
-  // calc total buffer size
   const cdOff=entries.reduce((s,e)=>s+30+e.nU8.length+e.dU8.length,0);
   const cdSz=entries.reduce((s,e)=>s+46+e.nU8.length,0);
   const buf=new Uint8Array(cdOff+cdSz+22); let pos=0;
   const lOff=[];
-  // local file entries
   for(const{nU8,dU8,crc}of entries){
     lOff.push(pos);
     const sz=dU8.length;
@@ -193,7 +402,6 @@ function makeZip(files) {
     w16(nU8.length,buf,pos);pos+=2; w16(0,buf,pos);pos+=2;
     buf.set(nU8,pos);pos+=nU8.length; buf.set(dU8,pos);pos+=sz;
   }
-  // central directory
   const cdStart=pos;
   for(let i=0;i<entries.length;i++){
     const{nU8,dU8,crc}=entries[i],sz=dU8.length;
@@ -205,7 +413,6 @@ function makeZip(files) {
     w16(0,buf,pos);pos+=2;  w16(0,buf,pos);pos+=2;  w32(0,buf,pos);pos+=4;
     w32(lOff[i],buf,pos);pos+=4; buf.set(nU8,pos);pos+=nU8.length;
   }
-  // end of central directory
   buf.set([0x50,0x4B,0x05,0x06],pos);pos+=4;
   w16(0,buf,pos);pos+=2; w16(0,buf,pos);pos+=2;
   w16(entries.length,buf,pos);pos+=2; w16(entries.length,buf,pos);pos+=2;
@@ -213,6 +420,8 @@ function makeZip(files) {
   w16(0,buf,pos);
   return buf;
 }
+
+// ─── UI components ────────────────────────────────────────────────────────────
 
 function TooltipBtn({ title, sub, desc, activeId, id, setActive }) {
   const isOpen = activeId === id;
@@ -231,6 +440,23 @@ function TooltipBtn({ title, sub, desc, activeId, id, setActive }) {
         </span>
       )}
     </span>
+  );
+}
+
+function PillSwitch({ on, onClick }) {
+  return (
+    <span className="pill-switch" onClick={onClick} style={{cursor:"pointer"}}>
+      <span className={`pill-track${on?" on":""}`}><span className="pill-thumb"/></span>
+    </span>
+  );
+}
+
+function ToggleRow({ label, on, onClick, children }) {
+  return (
+    <div className="toggle-row" onClick={onClick}>
+      <span className="lbl" style={{pointerEvents:"none"}}>{label}</span>
+      <PillSwitch on={on} onClick={e=>e.stopPropagation()}/>
+    </div>
   );
 }
 
@@ -291,6 +517,8 @@ const CTABS = [
   { id:"intent",   label:"Android Intent",  group:"Other"    },
 ];
 
+// ─── Main component ───────────────────────────────────────────────────────────
+
 export default function QRForge() {
   const [mainTab,     setMainTab]     = useState("Design");
   const [ctab,        setCtab]        = useState("url");
@@ -330,6 +558,31 @@ export default function QRForge() {
   const [savedCodes,   setSavedCodes]   = useState([]);
   const [saveOpen,     setSaveOpen]     = useState(false);
   const [saveName,     setSaveName]     = useState('');
+
+  // ── New 3D options ──────────────────────────────────────────────────────────
+  const [cityMode,      setCityMode]      = useState(false);
+  const [cityMin,       setCityMin]       = useState(0.4);
+  const [cityMax,       setCityMax]       = useState(2.0);
+  const [blockScale,    setBlockScale]    = useState(1.0);
+  const [invertQR,      setInvertQR]      = useState(false);
+  const [nozzleDia,     setNozzleDia]     = useState(0.4);
+  const [nozzleSnap,    setNozzleSnap]    = useState(false);
+  const [borderFrame,   setBorderFrame]   = useState(false);
+  const [borderFrameW,  setBorderFrameW]  = useState(2);
+  const [borderFrameH,  setBorderFrameH]  = useState(1.0);
+  const [nfcIndent,     setNfcIndent]     = useState(false);
+  const [nfcShape,      setNfcShape]      = useState("round");
+  const [nfcSize,       setNfcSize]       = useState(25);
+  const [nfcDepth,      setNfcDepth]      = useState(0.8);
+  const [keychainPlacement, setKeychainPlacement] = useState("top");
+  const [keychainMirror,    setKeychainMirror]    = useState(false);
+  const [edgeText,      setEdgeText]      = useState(false);
+  const [edgeTextContent, setEdgeTextContent] = useState("");
+  const [edgeTextPlacement, setEdgeTextPlacement] = useState("bottom");
+  const [edgeTextSize,  setEdgeTextSize]  = useState(4);
+  const [edgeTextDepth, setEdgeTextDepth] = useState(0.5);
+  const [multiPart,     setMultiPart]     = useState(false);
+
   const logoRef = useRef();
 
   useEffect(() => {
@@ -348,6 +601,14 @@ export default function QRForge() {
       ctab, fields, ecLevel, size, dotStyle, finderSharp,
       bgColor, fgColor, accentColor, bgTransparent, margin,
       logoEnabled, logo, selectedIcon, iconColor, logoSize, shortUrl,
+      modMM, baseH, moduleH, stlMargin, reliefMode, multiMat, accessory,
+      strapWidth, keychainR, standAngle, cityMode, cityMin, cityMax,
+      blockScale, invertQR, nozzleDia, nozzleSnap,
+      borderFrame, borderFrameW, borderFrameH,
+      nfcIndent, nfcShape, nfcSize, nfcDepth,
+      keychainPlacement, keychainMirror,
+      edgeText, edgeTextContent, edgeTextPlacement, edgeTextSize, edgeTextDepth,
+      multiPart,
       thumb: svgString,
     };
     setSavedCodes(p => [entry, ...p]);
@@ -365,6 +626,21 @@ export default function QRForge() {
     setIconColor(e.iconColor||e.fgColor||'#ffffff');
     setIconColorCustomized(!!e.iconColor && e.iconColor !== e.fgColor);
     setLogoSize(e.logoSize); setShortUrl(e.shortUrl||null);
+    if (e.modMM) setModMM(e.modMM);
+    if (e.baseH) setBaseH(e.baseH);
+    if (e.moduleH) setModuleH(e.moduleH);
+    if (e.stlMargin != null) setStlMargin(e.stlMargin);
+    if (e.reliefMode) setReliefMode(e.reliefMode);
+    if (e.multiMat != null) setMultiMat(e.multiMat);
+    if (e.accessory) setAccessory(e.accessory);
+    if (e.cityMode != null) setCityMode(e.cityMode);
+    if (e.blockScale != null) setBlockScale(e.blockScale);
+    if (e.invertQR != null) setInvertQR(e.invertQR);
+    if (e.borderFrame != null) setBorderFrame(e.borderFrame);
+    if (e.nfcIndent != null) setNfcIndent(e.nfcIndent);
+    if (e.edgeText != null) setEdgeText(e.edgeText);
+    if (e.edgeTextContent) setEdgeTextContent(e.edgeTextContent);
+    if (e.multiPart != null) setMultiPart(e.multiPart);
     setMainTab('Design');
   }
 
@@ -373,16 +649,9 @@ export default function QRForge() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const s = params.get('shortUrl') || params.get('short');
-    if (s) {
-      setShortUrl(decodeURIComponent(s));
-      window.history.replaceState({}, '', window.location.pathname);
-    }
+    if (s) { setShortUrl(decodeURIComponent(s)); window.history.replaceState({}, '', window.location.pathname); }
     const u = params.get('url');
-    if (u) {
-      setFields(p => ({...p, url: decodeURIComponent(u)}));
-      setCtab('url');
-      window.history.replaceState({}, '', window.location.pathname);
-    }
+    if (u) { setFields(p => ({...p, url: decodeURIComponent(u)})); setCtab('url'); window.history.replaceState({}, '', window.location.pathname); }
   }, []);
 
   useEffect(() => {
@@ -439,31 +708,67 @@ export default function QRForge() {
 
   const svgString = buildSVG();
 
+  // Effective modMM snapped to nozzle multiple
+  const effectiveModMM = nozzleSnap && nozzleDia > 0
+    ? Math.max(nozzleDia, Math.round(modMM / nozzleDia) * nozzleDia)
+    : modMM;
+
   async function doExport() {
-    if(exportFmt==="stl"){
-      if(!qrMatrix)return;
+    if (exportFmt === "stl") {
+      if (!qrMatrix) return;
       setStlMsg("Building STL…"); await new Promise(r=>setTimeout(r,20));
-      const {base,modules}=generateSTL(qrMatrix,{modMM,baseH,moduleH,margin:stlMargin,accessory,strapW:strapWidth,keychainR,standAngle,multiMat,reliefMode});
-      if(modules){
-        const zip=makeZip([{name:"qrcode_base.stl",data:base},{name:"qrcode_modules.stl",data:modules}]);
-        const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([zip],{type:"application/zip"})); a.download="qrcode.zip"; a.click();
+      const res = generateSTL(qrMatrix, {
+        modMM: effectiveModMM, baseH, moduleH, margin: stlMargin,
+        accessory, strapW: strapWidth, keychainR, standAngle,
+        multiMat, reliefMode,
+        cityMode, cityMin, cityMax,
+        blockScale, invertQR,
+        borderFrame, borderFrameW, borderFrameH,
+        nfcIndent, nfcShape, nfcSize, nfcDepth,
+        keychainPlacement, keychainMirror,
+        edgeText, edgeTextContent, edgeTextPlacement, edgeTextSize, edgeTextDepth,
+        multiPart,
+      });
+      const parts = [
+        res.base      && {name:"qrcode_base.stl",      data:res.base},
+        res.modules   && {name:"qrcode_modules.stl",   data:res.modules},
+        res.frame     && {name:"qrcode_frame.stl",     data:res.frame},
+        res.text      && {name:"qrcode_text.stl",      data:res.text},
+        res.accessory && {name:"qrcode_accessory.stl", data:res.accessory},
+      ].filter(Boolean);
+      if (parts.length > 1) {
+        const zip = makeZip(parts);
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(new Blob([zip], {type:"application/zip"}));
+        a.download = "qrcode.zip";
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
       } else {
-        const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([base],{type:"application/octet-stream"})); a.download="qrcode.stl"; a.click();
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(new Blob([parts[0].data], {type:"application/octet-stream"}));
+        a.download = "qrcode.stl";
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
       }
       setStlMsg("✓ Downloaded!"); setTimeout(()=>setStlMsg(""),2200); return;
     }
-    if(!svgString)return;
-    if(exportFmt==="svg"){
-      const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([svgString],{type:"image/svg+xml"})); a.download="qrcode.svg"; a.click(); return;
+    if (!svgString) return;
+    if (exportFmt === "svg") {
+      const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([svgString],{type:"image/svg+xml"})); a.download="qrcode.svg";
+      document.body.appendChild(a); a.click(); document.body.removeChild(a); return;
     }
     const canvas=document.createElement("canvas"); canvas.width=canvas.height=size;
     const img=new Image(); const burl=URL.createObjectURL(new Blob([svgString],{type:"image/svg+xml"}));
     img.onload=()=>{canvas.getContext("2d").drawImage(img,0,0,size,size); URL.revokeObjectURL(burl);
-      const a=document.createElement("a"); a.href=canvas.toDataURL(exportFmt==="jpg"?"image/jpeg":"image/png",.95); a.download=`qrcode.${exportFmt}`; a.click();};
+      const a=document.createElement("a"); a.href=canvas.toDataURL(exportFmt==="jpg"?"image/jpeg":"image/png",.95); a.download=`qrcode.${exportFmt}`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);};
     img.src=burl;
   }
 
-  const n=qrMatrix?.length||0, boardMM=(n*modMM+stlMargin*2*modMM).toFixed(1), darkCount=qrMatrix?qrMatrix.flat().filter(Boolean).length:0;
+  const n=qrMatrix?.length||0;
+  const boardMM=(n*effectiveModMM+stlMargin*2*effectiveModMM).toFixed(1);
+  const maxH = cityMode ? (baseH+cityMax).toFixed(1) : (baseH+moduleH).toFixed(1);
+  const darkCount=qrMatrix?qrMatrix.flat().filter(Boolean).length:0;
 
   const css=`
     @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&display=swap');
@@ -485,14 +790,14 @@ export default function QRForge() {
     .tab{flex:1;min-width:fit-content;padding:5px 9px;border-radius:6px;border:none;background:none;color:var(--mu);font-size:.74rem;font-family:inherit;font-weight:600;cursor:pointer;transition:.15s;white-space:nowrap}
     .tab.on{background:var(--s2);color:var(--t);box-shadow:0 1px 3px rgba(0,0,0,.5)}
     .tab:hover:not(.on){color:var(--t)}
-    input[type=text],input[type=url],input[type=password],input[type=email],input[type=tel],textarea,select{width:100%;padding:8px 11px;background:var(--s);border:1px solid var(--bd);border-radius:8px;color:var(--t);font-family:'Syne',sans-serif;font-size:.83rem;outline:none;transition:.15s}
+    input[type=text],input[type=url],input[type=password],input[type=email],input[type=tel],input[type=number],textarea,select{width:100%;padding:8px 11px;background:var(--s);border:1px solid var(--bd);border-radius:8px;color:var(--t);font-family:'Syne',sans-serif;font-size:.83rem;outline:none;transition:.15s}
     input:focus,select:focus,textarea:focus{border-color:var(--ac);box-shadow:0 0 0 2px var(--acd)}
     select option{background:var(--s)} textarea{resize:vertical;min-height:68px;line-height:1.5}
     .r2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
     .tgl{display:flex;align-items:center;gap:7px;font-size:.8rem;cursor:pointer;color:var(--mu);user-select:none}
     .tgl input{accent-color:var(--ac);width:auto}
     .rng{display:flex;align-items:center;gap:10px}
-    .rng label{font-size:.76rem;color:var(--mu);min-width:76px}
+    .rng label{font-size:.76rem;color:var(--mu);min-width:82px}
     .rng input[type=range]{flex:1;accent-color:var(--ac);cursor:pointer}
     .rv{font-family:'DM Mono',monospace;font-size:.74rem;color:var(--ac);min-width:46px;text-align:right}
     .chips{display:flex;flex-wrap:wrap;gap:5px}
@@ -540,7 +845,7 @@ export default function QRForge() {
     .mmt{font-size:.82rem;font-weight:700;color:var(--mu)} .mmt.on{color:var(--ac)}
     .mmd{font-size:.72rem;color:var(--mu);line-height:1.45;margin-top:3px}
     .badge{display:inline-block;padding:1px 7px;background:var(--ac);color:#000;border-radius:10px;font-size:.62rem;font-weight:800;margin-left:6px}
-    .toggle-row{display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none}
+    .toggle-row{display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;padding:2px 0}
     .toggle-row .lbl{margin:0}
     .pill-switch{position:relative;width:36px;height:20px;flex-shrink:0}
     .pill-switch input{opacity:0;width:0;height:0;position:absolute}
@@ -600,6 +905,9 @@ export default function QRForge() {
     .exp-mode-icon{font-size:1.5rem;line-height:1}
     .exp-mode-label{font-size:.76rem;font-weight:700;color:var(--mu)}
     .exp-mode.on .exp-mode-label{color:var(--ac)}
+    .nozzle-snap{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--s);border:1px solid var(--bd);border-radius:8px}
+    .nozzle-snap label{font-size:.76rem;color:var(--mu);flex:1}
+    .nozzle-snap input[type=number]{width:58px;padding:4px 6px;font-size:.78rem}
     ::-webkit-scrollbar{width:6px;height:6px}
     ::-webkit-scrollbar-track{background:transparent}
     ::-webkit-scrollbar-thumb{background:var(--bd);border-radius:99px}
@@ -810,51 +1118,146 @@ export default function QRForge() {
             )}
 
             {exportFmt === "stl" && <>
+              {/* Stats */}
               <div className="sec">
                 <div className="lbl">Model Dimensions</div>
                 <div className="stats">
                   <div className="sbox"><div className="sv">{boardMM}</div><div className="sl">board mm</div></div>
-                  <div className="sbox"><div className="sv">{(baseH+moduleH).toFixed(1)}</div><div className="sl">total height</div></div>
+                  <div className="sbox"><div className="sv">{maxH}</div><div className="sl">max height</div></div>
                   <div className="sbox"><div className="sv">{darkCount}</div><div className="sl">modules</div></div>
                 </div>
               </div>
+
+              {/* Nozzle snap */}
+              <div className="sec">
+                <ToggleRow label="Nozzle Diameter Snap" on={nozzleSnap} onClick={()=>setNozzleSnap(p=>!p)}/>
+                {nozzleSnap && (
+                  <div className="nozzle-snap">
+                    <label>Nozzle / extrusion width</label>
+                    <input type="number" min={0.1} max={1.2} step={0.1} value={nozzleDia}
+                      onChange={e=>setNozzleDia(Math.max(0.1,+e.target.value||0.4))}/>
+                    <span style={{fontSize:".7rem",color:"var(--mu)"}}>mm</span>
+                  </div>
+                )}
+                {nozzleSnap && (
+                  <div className="notice">Module size snapped to <span style={{color:"var(--ac)",fontFamily:"'DM Mono',monospace"}}>{effectiveModMM}mm</span> ({(effectiveModMM/nozzleDia).toFixed(0)}× nozzle). Each module prints as whole extrusion passes.</div>
+                )}
+              </div>
+
+              {/* Relief mode */}
               <div className="sec">
                 <div className="lbl">Relief Mode</div>
                 <div className="chips">
                   <button className={"chip"+(reliefMode==="inset"?" on":"")} onClick={()=>setReliefMode("inset")}>Inset <span style={{fontSize:".68rem",opacity:.5}}>— recessed dark</span></button>
                   <button className={"chip"+(reliefMode==="raised"?" on":"")} onClick={()=>setReliefMode("raised")}>Raised <span style={{fontSize:".68rem",opacity:.5}}>— embossed dark</span></button>
                 </div>
+                <ToggleRow label="Invert (swap dark/light)" on={invertQR} onClick={()=>setInvertQR(p=>!p)}/>
               </div>
+
+              {/* Geometry */}
               <div className="sec">
                 <div className="lbl">Geometry</div>
-                <div className="rng"><label>Module size</label><input type="range" min={1} max={4} step={.25} value={modMM} onChange={e=>setModMM(+e.target.value)}/><span className="rv">{modMM}mm</span></div>
+                <div className="rng"><label>Module size</label><input type="range" min={1} max={4} step={.25} value={modMM} onChange={e=>setModMM(+e.target.value)}/><span className="rv">{nozzleSnap?`→${effectiveModMM}`:`${modMM}`}mm</span></div>
                 <div className="rng"><label>Base height</label><input type="range" min={.5} max={4} step={.25} value={baseH} onChange={e=>setBaseH(+e.target.value)}/><span className="rv">{baseH}mm</span></div>
                 <div className="rng"><label>Module height</label><input type="range" min={.4} max={3} step={.2} value={moduleH} onChange={e=>setModuleH(+e.target.value)}/><span className="rv">{moduleH}mm</span></div>
                 <div className="rng"><label>Margin</label><input type="range" min={0} max={5} step={1} value={stlMargin} onChange={e=>setStlMargin(+e.target.value)}/><span className="rv">{stlMargin} mod</span></div>
+                <div className="rng"><label>Block scale</label><input type="range" min={.5} max={1} step={.05} value={blockScale} onChange={e=>setBlockScale(+e.target.value)}/><span className="rv">{Math.round(blockScale*100)}%</span></div>
               </div>
+
+              {/* City mode */}
+              <div className="sec">
+                <ToggleRow label="City Mode (skyscraper)" on={cityMode} onClick={()=>setCityMode(p=>!p)}/>
+                {cityMode && <>
+                  <div className="rng"><label>Min height</label><input type="range" min={.2} max={moduleH} step={.1} value={cityMin} onChange={e=>setCityMin(+e.target.value)}/><span className="rv">{cityMin}mm</span></div>
+                  <div className="rng"><label>Max height</label><input type="range" min={moduleH} max={5} step={.1} value={cityMax} onChange={e=>setCityMax(+e.target.value)}/><span className="rv">{cityMax}mm</span></div>
+                  <div className="notice">Each module gets a unique random height. Great for decorative display pieces.</div>
+                </>}
+              </div>
+
+              {/* Border frame */}
+              <div className="sec">
+                <ToggleRow label="Border Frame" on={borderFrame} onClick={()=>setBorderFrame(p=>!p)}/>
+                {borderFrame && <>
+                  <div className="rng"><label>Frame width</label><input type="range" min={1} max={8} step={.5} value={borderFrameW} onChange={e=>setBorderFrameW(+e.target.value)}/><span className="rv">{borderFrameW}mm</span></div>
+                  <div className="rng"><label>Frame height</label><input type="range" min={.2} max={3} step={.2} value={borderFrameH} onChange={e=>setBorderFrameH(+e.target.value)}/><span className="rv">{borderFrameH}mm</span></div>
+                  <div className="notice">Frame exports as a separate body — assign a contrasting filament in your slicer.</div>
+                </>}
+              </div>
+
+              {/* NFC pocket */}
+              <div className="sec">
+                <ToggleRow label="NFC Tag Pocket (back)" on={nfcIndent} onClick={()=>setNfcIndent(p=>!p)}/>
+                {nfcIndent && <>
+                  <div className="chips">
+                    {[["round","Round"],["square","Square"]].map(([v,l])=>(
+                      <button key={v} className={"chip"+(nfcShape===v?" on":"")} onClick={()=>setNfcShape(v)}>{l}</button>
+                    ))}
+                  </div>
+                  <div className="rng"><label>Pocket size</label><input type="range" min={10} max={50} step={1} value={nfcSize} onChange={e=>setNfcSize(+e.target.value)}/><span className="rv">{nfcSize}mm</span></div>
+                  <div className="rng"><label>Pocket depth</label><input type="range" min={.3} max={Math.max(.4,baseH*.75)} step={.1} value={nfcDepth} onChange={e=>setNfcDepth(+e.target.value)}/><span className="rv">{nfcDepth}mm</span></div>
+                  <div className="notice">Recess on the bottom face for embedding an NFC sticker. Pair QR + NFC for dual scan.</div>
+                </>}
+              </div>
+
+              {/* Edge text */}
+              <div className="sec">
+                <ToggleRow label="Edge Text" on={edgeText} onClick={()=>setEdgeText(p=>!p)}/>
+                {edgeText && <>
+                  <input type="text" placeholder="Text to emboss on edge…" value={edgeTextContent} onChange={e=>setEdgeTextContent(e.target.value)} style={{textTransform:"uppercase"}}/>
+                  <div className="chips">
+                    {[["bottom","Bottom"],["top","Top"],["left","Left"],["right","Right"]].map(([v,l])=>(
+                      <button key={v} className={"chip"+(edgeTextPlacement===v?" on":"")} onClick={()=>setEdgeTextPlacement(v)}>{l}</button>
+                    ))}
+                  </div>
+                  <div className="rng"><label>Char height</label><input type="range" min={2} max={Math.max(3,baseH*.9)} step={.25} value={edgeTextSize} onChange={e=>setEdgeTextSize(+e.target.value)}/><span className="rv">{edgeTextSize}mm</span></div>
+                  <div className="rng"><label>Extrude depth</label><input type="range" min={.2} max={2} step={.1} value={edgeTextDepth} onChange={e=>setEdgeTextDepth(+e.target.value)}/><span className="rv">{edgeTextDepth}mm</span></div>
+                  <div className="notice">5×7 bitmap font, uppercase. Text extrudes outward from the chosen edge.</div>
+                </>}
+              </div>
+
+              {/* Multi-material */}
               <div className="sec">
                 <div className="lbl">Multi-Material (MMU / AMS)</div>
                 <div className="mmrow" onClick={()=>setMultiMat(p=>!p)}>
                   <input type="checkbox" checked={multiMat} onChange={()=>{}}/>
                   <div>
                     <div className={"mmt"+(multiMat?" on":"")}>Two-body STL {multiMat&&<span className="badge">ON</span>}</div>
-                    <div className="mmd">Exports base &amp; modules as two named solids. Open in PrusaSlicer or Bambu Studio → split to parts → assign one filament per body.</div>
+                    <div className="mmd">Base &amp; modules as separate solids. Assign one filament per body in PrusaSlicer / Bambu Studio.</div>
+                  </div>
+                </div>
+                <div className="mmrow" onClick={()=>setMultiPart(p=>!p)}>
+                  <input type="checkbox" checked={multiPart} onChange={()=>{}}/>
+                  <div>
+                    <div className={"mmt"+(multiPart?" on":"")}>Multi-part ZIP {multiPart&&<span className="badge">ON</span>}</div>
+                    <div className="mmd">Separate STL file per part: base, modules, frame, text, accessory. Each gets its own filament slot.</div>
                   </div>
                 </div>
               </div>
+
+              {/* Attachment */}
               <div className="sec">
                 <div className="lbl">Attachment / Accessory</div>
                 <div className="acc-grid">
-                  {[{id:"none",icon:"✕",name:"None",desc:"Clean board only"},{id:"keychain",icon:"🔑",name:"Keychain",desc:"Torus ring at top"},{id:"strap",icon:"⌚",name:"Strap Lugs",desc:"Spring bar lugs for 20mm strap"},{id:"stand",icon:"🖥️",name:"Kickstand",desc:"Rear angled leg, prints flat"}].map(a=>(
+                  {[{id:"none",icon:"✕",name:"None",desc:"Clean board only"},{id:"keychain",icon:"🔑",name:"Keychain",desc:"Ring attachment"},{id:"strap",icon:"⌚",name:"Strap Lugs",desc:"Spring bar lugs for 20mm strap"},{id:"stand",icon:"🖥️",name:"Kickstand",desc:"Rear angled leg"}].map(a=>(
                     <div key={a.id} className={"ac"+(accessory===a.id?" on":"")} onClick={()=>setAccessory(a.id)}>
                       <div className="ai">{a.icon}</div><div className="an">{a.name}</div><div className="ad">{a.desc}</div>
                     </div>
                   ))}
                 </div>
-                {accessory==="keychain" && <div className="rng"><label>Ring radius</label><input type="range" min={3} max={12} step={.5} value={keychainR} onChange={e=>setKeychainR(+e.target.value)}/><span className="rv">{keychainR}mm</span></div>}
+                {accessory==="keychain" && <>
+                  <div className="lbl" style={{marginTop:4}}>Placement</div>
+                  <div className="chips">
+                    {[["top","Top"],["bottom","Bottom"],["left","Left"],["right","Right"]].map(([v,l])=>(
+                      <button key={v} className={"chip"+(keychainPlacement===v?" on":"")} onClick={()=>setKeychainPlacement(v)}>{l}</button>
+                    ))}
+                  </div>
+                  <div className="rng"><label>Ring radius</label><input type="range" min={3} max={12} step={.5} value={keychainR} onChange={e=>setKeychainR(+e.target.value)}/><span className="rv">{keychainR}mm</span></div>
+                  <ToggleRow label="Mirror (add opposite ring)" on={keychainMirror} onClick={()=>setKeychainMirror(p=>!p)}/>
+                </>}
                 {accessory==="strap"    && <div className="rng"><label>Strap width</label><input type="range" min={14} max={26} step={2} value={strapWidth} onChange={e=>setStrapWidth(+e.target.value)}/><span className="rv">{strapWidth}mm</span></div>}
                 {accessory==="stand"    && <div className="rng"><label>Stand angle</label><input type="range" min={10} max={50} step={5} value={standAngle} onChange={e=>setStandAngle(+e.target.value)}/><span className="rv">{standAngle}°</span></div>}
               </div>
+
               <div className="notice">STL units are millimeters. Recommended: 0.2mm layers, 3 perimeters, 20% gyroid infill.</div>
             </>}
 
