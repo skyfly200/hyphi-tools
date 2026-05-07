@@ -7,6 +7,8 @@ import { closestOnSegment } from '../lib/geometry.js';
 import { edgeMidpoint, faceCentroid, formatId } from '../lib/ids.js';
 
 const SIZE = 720;
+const MARGIN = 40;
+const INNER = SIZE - MARGIN * 2;
 const STROKE = { M: '#e23b3b', V: '#3a7bd5', B: '#111', F: '#999', U: '#777' };
 
 const svgRef = ref(null);
@@ -15,12 +17,14 @@ const drawStart = ref(null);
 const angleAnchor = ref(null);
 const angleInputs = ref({ angle: 45, length: 0.5, extend: false });
 
-// Convert a pointer event into model-space coords [0..1].
+// Convert a pointer event into model-space coords [0..1] (paper space).
+// The paper is inset by MARGIN inside the SVG so users can click slightly
+// outside it to grab edge-adjacent vertices/lines.
 function eventToModel(ev) {
   const rect = svgRef.value.getBoundingClientRect();
-  const x = (ev.clientX - rect.left) / rect.width;
-  const y = 1 - (ev.clientY - rect.top) / rect.height;
-  return [x, y];
+  const px = ((ev.clientX - rect.left) / rect.width) * SIZE;
+  const py = ((ev.clientY - rect.top) / rect.height) * SIZE;
+  return [(px - MARGIN) / INNER, 1 - (py - MARGIN) / INNER];
 }
 
 function pickEdgeIndex(p) {
@@ -86,8 +90,8 @@ function onKey(ev) {
 onMounted(() => window.addEventListener('keydown', onKey));
 onUnmounted(() => window.removeEventListener('keydown', onKey));
 
-const xToPx = x => x * SIZE;
-const yToPx = y => (1 - y) * SIZE;
+const xToPx = x => MARGIN + x * INNER;
+const yToPx = y => MARGIN + (1 - y) * INNER;
 
 const ghostLine = computed(() => {
   if (state.tool === 'draw' && drawStart.value && cursor.value) {
@@ -114,7 +118,7 @@ const ghostLine = computed(() => {
          @pointerdown="onPointerDown"
          @pointerleave="cursor = null">
 
-      <rect x="0" y="0" :width="SIZE" :height="SIZE" fill="#fff" stroke="#ddd" />
+      <rect :x="MARGIN" :y="MARGIN" :width="INNER" :height="INNER" fill="#fff" stroke="#ddd" />
 
       <!-- Grid -->
       <g v-if="state.grid.visible" class="grid">
@@ -204,5 +208,5 @@ const ghostLine = computed(() => {
 
 <style scoped>
 .canvas-wrap { display: flex; align-items: center; justify-content: center; padding: 12px; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
-.surface { width: auto; height: auto; max-width: 100%; max-height: 100%; aspect-ratio: 1 / 1; background: #fff; border-radius: 8px; box-shadow: 0 0 0 1px var(--bd); cursor: crosshair; display: block; }
+.surface { width: auto; height: auto; max-width: 100%; max-height: 100%; aspect-ratio: 1 / 1; background: var(--bg); cursor: crosshair; display: block; }
 </style>
