@@ -25,7 +25,7 @@ export const state = reactive({
   model: emptyModel(),
   tool: 'draw',          // draw | select | mirror | repeat | angle
   assignment: persisted?.assignment || 'V',
-  grid: persisted?.grid || { type: 'square', density: 8, snap: true, visible: true },
+  grid: persisted?.grid || { type: 'square', density: 8, snap: true, visible: true, extend: false },
   labels: persisted?.labels || { vertices: false, edges: false, faces: false, oneBased: false },
   selection: { edges: new Set(), vertices: new Set() },
   view: { zoom: 1, pan: [0, 0] },
@@ -69,9 +69,30 @@ export function deleteSavedProject(name) {
   refreshProjects();
 }
 
+// Set per-edge foldAngle for currently-selected edges. Pass null to clear
+// (revert to assignment default).
+export function setEdgeFoldAngle(angle) {
+  const idxs = [...state.selection.edges];
+  if (!idxs.length) return;
+  for (const i of idxs) {
+    const e = state.model.edges[i];
+    if (!e) continue;
+    if (angle === null || angle === undefined) delete e.foldAngle;
+    else e.foldAngle = angle;
+  }
+  pushHistory();
+}
+
 const history = new History(state.model);
 
-export const gridGeom = computed(() => buildGrid(state.grid.type, state.grid.density));
+// Workspace bounds in model space (paper is [0,1]²; workspace adds a ring
+// around the paper so users have room to drag/select near the edges).
+export const WORKSPACE_PAD = 0.12;
+export const workspaceRange = computed(() => state.grid.extend
+  ? [-WORKSPACE_PAD, 1 + WORKSPACE_PAD, -WORKSPACE_PAD, 1 + WORKSPACE_PAD]
+  : [0, 1, 0, 1]
+);
+export const gridGeom = computed(() => buildGrid(state.grid.type, state.grid.density, workspaceRange.value));
 
 export function pushHistory() {
   history.push(state.model);

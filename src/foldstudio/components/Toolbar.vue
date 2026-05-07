@@ -14,11 +14,11 @@ const transformTools = [
 ];
 
 const assignments = [
-  { id: 'M', label: 'Mountain', color: '#e23b3b' },
-  { id: 'V', label: 'Valley',   color: '#3a7bd5' },
-  { id: 'B', label: 'Border',   color: '#111' },
-  { id: 'F', label: 'Flat',     color: '#999' },
-  { id: 'U', label: 'Unknown',  color: '#777' },
+  { id: 'M', label: 'Mountain', color: '#e23b3b', hint: 'Mountain fold (default −180°). Click to set as paint; click with edges selected to reassign them.' },
+  { id: 'V', label: 'Valley',   color: '#3a7bd5', hint: 'Valley fold (default +180°). Click to paint future creases as valley.' },
+  { id: 'B', label: 'Border',   color: '#111',    hint: 'Paper boundary. Doesn\'t fold; counts as the edge of the paper.' },
+  { id: 'F', label: 'Flat',     color: '#999',    hint: 'Flat / reference line (0°). Drawn but not folded.' },
+  { id: 'U', label: 'Unknown',  color: '#777',    hint: 'Unknown / unassigned crease type.' },
 ];
 
 function onKey(ev) {
@@ -72,7 +72,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
               :class="{ active: state.assignment === a.id }"
               :style="{ borderColor: state.assignment === a.id ? a.color : 'var(--bd)' }"
               @click="assignSelection(a.id)"
-              :title="`${a.label} (${assignments.indexOf(a) + 1})`">
+              :title="`${a.label} (${assignments.indexOf(a) + 1}) — ${a.hint}`">
         <span class="swatch" :style="{ background: a.color }" />
         {{ a.id }}
       </button>
@@ -81,11 +81,15 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
     <div class="divider" />
 
     <div class="group">
-      <button @click="undo" title="Undo (Ctrl/Cmd-Z)"><Icon name="undo" /></button>
+      <button @click="undo" title="Undo last change (Ctrl/Cmd-Z)"><Icon name="undo" /></button>
       <button @click="redo" title="Redo (Ctrl/Cmd-Shift-Z)"><Icon name="redo" /></button>
-      <button @click="deleteSelection" title="Delete selected (Del)"><Icon name="trash" /></button>
-      <button @click="selectAll" title="Select all (Ctrl/Cmd-A)">All</button>
-      <button @click="clearSelection" title="Deselect">None</button>
+      <button @click="selectAll" title="Select every edge (Ctrl/Cmd-A)">All</button>
+      <button @click="clearSelection" title="Clear current selection (Esc)">None</button>
+      <button @click="deleteSelection"
+              title="Delete the selected edges (Del / Backspace)"
+              :disabled="!state.selection.edges.size">
+        <Icon name="trash" />
+      </button>
     </div>
   </div>
 </template>
@@ -95,7 +99,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
 .group { display: flex; gap: 4px; }
 .divider { width: 1px; align-self: stretch; background: var(--bd); margin: 0 4px; }
 button { background: var(--bg); color: var(--t); border: 1px solid var(--bd); border-radius: 6px; padding: 6px 9px; font: 500 0.75rem 'DM Sans', sans-serif; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
-button:hover { border-color: var(--ac2); }
+button:hover:not(:disabled) { border-color: var(--ac2); }
 button.active { background: var(--acd); border-color: var(--ac2); color: var(--t); }
+button:disabled { opacity: 0.35; cursor: not-allowed; }
 .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
 </style>

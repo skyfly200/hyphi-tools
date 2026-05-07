@@ -3,6 +3,18 @@
 
 const ASSIGN_TO_FOLD = { M: 'M', V: 'V', B: 'B', F: 'F', U: 'U' };
 
+// Default fold angle (degrees) when an edge has no explicit override.
+// Origami Simulator expects negative for mountain, positive for valley.
+const DEFAULT_ANGLE = { M: -180, V: 180, F: 0, B: 0, U: 0 };
+
+export function defaultFoldAngle(assignment) {
+  return DEFAULT_ANGLE[assignment] ?? 0;
+}
+
+export function effectiveFoldAngle(edge) {
+  return Number.isFinite(edge.foldAngle) ? edge.foldAngle : defaultFoldAngle(edge.assignment);
+}
+
 export function modelToFOLD(model, opts = {}) {
   const out = {
     file_spec: 1.1,
@@ -13,6 +25,7 @@ export function modelToFOLD(model, opts = {}) {
     vertices_coords: model.vertices.map(v => [v[0], v[1]]),
     edges_vertices: model.edges.map(e => [e.v1, e.v2]),
     edges_assignment: model.edges.map(e => ASSIGN_TO_FOLD[e.assignment] || 'U'),
+    edges_foldAngle: model.edges.map(effectiveFoldAngle),
   };
   if (model.faces && model.faces.length) {
     out.faces_vertices = model.faces.map(f => f.slice());
@@ -29,12 +42,16 @@ export function foldToModel(fold) {
   const vc = fold.vertices_coords || [];
   const ev = fold.edges_vertices || [];
   const ea = fold.edges_assignment || ev.map(() => 'U');
+  const ef = fold.edges_foldAngle || [];
   return {
     vertices: vc.map(v => [v[0], v[1]]),
-    edges: ev.map((e, i) => ({
-      v1: e[0], v2: e[1],
-      assignment: (ea[i] || 'U').toUpperCase(),
-    })),
+    edges: ev.map((e, i) => {
+      const edge = { v1: e[0], v2: e[1], assignment: (ea[i] || 'U').toUpperCase() };
+      if (Number.isFinite(ef[i]) && ef[i] !== defaultFoldAngle(edge.assignment)) {
+        edge.foldAngle = ef[i];
+      }
+      return edge;
+    }),
     faces: (fold.faces_vertices || []).map(f => f.slice()),
   };
 }

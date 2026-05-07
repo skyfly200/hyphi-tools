@@ -42,7 +42,17 @@ export function validateFlatFoldability(model) {
     const m = neigh.filter(n => n.a === 'M').length;
     const vN = neigh.filter(n => n.a === 'V').length;
     if (Math.abs(m - vN) !== 2) {
-      issues.push({ vertex: v, type: 'maekawa', msg: `Maekawa: |M−V|=${Math.abs(m - vN)} (need 2)` });
+      const diff = Math.abs(m - vN);
+      const more = m > vN ? 'mountains' : 'valleys';
+      const fewer = m > vN ? 'valleys' : 'mountains';
+      issues.push({
+        vertex: v,
+        type: 'maekawa',
+        title: 'Mountain/valley count is off',
+        msg: diff === 0
+          ? `${m} mountains and ${vN} valleys at this corner. Flat-folding needs them to differ by exactly 2.`
+          : `${m} mountains, ${vN} valleys. To fold flat here you need 2 more ${more} than ${fewer} (or 2 more ${fewer} than ${more}); the difference is currently ${diff}.`,
+      });
     }
     // Kawasaki: alternating sum of angles between consecutive creases must be equal.
     const P = model.vertices[v];
@@ -58,7 +68,15 @@ export function validateFlatFoldability(model) {
       if (i % 2 === 0) s1 += d; else s2 += d;
     }
     if (Math.abs(s1 - s2) > 1e-3) {
-      issues.push({ vertex: v, type: 'kawasaki', msg: `Kawasaki: ${(s1 * 180 / Math.PI).toFixed(1)}° vs ${(s2 * 180 / Math.PI).toFixed(1)}°` });
+      const a = (s1 * 180 / Math.PI).toFixed(1);
+      const b = (s2 * 180 / Math.PI).toFixed(1);
+      const off = Math.abs(parseFloat(a) - parseFloat(b)).toFixed(1);
+      issues.push({
+        vertex: v,
+        type: 'kawasaki',
+        title: 'Angles between creases don\'t balance',
+        msg: `Going around this corner, alternating angles between creases must each total 180°. They currently sum to ${a}° and ${b}° — off by ${off}°. Move a crease to rebalance.`,
+      });
     }
   }
   return { ok: issues.length === 0, issues };
