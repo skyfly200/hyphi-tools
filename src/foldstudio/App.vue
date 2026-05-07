@@ -40,6 +40,6 @@ import { state } from './store.js';
 .foldstudio-root .badge { font-family: 'DM Mono', monospace; font-size: 0.6rem; color: var(--ac); border: 1px solid var(--ac); padding: 1px 5px; border-radius: 3px; margin-left: 4px; vertical-align: middle; }
 .foldstudio-root .hint { font-family: 'DM Mono', monospace; font-size: 0.7rem; color: var(--sub); }
 .foldstudio-root .body { display: flex; flex: 1; min-height: 0; }
-.foldstudio-root .canvas-area { flex: 1; display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 0; padding: 12px; }
+.foldstudio-root .canvas-area { flex: 1; display: flex; align-items: stretch; justify-content: stretch; min-width: 0; min-height: 0; overflow: hidden; }
 .foldstudio-root .status { font-family: 'DM Mono', monospace; font-size: 0.7rem; color: var(--sub); padding: 8px 18px; border-top: 1px solid var(--bd); background: var(--s); }
 </style>
