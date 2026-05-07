@@ -1,7 +1,7 @@
 // Reactive store for FoldStudio. Single instance shared across components.
 // Keeping it as a plain reactive() rather than Pinia since this is one tool.
 
-import { reactive, computed, ref } from 'vue';
+import { reactive, computed, ref, watch } from 'vue';
 import {
   emptyModel, cloneModel, addEdgeWithSplits, deleteEdges, setEdgeAssignment,
   History, repeatTransform,
@@ -11,18 +11,63 @@ import { computeFaces, validateFlatFoldability } from './lib/rabbitear.js';
 import {
   matRotateAround, matTranslate, matReflectLine, applyMatrix,
 } from './lib/geometry.js';
+import {
+  loadPrefs, savePrefs,
+  listProjects as listProjectsRaw,
+  saveProject as saveProjectRaw,
+  loadProject as loadProjectRaw,
+  deleteProject as deleteProjectRaw,
+} from './lib/persistence.js';
+
+const persisted = (typeof localStorage !== 'undefined' && loadPrefs()) || null;
 
 export const state = reactive({
   model: emptyModel(),
   tool: 'draw',          // draw | select | mirror | repeat | angle
-  assignment: 'V',       // current paint assignment
-  grid: { type: 'square', density: 8, snap: true, visible: true },
-  labels: { vertices: false, edges: false, faces: false, oneBased: false },
+  assignment: persisted?.assignment || 'V',
+  grid: persisted?.grid || { type: 'square', density: 8, snap: true, visible: true },
+  labels: persisted?.labels || { vertices: false, edges: false, faces: false, oneBased: false },
   selection: { edges: new Set(), vertices: new Set() },
   view: { zoom: 1, pan: [0, 0] },
   validation: { ok: true, issues: [] },
   status: 'Ready',
+  currentProject: null,
+  projects: listProjectsRaw(),
 });
+
+// Persist preferences whenever they change.
+watch(
+  () => ({ assignment: state.assignment, grid: { ...state.grid }, labels: { ...state.labels } }),
+  prefs => savePrefs(prefs),
+  { deep: true }
+);
+
+export function refreshProjects() {
+  state.projects = listProjectsRaw();
+}
+
+export function saveCurrentProject(name) {
+  const target = name || state.currentProject;
+  if (!target) throw new Error('project name required');
+  saveProjectRaw(target, state.model);
+  state.currentProject = target;
+  refreshProjects();
+  state.status = `Saved "${target}"`;
+}
+
+export function loadSavedProject(name) {
+  const m = loadProjectRaw(name);
+  if (!m) { state.status = `Project "${name}" not found`; return; }
+  loadModel(m);
+  state.currentProject = name;
+  state.status = `Loaded "${name}"`;
+}
+
+export function deleteSavedProject(name) {
+  deleteProjectRaw(name);
+  if (state.currentProject === name) state.currentProject = null;
+  refreshProjects();
+}
 
 const history = new History(state.model);
 

@@ -1,29 +1,5 @@
 <script setup>
-import { state, loadModel } from '../store.js';
-import { modelToFOLD, foldToModel, modelToSVG, downloadJSON, downloadText } from '../lib/fold-io.js';
-
-function exportFold() {
-  const fold = modelToFOLD(state.model, { ids: true });
-  downloadJSON('pattern.fold', fold);
-}
-function exportSVG() {
-  downloadText('pattern.svg', modelToSVG(state.model));
-}
-function importFile(ev) {
-  const f = ev.target.files?.[0];
-  if (!f) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    try {
-      const fold = JSON.parse(reader.result);
-      loadModel(foldToModel(fold));
-    } catch (e) {
-      alert('Could not parse FOLD file: ' + e.message);
-    }
-  };
-  reader.readAsText(f);
-  ev.target.value = '';
-}
+import { state } from '../store.js';
 </script>
 
 <template>
@@ -57,15 +33,6 @@ function importFile(ev) {
       <label class="check"><input type="checkbox" v-model="state.labels.oneBased" /> 1-based numbering</label>
     </section>
 
-    <section>
-      <h3>File</h3>
-      <button @click="exportFold">Export .fold</button>
-      <button @click="exportSVG">Export .svg</button>
-      <label class="filebtn">
-        Import .fold
-        <input type="file" accept=".fold,application/json" @change="importFile" hidden />
-      </label>
-    </section>
   </aside>
 </template>
 
