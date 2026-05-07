@@ -40,29 +40,67 @@ export function addOrFindVertex(model, p, eps = EPS) {
   return model.vertices.length - 1;
 }
 
+// Distance/parameter of point P projected onto segment CD. Returns
+// { t, dist } where t is the (clamped) parameter and dist is perpendicular
+// distance. Used to detect "vertex lies on edge" without hitting endpoints.
+function projectParam(P, C, D) {
+  const dx = D[0] - C[0], dy = D[1] - C[1];
+  const L2 = dx * dx + dy * dy || 1;
+  const t = ((P[0] - C[0]) * dx + (P[1] - C[1]) * dy) / L2;
+  const px = C[0] + dx * t, py = C[1] + dy * t;
+  return { t, dist: Math.hypot(P[0] - px, P[1] - py) };
+}
+
+// Split any existing edge whose interior contains the given vertex. Mutates
+// model.edges in place. Used to fix the case where a new crease lands on the
+// interior of a pre-existing edge (T-junction).
+function splitEdgesAtVertex(model, vIdx, tol = EPS * 50) {
+  const P = model.vertices[vIdx];
+  const replacements = [];
+  for (let ei = 0; ei < model.edges.length; ei++) {
+    const e = model.edges[ei];
+    if (e.v1 === vIdx || e.v2 === vIdx) continue;
+    const { t, dist } = projectParam(P, model.vertices[e.v1], model.vertices[e.v2]);
+    if (t > EPS && t < 1 - EPS && dist < tol) {
+      replacements.push(ei);
+    }
+  }
+  if (!replacements.length) return;
+  const drop = new Set(replacements);
+  const add = [];
+  for (const ei of replacements) {
+    const e = model.edges[ei];
+    add.push({ v1: e.v1, v2: vIdx, assignment: e.assignment });
+    add.push({ v1: vIdx, v2: e.v2, assignment: e.assignment });
+  }
+  model.edges = model.edges.filter((_, i) => !drop.has(i));
+  for (const e of add) model.edges.push(e);
+}
+
 // Add an edge, splitting at intersections with existing edges so the
 // planar graph remains valid. Removes degenerate / duplicate edges.
 export function addEdgeWithSplits(model, p1, p2, assignment) {
   const a = addOrFindVertex(model, p1);
   const b = addOrFindVertex(model, p2);
   if (a === b) return;
+  // If either endpoint lies on the interior of an existing edge (T-junction),
+  // split that edge before we go further so the planar graph stays consistent.
+  splitEdgesAtVertex(model, a);
+  splitEdgesAtVertex(model, b);
+
   // Collect all intersection points on the new segment.
   const A = model.vertices[a], B = model.vertices[b];
   const splits = [{ t: 0, vIdx: a }, { t: 1, vIdx: b }];
 
-  // Also: if any existing vertex lies on segment AB, treat as split.
+  // If any existing vertex lies on segment AB, treat as split (and split any
+  // existing edge that passes through it but is missing the vertex).
   for (let i = 0; i < model.vertices.length; i++) {
     if (i === a || i === b) continue;
     const P = model.vertices[i];
-    // closest distance to segment
-    const dx = B[0] - A[0], dy = B[1] - A[1];
-    const L2 = dx * dx + dy * dy || 1;
-    const t = ((P[0] - A[0]) * dx + (P[1] - A[1]) * dy) / L2;
-    if (t > EPS && t < 1 - EPS) {
-      const px = A[0] + dx * t, py = A[1] + dy * t;
-      if (Math.hypot(P[0] - px, P[1] - py) < EPS * 10) {
-        splits.push({ t, vIdx: i });
-      }
+    const { t, dist } = projectParam(P, A, B);
+    if (t > EPS && t < 1 - EPS && dist < EPS * 50) {
+      splits.push({ t, vIdx: i });
+      splitEdgesAtVertex(model, i);
     }
   }
 
@@ -105,6 +143,16 @@ export function findEdge(model, v1, v2) {
     if ((e.v1 === v1 && e.v2 === v2) || (e.v1 === v2 && e.v2 === v1)) return e;
   }
   return null;
+}
+
+// Walk every vertex and split any edge whose interior contains it (T-junctions).
+// Useful for repairing imported patterns or ones built before the splitter was
+// fixed. Idempotent.
+export function repairPlanarGraph(model) {
+  for (let v = 0; v < model.vertices.length; v++) {
+    splitEdgesAtVertex(model, v);
+  }
+  dedupe(model);
 }
 
 export function dedupe(model) {

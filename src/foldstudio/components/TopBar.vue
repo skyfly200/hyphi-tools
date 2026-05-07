@@ -10,13 +10,17 @@ import Icon from './Icon.vue';
 const showSave = ref(false);
 const showLoad = ref(false);
 const showHelp = ref(false);
+const showSimulator = ref(false);
 const projectName = ref('');
 
+// Origami Simulator's URL doesn't accept arbitrary user FOLD via query
+// params (?model= only matches bundled demo filenames). The reliable path is
+// to download the file and let the user drop it into the simulator window.
 function openInOrigamiSimulator() {
-  const fold = modelToFOLD(state.model, { ids: false });
-  const json = JSON.stringify(fold);
-  const b64 = btoa(unescape(encodeURIComponent(json)));
-  window.open(`https://origamisimulator.org/?pattern=data:text/plain;base64,${b64}`, '_blank', 'noopener');
+  const filename = (state.currentProject || 'pattern') + '.fold';
+  downloadJSON(filename, modelToFOLD(state.model, { ids: false }));
+  window.open('https://origamisimulator.org/', '_blank', 'noopener');
+  showSimulator.value = true;
 }
 
 function openSave() {
@@ -130,6 +134,24 @@ const fmt = ts => new Date(ts).toLocaleString();
       </div>
     </div>
 
+    <!-- Simulator handoff modal -->
+    <div v-if="showSimulator" class="modal-bg" @click.self="showSimulator = false">
+      <div class="modal">
+        <h3>Open in Origami Simulator</h3>
+        <p class="hint">
+          Origami Simulator doesn't accept patterns over the URL, so the file has been downloaded for you.
+        </p>
+        <ol class="steps">
+          <li>The simulator is opening in a new tab.</li>
+          <li>Drag <strong>{{ (state.currentProject || 'pattern') + '.fold' }}</strong> into the simulator window — or use <em>File → Import…</em> there.</li>
+          <li>Use the simulator's slider to fold from 0 → 1.</li>
+        </ol>
+        <div class="row">
+          <button class="primary" @click="showSimulator = false">Got it</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Help modal -->
     <div v-if="showHelp" class="modal-bg" @click.self="showHelp = false">
       <div class="modal help">
@@ -218,6 +240,8 @@ button.danger { color: var(--ac); padding: 4px 6px; }
 .hint { font-family: 'DM Mono', monospace; font-size: 0.78rem; color: var(--sub); }
 
 .qmark { font-weight: 700; color: var(--ac2); width: 14px; text-align: center; }
+.steps { padding-left: 20px; margin: 0; display: flex; flex-direction: column; gap: 6px; font-size: 0.82rem; color: var(--t); line-height: 1.5; }
+.steps strong { color: var(--ac2); font-weight: 500; }
 .modal.help { min-width: 640px; max-width: 760px; max-height: 80vh; overflow-y: auto; }
 .help-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 28px; }
 .help-grid section { display: flex; flex-direction: column; gap: 6px; }
