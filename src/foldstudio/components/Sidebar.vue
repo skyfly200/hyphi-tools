@@ -1,6 +1,7 @@
 <script setup>
 import { watch } from 'vue';
 import { state } from '../store.js';
+import ToolOptions from './ToolOptions.vue';
 
 const POWERS = [2, 4, 8, 16, 32, 64];
 
@@ -53,9 +54,6 @@ watch(() => state.grid.snapPow2, on => {
         </label>
       </div>
 
-      <label class="check" title="When drawing, snap pointer to nearest grid node or existing vertex">
-        <input type="checkbox" v-model="state.grid.snap" /> Snap to grid + vertices
-      </label>
       <label class="check" title="Toggle grid visibility on the canvas">
         <input type="checkbox" v-model="state.grid.visible" /> Show grid
       </label>
@@ -63,6 +61,21 @@ watch(() => state.grid.snapPow2, on => {
         <input type="checkbox" v-model="state.grid.extend" /> Extend grid past paper
       </label>
     </section>
+
+    <section>
+      <h3>Snap to</h3>
+      <label class="check" title="Snap to existing crease vertices">
+        <input type="checkbox" v-model="state.snap.vertices" /> Vertices (nodes)
+      </label>
+      <label class="check" title="Snap to nodes of the active grid(s)">
+        <input type="checkbox" v-model="state.snap.grid" /> Grid points
+      </label>
+      <label class="check" title="Snap to the midpoint of every existing edge">
+        <input type="checkbox" v-model="state.snap.midpoints" /> Edge midpoints
+      </label>
+    </section>
+
+    <ToolOptions />
 
     <section>
       <h3>Labels</h3>

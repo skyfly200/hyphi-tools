@@ -9,7 +9,7 @@ import {
 import { buildGrid } from './lib/grid.js';
 import { computeFaces, validateFlatFoldability } from './lib/rabbitear.js';
 import {
-  matRotateAround, matTranslate, matReflectLine, applyMatrix,
+  matRotateAround, matTranslate, matReflectLine, applyMatrix, segmentIntersection,
 } from './lib/geometry.js';
 import {
   loadPrefs, savePrefs,
@@ -30,6 +30,11 @@ if (persisted?.grid && !persisted.grid.types) {
 if (persisted?.grid && persisted.grid.snapPow2 === undefined) {
   persisted.grid.snapPow2 = true;
 }
+// Promote old grid.snap (single bool) to the new state.snap (target flags).
+if (persisted && !persisted.snap) {
+  const enabled = persisted.grid?.snap !== false;
+  persisted.snap = { vertices: enabled, grid: enabled, midpoints: false };
+}
 
 export const state = reactive({
   model: emptyModel(),
@@ -44,11 +49,25 @@ export const state = reactive({
   currentProject: null,
   projects: listProjectsRaw(),
   ui: { mobileSidebar: false, mobileInspector: false },
+  // What pointer snaps to. Three independent targets — uncheck all to disable.
+  snap: persisted?.snap || { vertices: true, grid: true, midpoints: false },
+  toolOptions: persisted?.toolOptions || {
+    mirror: { axis: 'y', flipMV: false },
+    repeat: { kind: 'rotational', count: 4, angle: 90, dx: 0.1, dy: 0, cx: 0.5, cy: 0.5 },
+    // length is in paper-units. mode: 'fixed' | 'edge' | 'paper'
+    angle: { angle: 45, length: 0.5, mode: 'fixed' },
+  },
 });
 
 // Persist preferences whenever they change.
 watch(
-  () => ({ assignment: state.assignment, grid: { ...state.grid }, labels: { ...state.labels } }),
+  () => ({
+    assignment: state.assignment,
+    grid: { ...state.grid },
+    labels: { ...state.labels },
+    snap: { ...state.snap },
+    toolOptions: JSON.parse(JSON.stringify(state.toolOptions)),
+  }),
   prefs => savePrefs(prefs),
   { deep: true }
 );
@@ -136,18 +155,23 @@ export function runValidation() {
 }
 
 export function snapPoint(p) {
-  if (!state.grid.snap) return p;
-  const { nodes } = gridGeom.value;
   const tol = 0.6 / state.grid.density;
   let best = null, bd = tol;
-  for (const n of nodes) {
-    const d = Math.hypot(n[0] - p[0], n[1] - p[1]);
-    if (d < bd) { bd = d; best = n; }
+  const consider = (q) => {
+    const d = Math.hypot(q[0] - p[0], q[1] - p[1]);
+    if (d < bd) { bd = d; best = q; }
+  };
+  if (state.snap.grid) {
+    for (const n of gridGeom.value.nodes) consider(n);
   }
-  // Also snap to existing vertices.
-  for (const v of state.model.vertices) {
-    const d = Math.hypot(v[0] - p[0], v[1] - p[1]);
-    if (d < bd) { bd = d; best = v; }
+  if (state.snap.vertices) {
+    for (const v of state.model.vertices) consider(v);
+  }
+  if (state.snap.midpoints) {
+    for (const e of state.model.edges) {
+      const a = state.model.vertices[e.v1], b = state.model.vertices[e.v2];
+      consider([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
+    }
   }
   return best ? [best[0], best[1]] : p;
 }
@@ -184,15 +208,30 @@ export function clearSelection() {
 
 export function mirrorSelection({ axis = 'x', line = null, flipMV = false }) {
   const indices = [...state.selection.edges];
-  if (indices.length === 0) return;
-  let A, B;
+  if (indices.length === 0) {
+    state.status = 'Select edges to mirror first';
+    return;
+  }
+  let A, B, sourceIndices = indices;
   if (axis === 'x') { A = [0, 0.5]; B = [1, 0.5]; }
   else if (axis === 'y') { A = [0.5, 0]; B = [0.5, 1]; }
+  else if (axis === 'edge') {
+    if (indices.length < 2) {
+      state.status = 'Select an axis edge plus at least one edge to mirror';
+      return;
+    }
+    // First selected edge is the axis; the rest get mirrored across it.
+    const axisEdge = state.model.edges[indices[0]];
+    A = state.model.vertices[axisEdge.v1];
+    B = state.model.vertices[axisEdge.v2];
+    sourceIndices = indices.slice(1);
+  }
   else if (line) { A = line[0]; B = line[1]; }
   else return;
+
   const M = matReflectLine(A, B);
   const flipMap = { M: 'V', V: 'M' };
-  const sourceEdges = indices.map(i => state.model.edges[i]).filter(Boolean);
+  const sourceEdges = sourceIndices.map(i => state.model.edges[i]).filter(Boolean);
   for (const e of sourceEdges) {
     const p1 = applyMatrix(M, state.model.vertices[e.v1]);
     const p2 = applyMatrix(M, state.model.vertices[e.v2]);
@@ -212,29 +251,56 @@ export function repeatSelection({ kind = 'rotational', count = 4, angle = 90, dx
   pushHistory();
 }
 
-// Place a crease defined by anchor + angle (deg) + length, optionally
-// extending until the first intersection with an existing edge or the boundary.
-export function drawAngleCrease({ anchor, angle, length, extend = false }) {
+// Place a crease defined by anchor + angle (deg). `mode` controls the length:
+//   'fixed' — use the literal length value (paper-units)
+//   'paper' — extend until the ray exits the paper [0,1]² boundary
+//   'edge'  — extend until the first intersection with any existing edge,
+//             falling back to the paper boundary if nothing is hit first.
+// Helper that resolves the length for the active mode and returns the end
+// point and effective length used.
+export function angleCreaseEnd({ anchor, angle, length, mode = 'fixed' }) {
   const a = angle * Math.PI / 180;
   const dir = [Math.cos(a), Math.sin(a)];
-  let end = [anchor[0] + dir[0] * length, anchor[1] + dir[1] * length];
-  if (extend) {
-    // Extend to bounding-box edge of [0,1]^2
-    const ts = [];
-    if (Math.abs(dir[0]) > 1e-9) {
-      ts.push((0 - anchor[0]) / dir[0]);
-      ts.push((1 - anchor[0]) / dir[0]);
+  // Start with the explicit length so we always have a fallback.
+  let t = length;
+  if (mode === 'paper' || mode === 'edge') {
+    const tBoundary = nearestBoundaryT(anchor, dir);
+    let tEdge = Infinity;
+    if (mode === 'edge') {
+      const far = tBoundary > 0 ? tBoundary + 0.01 : 10;
+      const B = [anchor[0] + dir[0] * far, anchor[1] + dir[1] * far];
+      for (const e of state.model.edges) {
+        const C = state.model.vertices[e.v1], D = state.model.vertices[e.v2];
+        const ix = segmentIntersection(anchor, B, C, D);
+        if (ix && ix.t > 1e-6 && ix.t * far < tEdge) tEdge = ix.t * far;
+      }
     }
-    if (Math.abs(dir[1]) > 1e-9) {
-      ts.push((0 - anchor[1]) / dir[1]);
-      ts.push((1 - anchor[1]) / dir[1]);
-    }
-    const positive = ts.filter(t => t > 1e-6).sort((a, b) => a - b);
-    if (positive.length) {
-      const t = positive[0];
-      end = [anchor[0] + dir[0] * t, anchor[1] + dir[1] * t];
-    }
+    const candidate = Math.min(tBoundary || Infinity, tEdge);
+    if (Number.isFinite(candidate) && candidate > 1e-6) t = candidate;
   }
+  return {
+    end: [anchor[0] + dir[0] * t, anchor[1] + dir[1] * t],
+    length: t,
+  };
+}
+
+function nearestBoundaryT(anchor, dir) {
+  const ts = [];
+  if (Math.abs(dir[0]) > 1e-9) {
+    ts.push((0 - anchor[0]) / dir[0]);
+    ts.push((1 - anchor[0]) / dir[0]);
+  }
+  if (Math.abs(dir[1]) > 1e-9) {
+    ts.push((0 - anchor[1]) / dir[1]);
+    ts.push((1 - anchor[1]) / dir[1]);
+  }
+  const positive = ts.filter(t => t > 1e-6).sort((a, b) => a - b);
+  return positive[0] || 0;
+}
+
+export function drawAngleCrease(opts) {
+  const { anchor } = opts;
+  const { end } = angleCreaseEnd(opts);
   addEdgeWithSplits(state.model, anchor, end, state.assignment);
   pushHistory();
 }

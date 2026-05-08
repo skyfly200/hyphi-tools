@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import {
-  state, gridGeom, snapPoint, drawCrease, clearSelection, drawAngleCrease,
+  state, gridGeom, snapPoint, drawCrease, clearSelection, drawAngleCrease, angleCreaseEnd,
 } from '../store.js';
 import { closestOnSegment } from '../lib/geometry.js';
 import { edgeMidpoint, faceCentroid, formatId } from '../lib/ids.js';
@@ -15,7 +15,6 @@ const svgRef = ref(null);
 const cursor = ref(null);
 const drawStart = ref(null);
 const angleAnchor = ref(null);
-const angleInputs = ref({ angle: 45, length: 0.5, extend: false });
 
 // Convert a pointer event into model-space coords [0..1] (paper space).
 // The paper is inset by MARGIN inside the SVG so users can click slightly
@@ -70,9 +69,9 @@ function onPointerDown(ev) {
     else {
       drawAngleCrease({
         anchor: angleAnchor.value,
-        angle: +angleInputs.value.angle,
-        length: +angleInputs.value.length,
-        extend: angleInputs.value.extend,
+        angle: +state.toolOptions.angle.angle,
+        length: +state.toolOptions.angle.length,
+        mode: state.toolOptions.angle.mode,
       });
       angleAnchor.value = null;
     }
@@ -98,12 +97,13 @@ const ghostLine = computed(() => {
     return { a: drawStart.value, b: cursor.value };
   }
   if (state.tool === 'angle' && angleAnchor.value) {
-    const a = +angleInputs.value.angle * Math.PI / 180;
-    const L = +angleInputs.value.length;
-    return {
-      a: angleAnchor.value,
-      b: [angleAnchor.value[0] + Math.cos(a) * L, angleAnchor.value[1] + Math.sin(a) * L],
-    };
+    const { end } = angleCreaseEnd({
+      anchor: angleAnchor.value,
+      angle: +state.toolOptions.angle.angle,
+      length: +state.toolOptions.angle.length,
+      mode: state.toolOptions.angle.mode,
+    });
+    return { a: angleAnchor.value, b: end };
   }
   return null;
 });
