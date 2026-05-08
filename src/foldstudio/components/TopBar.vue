@@ -13,14 +13,32 @@ const showHelp = ref(false);
 const showSimulator = ref(false);
 const projectName = ref('');
 
-// Origami Simulator's URL doesn't accept arbitrary user FOLD via query
-// params (?model= only matches bundled demo filenames). The reliable path is
-// to download the file and let the user drop it into the simulator window.
+// Origami Simulator's importer.js listens for postMessage events with
+// op: 'importFold' or 'importSVG'. We open the simulator in a popup, then
+// post the FOLD a few times since there's no ready-handshake.
 function openInOrigamiSimulator() {
   const filename = (state.currentProject || 'pattern') + '.fold';
-  downloadJSON(filename, modelToFOLD(state.model, { ids: false }));
-  window.open('https://origamisimulator.org/', '_blank', 'noopener');
-  showSimulator.value = true;
+  const fold = modelToFOLD(state.model, { ids: false });
+  const popup = window.open('https://origamisimulator.org/', '_blank');
+  if (!popup) {
+    // Popup blocked → fall back to download + manual import.
+    downloadJSON(filename, fold);
+    showSimulator.value = true;
+    return;
+  }
+  let attempts = 0;
+  const send = () => {
+    if (popup.closed || attempts >= 12) return;
+    try {
+      popup.postMessage(
+        { op: 'importFold', fold, filename, file_title: state.currentProject || 'FoldStudio' },
+        '*'
+      );
+    } catch (_) { /* ignore — origin may not be ready */ }
+    attempts++;
+    setTimeout(send, attempts === 1 ? 1800 : 1000);
+  };
+  send();
 }
 
 function openSave() {
