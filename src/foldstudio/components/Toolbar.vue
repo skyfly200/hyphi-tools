@@ -95,8 +95,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
       <button @click="selectAll" title="Select every edge (Ctrl/Cmd-A)">All</button>
       <button @click="clearSelection" title="Clear current selection (Esc)">None</button>
       <button @click="deleteSelection"
-              title="Delete the selected edges (Del / Backspace)"
-              :disabled="!state.selection.edges.size">
+              title="Delete selected edges and vertices (Del / Backspace)"
+              :disabled="!state.selection.edges.size && !state.selection.vertices.size">
         <Icon name="trash" />
       </button>
     </div>
