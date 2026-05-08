@@ -47,11 +47,20 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
 
 <template>
   <div class="toolbar">
+    <div class="group mobile-only">
+      <button class="panel-toggle"
+              :class="{ active: state.ui.mobileSidebar }"
+              @click="state.ui.mobileSidebar = !state.ui.mobileSidebar"
+              title="Show grid + label settings">
+        <Icon name="panelLeft" />
+      </button>
+    </div>
+
     <div class="group">
       <button v-for="t in tools" :key="t.id"
               :class="{ active: state.tool === t.id }"
               @click="state.tool = t.id" :title="`${t.label} (${t.key})`">
-        <Icon :name="t.icon" /><span>{{ t.label }}</span>
+        <Icon :name="t.icon" /><span class="lbl">{{ t.label }}</span>
       </button>
     </div>
 
@@ -61,7 +70,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
       <button v-for="t in transformTools" :key="t.id"
               :class="{ active: state.tool === t.id }"
               @click="state.tool = t.id" :title="`${t.label} (${t.key})`">
-        <Icon :name="t.icon" /><span>{{ t.label }}</span>
+        <Icon :name="t.icon" /><span class="lbl">{{ t.label }}</span>
       </button>
     </div>
 
@@ -91,6 +100,15 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
         <Icon name="trash" />
       </button>
     </div>
+
+    <div class="group mobile-only" style="margin-left:auto">
+      <button class="panel-toggle"
+              :class="{ active: state.ui.mobileInspector }"
+              @click="state.ui.mobileInspector = !state.ui.mobileInspector"
+              title="Show tool options + validation">
+        <Icon name="panelRight" />
+      </button>
+    </div>
   </div>
 </template>
 
@@ -98,9 +116,19 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
 .toolbar { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px; background: var(--s); border-bottom: 1px solid var(--bd); align-items: center; }
 .group { display: flex; gap: 4px; }
 .divider { width: 1px; align-self: stretch; background: var(--bd); margin: 0 4px; }
-button { background: var(--bg); color: var(--t); border: 1px solid var(--bd); border-radius: 6px; padding: 6px 9px; font: 500 0.75rem 'DM Sans', sans-serif; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+button { background: var(--bg); color: var(--t); border: 1px solid var(--bd); border-radius: 6px; padding: 6px 9px; font: 500 0.75rem 'DM Sans', sans-serif; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; min-height: 34px; }
 button:hover:not(:disabled) { border-color: var(--ac2); }
 button.active { background: var(--acd); border-color: var(--ac2); color: var(--t); }
 button:disabled { opacity: 0.35; cursor: not-allowed; }
 .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.mobile-only { display: none; }
+
+@media (max-width: 900px) {
+  .mobile-only { display: flex; }
+  /* Hide tool labels to keep the toolbar compact, leaving icons. */
+  button .lbl { display: none; }
+  /* Bigger tap target on touch devices. */
+  button { padding: 8px 10px; min-height: 40px; }
+  .toolbar { padding: 8px 10px; gap: 5px; }
+}
 </style>

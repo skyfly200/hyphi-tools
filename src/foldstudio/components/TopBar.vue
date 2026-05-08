@@ -227,9 +227,9 @@ button.link { background: none; border: none; color: var(--ac2); padding: 4px 0;
 button.link:hover { text-decoration: underline; }
 button.danger { color: var(--ac); padding: 4px 6px; }
 
-.modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; z-index: 50; }
-.modal { background: var(--s); border: 1px solid var(--bd); border-radius: 10px; padding: 20px; min-width: 320px; display: flex; flex-direction: column; gap: 14px; }
-.modal.wide { min-width: 420px; }
+.modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 12px; }
+.modal { background: var(--s); border: 1px solid var(--bd); border-radius: 10px; padding: 20px; min-width: 320px; max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.modal.wide { min-width: min(420px, calc(100vw - 24px)); }
 .modal h3 { margin: 0; font: 500 1rem 'DM Sans'; }
 .modal input { background: var(--bg); color: var(--t); border: 1px solid var(--bd); border-radius: 6px; padding: 8px 10px; font: 400 0.85rem 'DM Sans'; }
 .modal .row { display: flex; gap: 8px; justify-content: flex-end; }
@@ -242,8 +242,12 @@ button.danger { color: var(--ac); padding: 4px 6px; }
 .qmark { font-weight: 700; color: var(--ac2); width: 14px; text-align: center; }
 .steps { padding-left: 20px; margin: 0; display: flex; flex-direction: column; gap: 6px; font-size: 0.82rem; color: var(--t); line-height: 1.5; }
 .steps strong { color: var(--ac2); font-weight: 500; }
-.modal.help { min-width: 640px; max-width: 760px; max-height: 80vh; overflow-y: auto; }
+.modal.help { min-width: min(640px, calc(100vw - 24px)); max-width: 760px; max-height: 85vh; overflow-y: auto; }
 .help-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 28px; }
+@media (max-width: 760px) {
+  .help-grid { grid-template-columns: 1fr; gap: 14px; }
+  .modal { padding: 16px; }
+}
 .help-grid section { display: flex; flex-direction: column; gap: 6px; }
 .help-grid h4 { font: 500 0.8rem 'DM Sans'; color: var(--ac2); margin: 0; padding-bottom: 4px; border-bottom: 1px solid var(--bd); }
 .help-grid dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; font-size: 0.8rem; }
@@ -254,4 +258,14 @@ button.danger { color: var(--ac); padding: 4px 6px; }
 .help-grid p a { color: var(--ac2); }
 .help-grid kbd { background: var(--bg); border: 1px solid var(--bd); border-radius: 3px; padding: 0 5px; font: 500 0.7rem 'DM Mono', monospace; color: var(--t); }
 .help-grid .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+
+/* Mobile compaction: drop button labels, shrink padding, ensure wrap. */
+@media (max-width: 700px) {
+  .topbar { padding: 8px 10px; gap: 8px; }
+  .brand { font-size: 1.1rem; }
+  .title { font-size: 0.85rem; }
+  .actions button span,
+  .actions .filebtn span { display: none; }
+  .actions button, .actions .filebtn { padding: 8px 10px; min-height: 40px; }
+}
 </style>
