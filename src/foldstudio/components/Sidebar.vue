@@ -1,5 +1,22 @@
 <script setup>
+import { watch } from 'vue';
 import { state } from '../store.js';
+
+const POWERS = [2, 4, 8, 16, 32, 64];
+
+function nearestPower(d) {
+  let best = POWERS[0], bd = Math.abs(d - POWERS[0]);
+  for (const p of POWERS) {
+    const dd = Math.abs(d - p);
+    if (dd < bd) { bd = dd; best = p; }
+  }
+  return best;
+}
+
+// When the user re-enables Powers-of-2 mode, snap density to the nearest power.
+watch(() => state.grid.snapPow2, on => {
+  if (on) state.grid.density = nearestPower(state.grid.density);
+});
 </script>
 
 <template>
@@ -16,10 +33,26 @@ import { state } from '../store.js';
       <label class="check" title="Concentric rings + sectors centered on the paper, extended to the corners">
         <input type="checkbox" :value="'radial'" v-model="state.grid.types" /> Radial
       </label>
-      <label title="Number of divisions across the paper">Density
-        <input type="range" min="2" max="32" v-model.number="state.grid.density" />
-        <span class="meta">{{ state.grid.density }}</span>
-      </label>
+
+      <div class="density-block">
+        <div class="density-head">
+          <span class="meta">Density</span>
+          <label class="check inline" title="Snap density to powers of 2 (2, 4, 8, 16, 32, 64). Off lets you pick any whole number.">
+            <input type="checkbox" v-model="state.grid.snapPow2" /> ×2
+          </label>
+        </div>
+        <div v-if="state.grid.snapPow2" class="pow-row">
+          <button v-for="p in POWERS" :key="p"
+                  :class="{ active: state.grid.density === p }"
+                  @click="state.grid.density = p"
+                  :title="`${p} divisions`">{{ p }}</button>
+        </div>
+        <label v-else title="Number of divisions across the paper">
+          <input type="range" min="2" max="64" v-model.number="state.grid.density" />
+          <span class="meta">{{ state.grid.density }}</span>
+        </label>
+      </div>
+
       <label class="check" title="When drawing, snap pointer to nearest grid node or existing vertex">
         <input type="checkbox" v-model="state.grid.snap" /> Snap to grid + vertices
       </label>
@@ -48,10 +81,16 @@ section { display: flex; flex-direction: column; gap: 8px; }
 h3 { font: 500 0.85rem 'DM Sans'; color: var(--t); margin: 0; padding-bottom: 4px; border-bottom: 1px solid var(--bd); }
 label { display: flex; flex-direction: column; gap: 3px; font: 400 0.7rem 'DM Mono', monospace; color: var(--sub); }
 label.check { flex-direction: row; align-items: center; gap: 8px; color: var(--t); }
+label.check.inline { font-size: 0.65rem; gap: 5px; color: var(--sub); }
 input, select { background: var(--bg); color: var(--t); border: 1px solid var(--bd); border-radius: 4px; padding: 5px 7px; font: 400 0.78rem 'DM Sans'; }
 input[type=range] { padding: 0; }
-button, .filebtn { background: var(--bg); color: var(--t); border: 1px solid var(--bd); border-radius: 6px; padding: 7px 10px; font: 500 0.78rem 'DM Sans'; cursor: pointer; text-align: center; }
+button, .filebtn { background: var(--bg); color: var(--t); border: 1px solid var(--bd); border-radius: 6px; padding: 5px 8px; font: 500 0.72rem 'DM Sans'; cursor: pointer; text-align: center; }
 button:hover, .filebtn:hover { border-color: var(--ac2); }
+button.active { background: var(--acd); border-color: var(--ac2); }
+.density-block { display: flex; flex-direction: column; gap: 6px; }
+.density-head { display: flex; align-items: center; justify-content: space-between; }
+.pow-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 3px; }
+.pow-row button { padding: 5px 0; }
 .meta { font: 400 0.7rem 'DM Mono'; color: var(--sub); }
 .hint-inline { color: var(--sub); font-size: 0.7em; margin-left: 4px; }
 </style>
