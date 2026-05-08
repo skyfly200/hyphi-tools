@@ -26,12 +26,16 @@ if (persisted?.grid && !persisted.grid.types) {
   persisted.grid.types = [persisted.grid.type || 'square'];
   delete persisted.grid.type;
 }
+// Default the new powers-of-2 snap on for older prefs.
+if (persisted?.grid && persisted.grid.snapPow2 === undefined) {
+  persisted.grid.snapPow2 = true;
+}
 
 export const state = reactive({
   model: emptyModel(),
   tool: 'draw',          // draw | select | mirror | repeat | angle
   assignment: persisted?.assignment || 'V',
-  grid: persisted?.grid || { types: ['square'], density: 8, snap: true, visible: true, extend: false },
+  grid: persisted?.grid || { types: ['square'], density: 8, snap: true, visible: true, extend: false, snapPow2: true },
   labels: persisted?.labels || { vertices: false, edges: false, faces: false, oneBased: false },
   selection: { edges: new Set(), vertices: new Set() },
   view: { zoom: 1, pan: [0, 0] },
