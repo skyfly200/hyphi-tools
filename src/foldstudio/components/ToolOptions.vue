@@ -27,11 +27,14 @@ import { state, mirrorSelection, repeatSelection } from '../store.js';
         <input type="checkbox" v-model="state.toolOptions.mirror.flipMV" /> Flip M↔V on mirror
       </label>
       <button class="primary" @click="mirrorSelection(state.toolOptions.mirror)"
-              :disabled="!state.selection.edges.size">
+              :disabled="state.toolOptions.mirror.axis === 'edge' ? state.selection.edges.size < 2 : !state.selection.edges.size">
         Apply mirror
       </button>
       <p class="hint" v-if="state.toolOptions.mirror.axis === 'edge'">
-        Select the axis edge first, then add the edges you want mirrored. The first edge in your selection is the axis; the rest are mirrored across it.
+        Click edges directly while in Mirror tool — the <strong>first</strong> one (highlighted orange) is the axis, the rest get reflected across it. Click again to deselect.
+      </p>
+      <p class="hint" v-else>
+        Click edges in the Mirror tool to add/remove from the selection (no shift needed). Then Apply.
       </p>
       <p class="meta">{{ state.selection.edges.size }} edge(s) selected</p>
     </template>
