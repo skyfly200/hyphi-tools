@@ -5,6 +5,7 @@ import { reactive, computed, ref, watch } from 'vue';
 import {
   emptyModel, cloneModel, addEdgeWithSplits, deleteEdges, setEdgeAssignment,
   History, repeatTransform, repairPlanarGraph, pruneIsolatedVertices,
+  cleanupRedundant,
 } from './lib/model.js';
 import { buildGrid } from './lib/grid.js';
 import { computeFaces, validateFlatFoldability } from './lib/rabbitear.js';
@@ -184,6 +185,19 @@ export function snapPoint(p) {
 export function drawCrease(p1, p2) {
   addEdgeWithSplits(state.model, p1, p2, state.assignment);
   pushHistory();
+}
+
+export function cleanup() {
+  const before = state.model.vertices.length;
+  repairPlanarGraph(state.model);
+  const removed = cleanupRedundant(state.model);
+  const after = state.model.vertices.length;
+  state.selection.edges.clear();
+  state.selection.vertices.clear();
+  pushHistory();
+  state.status = removed > 0
+    ? `Cleanup removed ${before - after} redundant vertex/vertices and merged ${removed} edge pair(s).`
+    : 'Already clean — no redundant vertices found.';
 }
 
 export function deleteSelection() {

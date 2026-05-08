@@ -20,6 +20,7 @@ export const Icons = {
   panelRight: `<rect x="3" y="4" width="18" height="16" rx="1" /><line x1="15" y1="4" x2="15" y2="20" />`,
   close: `<line x1="6" y1="6" x2="18" y2="18" /><line x1="6" y1="18" x2="18" y2="6" />`,
   magnet: `<path d="M4 13V5h5v8a3 3 0 0 0 6 0V5h5v8a8 8 0 0 1 -16 0z" /><line x1="4" y1="9" x2="9" y2="9" /><line x1="15" y1="9" x2="20" y2="9" />`,
+  broom: `<path d="M14 4l6 6" /><path d="M5 21l7 -7l5 5l-7 7z" /><path d="M14 11l-3 -3" /><path d="M3 21l3 -3" />`,
 };
 
 export function iconSvg(name, size = 18) {

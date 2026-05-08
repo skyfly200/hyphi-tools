@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue';
 import {
-  state, loadModel, resetPaper,
+  state, loadModel, resetPaper, cleanup,
   saveCurrentProject, loadSavedProject, deleteSavedProject,
 } from '../store.js';
 import { modelToFOLD, foldToModel, modelToSVG, downloadJSON, downloadText } from '../lib/fold-io.js';
@@ -85,6 +85,9 @@ const fmt = ts => new Date(ts).toLocaleString();
     <div class="actions">
       <button @click="resetPaper" title="New blank paper">
         <Icon name="newDoc" /><span>New</span>
+      </button>
+      <button @click="cleanup" title="Remove redundant vertices: merges degree-2 colinear nodes and prunes orphans">
+        <Icon name="broom" /><span>Cleanup</span>
       </button>
       <button @click="openSave" title="Save project to browser">
         <Icon name="save" /><span>Save</span>

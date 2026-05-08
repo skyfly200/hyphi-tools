@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { EDGE_COLOR, EDGE_DASH } from './lib/foldPalette.js';
 
 // ── STL helpers ────────────────────────────────────────────────────────────
 const vf = (x,y,z) => `${(+x).toFixed(4)} ${(+y).toFixed(4)} ${(+z).toFixed(4)}`;
@@ -328,7 +329,6 @@ const LILY_DEMO = (()=>{
 })();
 
 // ── Preview ────────────────────────────────────────────────────────────────
-const EDGE_COLOR = {M:'#ff5555',V:'#5599ff',B:'#444',F:'#888',U:'#666'};
 
 function PatternPreview({pattern}) {
   if(!pattern) return (
@@ -345,7 +345,7 @@ function PatternPreview({pattern}) {
           x1={x1*S} y1={(1-y1)*S} x2={x2*S} y2={(1-y2)*S}
           stroke={EDGE_COLOR[e.type]||'#888'}
           strokeWidth={e.type==='B'?1.5:1}
-          strokeDasharray={e.type==='V'?'4,3':undefined}
+          strokeDasharray={EDGE_DASH[e.type]}
         />;
       })}
     </svg>
