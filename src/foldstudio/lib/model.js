@@ -155,6 +155,59 @@ export function repairPlanarGraph(model) {
   dedupe(model);
 }
 
+// Drop redundant nodes and edges:
+//   - duplicate edges (kept by dedupe)
+//   - vertices unused by any edge (pruneIsolatedVertices)
+//   - degree-2 vertices whose two edges share an assignment AND lie nearly
+//     colinear — those vertices add no information; merge into one edge.
+// Idempotent: keeps iterating until no change.
+export function cleanupRedundant(model, angleTolDeg = 1.0) {
+  let totalRemoved = 0;
+  // Always run dedupe + prune first so degree counts are accurate.
+  dedupe(model);
+  pruneIsolatedVertices(model);
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const adj = Array.from({ length: model.vertices.length }, () => []);
+    model.edges.forEach((e, i) => { adj[e.v1].push(i); adj[e.v2].push(i); });
+
+    for (let v = 0; v < model.vertices.length; v++) {
+      if (adj[v].length !== 2) continue;
+      const e1 = model.edges[adj[v][0]];
+      const e2 = model.edges[adj[v][1]];
+      if (!e1 || !e2) continue;
+      if (e1.assignment !== e2.assignment) continue;
+      const other1 = e1.v1 === v ? e1.v2 : e1.v1;
+      const other2 = e2.v1 === v ? e2.v2 : e2.v1;
+      if (other1 === other2) continue;
+
+      const P = model.vertices[v];
+      const A = model.vertices[other1], B = model.vertices[other2];
+      const aA = Math.atan2(A[1] - P[1], A[0] - P[0]);
+      const aB = Math.atan2(B[1] - P[1], B[0] - P[0]);
+      let diff = Math.abs(aA - aB) * 180 / Math.PI;
+      if (diff > 180) diff = 360 - diff;
+      // If the two outgoing rays are 180° apart the vertex is a no-op.
+      if (Math.abs(diff - 180) > angleTolDeg) continue;
+
+      // Drop the two edges, add a single edge between the outer endpoints.
+      const dropIdx = new Set([adj[v][0], adj[v][1]]);
+      const angleA = e1.foldAngle, angleB = e2.foldAngle;
+      const merged = { v1: other1, v2: other2, assignment: e1.assignment };
+      if (Number.isFinite(angleA) && angleA === angleB) merged.foldAngle = angleA;
+      model.edges = model.edges.filter((_, i) => !dropIdx.has(i));
+      model.edges.push(merged);
+      pruneIsolatedVertices(model);
+      totalRemoved++;
+      changed = true;
+      break; // restart loop — vertex indices have shifted
+    }
+  }
+  return totalRemoved;
+}
+
 export function dedupe(model) {
   const seen = new Map();
   const keep = [];

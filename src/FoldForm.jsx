@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
+import { EDGE_COLOR, EDGE_DASH } from './lib/foldPalette.js';
 
 // ── Parsers ────────────────────────────────────────────────────────────────
 function parseFOLD(text) {
@@ -322,7 +323,6 @@ const LILY_DEMO = (() => {
 })();
 
 // ── Pattern preview ────────────────────────────────────────────────────────
-const EDGE_COLOR = { M:'#ff5555', V:'#5599ff', B:'#444', F:'#888', U:'#666' };
 
 function PatternPreview({ pattern, faces, faceColors, selectedFace, onFaceClick }) {
   if (!pattern) return (
@@ -353,7 +353,7 @@ function PatternPreview({ pattern, faces, faceColors, selectedFace, onFaceClick 
           x1={x1*sz} y1={(1-y1)*sz} x2={x2*sz} y2={(1-y2)*sz}
           stroke={EDGE_COLOR[e.type] || '#888'}
           strokeWidth={e.type==='B' ? 1.5 : 1}
-          strokeDasharray={e.type==='V' ? '4,3' : undefined}
+          strokeDasharray={EDGE_DASH[e.type]}
           style={{pointerEvents:'none'}}
         />;
       })}

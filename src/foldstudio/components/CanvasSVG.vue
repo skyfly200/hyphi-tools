@@ -5,11 +5,11 @@ import {
 } from '../store.js';
 import { closestOnSegment } from '../lib/geometry.js';
 import { edgeMidpoint, faceCentroid, formatId } from '../lib/ids.js';
+import { EDGE_COLOR as STROKE, EDGE_DASH } from '../../lib/foldPalette.js';
 
 const SIZE = 720;
 const MARGIN = 80;
 const INNER = SIZE - MARGIN * 2;
-const STROKE = { M: '#e23b3b', V: '#3a7bd5', B: '#111', F: '#999', U: '#777' };
 
 const svgRef = ref(null);
 const cursor = ref(null);
@@ -182,7 +182,7 @@ const ghostLine = computed(() => {
               :y2="yToPx(state.model.vertices[e.v2][1])"
               :stroke="STROKE[e.assignment] || '#333'"
               :stroke-width="state.selection.edges.has(i) ? 3.5 : 1.8"
-              :stroke-dasharray="e.assignment === 'F' ? '5 4' : null"
+              :stroke-dasharray="EDGE_DASH[e.assignment] || null"
               stroke-linecap="round" />
       </g>
 
