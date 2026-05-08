@@ -4,7 +4,7 @@
 import { reactive, computed, ref, watch } from 'vue';
 import {
   emptyModel, cloneModel, addEdgeWithSplits, deleteEdges, setEdgeAssignment,
-  History, repeatTransform, repairPlanarGraph,
+  History, repeatTransform, repairPlanarGraph, pruneIsolatedVertices,
 } from './lib/model.js';
 import { buildGrid } from './lib/grid.js';
 import { computeFaces, validateFlatFoldability } from './lib/rabbitear.js';
@@ -187,9 +187,19 @@ export function drawCrease(p1, p2) {
 }
 
 export function deleteSelection() {
-  if (state.selection.edges.size === 0) return;
-  deleteEdges(state.model, [...state.selection.edges]);
+  const edgeSet = new Set(state.selection.edges);
+  const vertSet = new Set(state.selection.vertices);
+  if (!edgeSet.size && !vertSet.size) return;
+  // Single pass: drop explicitly-selected edges plus any edge touching a
+  // selected vertex, then prune leftover orphan vertices.
+  state.model.edges = state.model.edges.filter((e, i) => {
+    if (edgeSet.has(i)) return false;
+    if (vertSet.has(e.v1) || vertSet.has(e.v2)) return false;
+    return true;
+  });
+  pruneIsolatedVertices(state.model);
   state.selection.edges.clear();
+  state.selection.vertices.clear();
   pushHistory();
 }
 
@@ -205,6 +215,7 @@ export function assignSelection(letter) {
 
 export function selectAll() {
   state.selection.edges = new Set(state.model.edges.map((_, i) => i));
+  state.selection.vertices = new Set(state.model.vertices.map((_, i) => i));
 }
 export function clearSelection() {
   state.selection.edges.clear();

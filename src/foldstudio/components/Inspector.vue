@@ -23,9 +23,9 @@ const sharedFoldAngle = computed(() => {
   <div class="inspector">
     <section>
       <h3>Selection</h3>
-      <p class="meta">{{ state.selection.edges.size }} edge(s)</p>
-      <p class="hint" v-if="!state.selection.edges.size">
-        Use the Select tool, then click edges to select. Mirror / Rotate / Angle controls live in the left drawer (Tool options).
+      <p class="meta">{{ state.selection.edges.size }} edge(s) · {{ state.selection.vertices.size }} vertex/vertices</p>
+      <p class="hint" v-if="!state.selection.edges.size && !state.selection.vertices.size">
+        Use the Select tool, then click edges or vertices. Click vertices to select them; <kbd>Del</kbd> removes them and any incident edges. Mirror / Rotate / Angle controls live in the left drawer (Tool options).
       </p>
     </section>
 

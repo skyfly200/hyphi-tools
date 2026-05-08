@@ -39,6 +39,17 @@ function pickEdgeIndex(p) {
   return best;
 }
 
+function pickVertexIndex(p) {
+  const m = state.model;
+  let best = -1, bd = 0.025;
+  for (let i = 0; i < m.vertices.length; i++) {
+    const v = m.vertices[i];
+    const d = Math.hypot(v[0] - p[0], v[1] - p[1]);
+    if (d < bd) { bd = d; best = i; }
+  }
+  return best;
+}
+
 function onPointerMove(ev) {
   const raw = eventToModel(ev);
   cursor.value = snapPoint(raw);
@@ -54,17 +65,27 @@ function onPointerDown(ev) {
       drawStart.value = null;
     }
   } else if (state.tool === 'select' || state.tool === 'mirror') {
-    const idx = pickEdgeIndex(p);
-    if (idx >= 0) {
-      // Mirror tool always toggles (no shift required) so the user can build
-      // a multi-edge selection on touch devices where shift isn't available.
-      const additive = ev.shiftKey || state.tool === 'mirror';
+    // Vertices take priority over edges in the Select tool — they're smaller
+    // targets so this avoids accidentally hitting an edge near a node. The
+    // Mirror tool stays edge-only since mirroring needs an axis edge.
+    const vIdx = state.tool === 'select' ? pickVertexIndex(p) : -1;
+    const eIdx = vIdx >= 0 ? -1 : pickEdgeIndex(p);
+    const additive = ev.shiftKey || state.tool === 'mirror';
+    if (vIdx >= 0) {
       if (additive) {
-        if (state.selection.edges.has(idx)) state.selection.edges.delete(idx);
-        else state.selection.edges.add(idx);
+        if (state.selection.vertices.has(vIdx)) state.selection.vertices.delete(vIdx);
+        else state.selection.vertices.add(vIdx);
       } else {
         clearSelection();
-        state.selection.edges.add(idx);
+        state.selection.vertices.add(vIdx);
+      }
+    } else if (eIdx >= 0) {
+      if (additive) {
+        if (state.selection.edges.has(eIdx)) state.selection.edges.delete(eIdx);
+        else state.selection.edges.add(eIdx);
+      } else {
+        clearSelection();
+        state.selection.edges.add(eIdx);
       }
     } else if (!ev.shiftKey && state.tool === 'select') clearSelection();
   } else if (state.tool === 'angle') {
@@ -178,8 +199,11 @@ const ghostLine = computed(() => {
       <!-- Vertices -->
       <g class="vertices">
         <circle v-for="(v, i) in state.model.vertices" :key="i"
-                :cx="xToPx(v[0])" :cy="yToPx(v[1])" r="2.5"
-                :fill="state.selection.vertices.has(i) ? '#ff6b35' : '#222'" />
+                :cx="xToPx(v[0])" :cy="yToPx(v[1])"
+                :r="state.selection.vertices.has(i) ? 5 : 2.5"
+                :fill="state.selection.vertices.has(i) ? '#ff6b35' : '#222'"
+                :stroke="state.selection.vertices.has(i) ? '#ff6b35' : 'none'"
+                stroke-width="1.5" />
       </g>
 
       <!-- Ghost / preview line -->
