@@ -53,17 +53,20 @@ function onPointerDown(ev) {
       drawCrease(drawStart.value, p);
       drawStart.value = null;
     }
-  } else if (state.tool === 'select') {
+  } else if (state.tool === 'select' || state.tool === 'mirror') {
     const idx = pickEdgeIndex(p);
     if (idx >= 0) {
-      if (ev.shiftKey) {
+      // Mirror tool always toggles (no shift required) so the user can build
+      // a multi-edge selection on touch devices where shift isn't available.
+      const additive = ev.shiftKey || state.tool === 'mirror';
+      if (additive) {
         if (state.selection.edges.has(idx)) state.selection.edges.delete(idx);
         else state.selection.edges.add(idx);
       } else {
         clearSelection();
         state.selection.edges.add(idx);
       }
-    } else if (!ev.shiftKey) clearSelection();
+    } else if (!ev.shiftKey && state.tool === 'select') clearSelection();
   } else if (state.tool === 'angle') {
     if (!angleAnchor.value) angleAnchor.value = p;
     else {
@@ -91,6 +94,15 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
 
 const xToPx = x => MARGIN + x * INNER;
 const yToPx = y => MARGIN + (1 - y) * INNER;
+
+// First selected edge index (insertion order via Set iteration). Used as
+// the visual "axis" indicator when Mirror tool is set to axis = 'edge'.
+const axisEdgeIdx = computed(() => {
+  if (state.tool !== 'mirror') return -1;
+  if (state.toolOptions.mirror.axis !== 'edge') return -1;
+  if (!state.selection.edges.size) return -1;
+  return state.selection.edges.values().next().value;
+});
 
 const ghostLine = computed(() => {
   if (state.tool === 'draw' && drawStart.value && cursor.value) {
@@ -151,6 +163,16 @@ const ghostLine = computed(() => {
               :stroke-width="state.selection.edges.has(i) ? 3.5 : 1.8"
               :stroke-dasharray="e.assignment === 'F' ? '5 4' : null"
               stroke-linecap="round" />
+      </g>
+
+      <!-- Axis-edge marker for Mirror tool with axis = 'edge' -->
+      <g v-if="axisEdgeIdx >= 0">
+        <line :x1="xToPx(state.model.vertices[state.model.edges[axisEdgeIdx].v1][0])"
+              :y1="yToPx(state.model.vertices[state.model.edges[axisEdgeIdx].v1][1])"
+              :x2="xToPx(state.model.vertices[state.model.edges[axisEdgeIdx].v2][0])"
+              :y2="yToPx(state.model.vertices[state.model.edges[axisEdgeIdx].v2][1])"
+              stroke="#ff6b35" stroke-width="6" stroke-dasharray="6 3"
+              opacity="0.55" stroke-linecap="round" />
       </g>
 
       <!-- Vertices -->
