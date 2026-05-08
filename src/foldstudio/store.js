@@ -33,7 +33,11 @@ if (persisted?.grid && persisted.grid.snapPow2 === undefined) {
 // Promote old grid.snap (single bool) to the new state.snap (target flags).
 if (persisted && !persisted.snap) {
   const enabled = persisted.grid?.snap !== false;
-  persisted.snap = { vertices: enabled, grid: enabled, midpoints: false };
+  persisted.snap = { enabled, vertices: enabled, grid: enabled, midpoints: false };
+}
+// Backfill the global enabled flag for prefs saved before it existed.
+if (persisted?.snap && persisted.snap.enabled === undefined) {
+  persisted.snap.enabled = true;
 }
 
 export const state = reactive({
@@ -49,8 +53,8 @@ export const state = reactive({
   currentProject: null,
   projects: listProjectsRaw(),
   ui: { mobileSidebar: false, mobileInspector: false },
-  // What pointer snaps to. Three independent targets — uncheck all to disable.
-  snap: persisted?.snap || { vertices: true, grid: true, midpoints: false },
+  // Master toggle + per-target flags. Global toggle wins when off.
+  snap: persisted?.snap || { enabled: true, vertices: true, grid: true, midpoints: false },
   toolOptions: persisted?.toolOptions || {
     mirror: { axis: 'y', flipMV: false },
     repeat: { kind: 'rotational', count: 4, angle: 90, dx: 0.1, dy: 0, cx: 0.5, cy: 0.5 },
@@ -155,6 +159,7 @@ export function runValidation() {
 }
 
 export function snapPoint(p) {
+  if (!state.snap.enabled) return p;
   const tol = 0.6 / state.grid.density;
   let best = null, bd = tol;
   const consider = (q) => {

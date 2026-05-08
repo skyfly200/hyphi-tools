@@ -112,6 +112,13 @@ const fmt = ts => new Date(ts).toLocaleString();
 
       <div class="divider" />
 
+      <button class="snap-toggle"
+              :class="{ off: !state.snap.enabled }"
+              @click="state.snap.enabled = !state.snap.enabled"
+              :title="state.snap.enabled ? 'Snap is on — click to disable globally' : 'Snap is off — click to enable'">
+        <Icon name="magnet" /><span class="snap-label">{{ state.snap.enabled ? 'Snap' : 'No snap' }}</span>
+      </button>
+
       <button @click="showHelp = true" title="Help / shortcuts / FOLD basics">
         <span class="qmark">?</span>
       </button>
@@ -258,6 +265,9 @@ button.danger { color: var(--ac); padding: 4px 6px; }
 .hint { font-family: 'DM Mono', monospace; font-size: 0.78rem; color: var(--sub); }
 
 .qmark { font-weight: 700; color: var(--ac2); width: 14px; text-align: center; }
+.snap-toggle { color: var(--ac2); border-color: var(--ac2); }
+.snap-toggle.off { color: var(--sub); border-color: var(--bd); }
+.snap-toggle.off :deep(svg) { opacity: 0.5; }
 .steps { padding-left: 20px; margin: 0; display: flex; flex-direction: column; gap: 6px; font-size: 0.82rem; color: var(--t); line-height: 1.5; }
 .steps strong { color: var(--ac2); font-weight: 500; }
 .modal.help { min-width: min(640px, calc(100vw - 24px)); max-width: 760px; max-height: 85vh; overflow-y: auto; }
