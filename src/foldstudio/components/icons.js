@@ -16,6 +16,9 @@ export const Icons = {
   undo: `<path d="M9 14l-4 -4l4 -4" /><path d="M5 10h11a4 4 0 1 1 0 8h-3" />`,
   redo: `<path d="M15 14l4 -4l-4 -4" /><path d="M19 10H8a4 4 0 1 0 0 8h3" />`,
   reset: `<path d="M4 4h16v16h-16z" />`,
+  panelLeft: `<rect x="3" y="4" width="18" height="16" rx="1" /><line x1="9" y1="4" x2="9" y2="20" />`,
+  panelRight: `<rect x="3" y="4" width="18" height="16" rx="1" /><line x1="15" y1="4" x2="15" y2="20" />`,
+  close: `<line x1="6" y1="6" x2="18" y2="18" /><line x1="6" y1="18" x2="18" y2="6" />`,
 };
 
 export function iconSvg(name, size = 18) {

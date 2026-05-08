@@ -43,6 +43,7 @@ export const state = reactive({
   status: 'Ready',
   currentProject: null,
   projects: listProjectsRaw(),
+  ui: { mobileSidebar: false, mobileInspector: false },
 });
 
 // Persist preferences whenever they change.
