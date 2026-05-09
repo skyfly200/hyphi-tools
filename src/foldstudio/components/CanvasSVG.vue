@@ -65,11 +65,13 @@ function onPointerDown(ev) {
       drawStart.value = null;
     }
   } else if (state.tool === 'select' || state.tool === 'mirror') {
-    // Vertices take priority over edges in the Select tool — they're smaller
-    // targets so this avoids accidentally hitting an edge near a node. The
-    // Mirror tool stays edge-only since mirroring needs an axis edge.
-    const vIdx = state.tool === 'select' ? pickVertexIndex(p) : -1;
-    const eIdx = vIdx >= 0 ? -1 : pickEdgeIndex(p);
+    // Mirror is always edge-only (axis must be an edge). Select honors the
+    // user's selectMode: 'edges' / 'vertices' / 'both' (vertex priority).
+    const mode = state.tool === 'mirror' ? 'edges' : state.selectMode;
+    const wantV = mode !== 'edges';
+    const wantE = mode !== 'vertices';
+    const vIdx = wantV ? pickVertexIndex(p) : -1;
+    const eIdx = (wantE && vIdx < 0) ? pickEdgeIndex(p) : -1;
     const additive = ev.shiftKey || state.tool === 'mirror';
     if (vIdx >= 0) {
       if (additive) {

@@ -11,8 +11,20 @@ import { state, mirrorSelection, repeatSelection } from '../store.js';
     </template>
 
     <template v-else-if="state.tool === 'select'">
-      <p class="hint">Click an edge. <kbd>Shift</kbd>-click to add. <kbd>1</kbd>–<kbd>5</kbd> reassigns. <kbd>Del</kbd> removes.</p>
-      <p class="meta">{{ state.selection.edges.size }} edge(s) selected</p>
+      <div class="seg-label">Pick</div>
+      <div class="seg" role="radiogroup" aria-label="Select target">
+        <button :class="{ on: state.selectMode === 'edges' }"
+                @click="state.selectMode = 'edges'"
+                title="Click only edges; ignore vertices">Edges</button>
+        <button :class="{ on: state.selectMode === 'vertices' }"
+                @click="state.selectMode = 'vertices'"
+                title="Click only vertices; ignore edges">Vertices</button>
+        <button :class="{ on: state.selectMode === 'both' }"
+                @click="state.selectMode = 'both'"
+                title="Click vertices first, then edges">Both</button>
+      </div>
+      <p class="hint">Click to select. <kbd>Shift</kbd>-click to add. <kbd>1</kbd>–<kbd>5</kbd> reassigns. <kbd>Del</kbd> removes.</p>
+      <p class="meta">{{ state.selection.edges.size }} edge(s) · {{ state.selection.vertices.size }} vertex/vertices selected</p>
     </template>
 
     <template v-else-if="state.tool === 'mirror'">
@@ -113,4 +125,11 @@ button:hover:not(:disabled) { filter: brightness(1.15); border-color: var(--ac2)
 .hint kbd { background: var(--bg); border: 1px solid var(--bd); border-radius: 3px; padding: 0 4px; font-size: 0.7rem; }
 .meta { font: 400 0.7rem 'DM Mono'; color: var(--sub); }
 .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.seg-label { font: 400 0.7rem 'DM Mono', monospace; color: var(--sub); margin-top: 2px; }
+.seg { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0; }
+.seg button { background: var(--bg); color: var(--sub); border: 1px solid var(--bd); padding: 6px 4px; font: 500 0.7rem 'DM Sans', sans-serif; cursor: pointer; border-radius: 0; margin: 0; }
+.seg button:first-child { border-top-left-radius: 6px; border-bottom-left-radius: 6px; }
+.seg button:last-child { border-top-right-radius: 6px; border-bottom-right-radius: 6px; }
+.seg button + button { border-left: none; }
+.seg button.on { background: var(--acd); border-color: var(--ac2); color: var(--t); }
 </style>
