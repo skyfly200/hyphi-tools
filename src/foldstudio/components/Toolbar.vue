@@ -91,6 +91,17 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
         <Icon name="trash" />
       </button>
     </div>
+
+    <div class="divider" />
+
+    <div class="group">
+      <button class="snap-toggle"
+              :class="{ active: state.snap.enabled, off: !state.snap.enabled }"
+              @click="state.snap.enabled = !state.snap.enabled"
+              :title="state.snap.enabled ? 'Snap is on — click to disable globally' : 'Snap is off — click to enable'">
+        <Icon name="magnet" /><span class="lbl">{{ state.snap.enabled ? 'Snap' : 'No snap' }}</span>
+      </button>
+    </div>
   </div>
 </template>
 
@@ -104,6 +115,9 @@ button.active { background: var(--acd); border-color: var(--ac2); color: var(--t
 button:disabled { opacity: 0.35; cursor: not-allowed; }
 /* Outline so dark swatches (B / U) stay visible against the dark UI bg. */
 .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; box-shadow: 0 0 0 1px rgba(255,255,255,0.25); }
+.snap-toggle { color: var(--ac2); border-color: var(--ac2); }
+.snap-toggle.off { color: var(--sub); border-color: var(--bd); }
+.snap-toggle.off :deep(svg) { opacity: 0.5; }
 .mobile-only { display: none; }
 
 @media (max-width: 900px) {
