@@ -2,12 +2,15 @@
 // Imported by FoldForm.jsx, FoldPress.jsx, and FoldStudio so all three tools
 // render the same pattern identically.
 
+// Mid-gray boundary so it reads against both white paper and the dark
+// editor workspace. Stroke-width does the heavy lifting to set B apart from
+// F/U on white paper.
 export const EDGE_COLOR = {
   M: '#e23b3b', // mountain — folds away from viewer
   V: '#3a7bd5', // valley   — folds toward viewer
-  B: '#222222', // boundary — paper edge / cut
-  F: '#999999', // flat / reference
-  U: '#666666', // unknown / unassigned
+  B: '#5c6478', // boundary — paper edge / cut
+  F: '#9aa0aa', // flat / reference
+  U: '#6e7382', // unknown / unassigned
 };
 
 export const EDGE_DASH = {

@@ -21,6 +21,12 @@ export const Icons = {
   close: `<line x1="6" y1="6" x2="18" y2="18" /><line x1="6" y1="18" x2="18" y2="6" />`,
   magnet: `<path d="M4 13V5h5v8a3 3 0 0 0 6 0V5h5v8a8 8 0 0 1 -16 0z" /><line x1="4" y1="9" x2="9" y2="9" /><line x1="15" y1="9" x2="20" y2="9" />`,
   broom: `<path d="M14 4l6 6" /><path d="M5 21l7 -7l5 5l-7 7z" /><path d="M14 11l-3 -3" /><path d="M3 21l3 -3" />`,
+  // External-link arrow used by the Simulator handoff (open in new tab).
+  external: `<path d="M11 7H6a2 2 0 0 0 -2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2 -2v-5"/><path d="M10 14L20 4"/><path d="M15 4h5v5"/>`,
+  // Zigzag accordion stand-in for FoldForm (living-hinge model).
+  foldform: `<path d="M3 8l4 -4l4 4l4 -4l4 4l2 -2"/><path d="M3 14l4 4l4 -4l4 4l4 -4l2 2"/>`,
+  // Plate + downward arrows for FoldPress (press / stamp generator).
+  foldpress: `<rect x="3" y="14" width="18" height="3" rx="0.5"/><path d="M8 11l4 -4l4 4"/><path d="M12 7v4"/><path d="M5 20h14"/>`,
 };
 
 export function iconSvg(name, size = 18) {
