@@ -92,40 +92,47 @@ const fmt = ts => new Date(ts).toLocaleString();
     </div>
 
     <div class="actions">
+      <button class="panel-toggle mobile-only"
+              :class="{ active: state.ui.mobileSidebar }"
+              @click="state.ui.mobileSidebar = !state.ui.mobileSidebar"
+              title="Show grid / labels / tool options drawer">
+        <Icon name="panelLeft" />
+      </button>
+
       <button @click="resetPaper" title="New blank paper">
-        <Icon name="newDoc" /><span>New</span>
+        <Icon name="newDoc" /><span class="lbl">New</span>
       </button>
       <button @click="cleanup" title="Remove redundant vertices: merges degree-2 colinear nodes and prunes orphans">
-        <Icon name="broom" /><span>Cleanup</span>
+        <Icon name="broom" /><span class="lbl">Cleanup</span>
       </button>
       <button @click="openSave" title="Save project to browser">
-        <Icon name="save" /><span>Save</span>
+        <Icon name="save" /><span class="lbl">Save</span>
       </button>
       <button @click="showLoad = true" title="Open saved project">
-        <Icon name="open" /><span>Open</span>
+        <Icon name="open" /><span class="lbl">Open</span>
       </button>
 
       <div class="divider" />
 
       <label class="filebtn" title="Import .fold file">
-        <Icon name="upload" /><span>Import</span>
+        <Icon name="upload" /><span class="lbl">Import</span>
         <input type="file" accept=".fold,application/json" @change="importFile" hidden />
       </label>
       <button @click="exportFold" title="Export FOLD JSON">
-        <Icon name="download" /><span>FOLD</span>
+        <Icon name="download" /><span class="lbl">FOLD</span>
       </button>
       <button @click="exportSVG" title="Export SVG">
-        <Icon name="download" /><span>SVG</span>
+        <Icon name="download" /><span class="lbl">SVG</span>
       </button>
       <button @click="openInOrigamiSimulator"
               title="Open this pattern in origamisimulator.org with the configured fold angles">
-        <Icon name="open" /><span>Simulator</span>
+        <Icon name="open" /><span class="lbl">Simulator</span>
       </button>
       <button @click="openInTool('/foldform')" title="Open this pattern in FoldForm to make a living-hinge model">
-        <Icon name="open" /><span>FoldForm</span>
+        <Icon name="open" /><span class="lbl">FoldForm</span>
       </button>
       <button @click="openInTool('/fold')" title="Open this pattern in FoldPress to make press plates">
-        <Icon name="open" /><span>FoldPress</span>
+        <Icon name="open" /><span class="lbl">FoldPress</span>
       </button>
 
       <div class="divider" />
@@ -134,11 +141,18 @@ const fmt = ts => new Date(ts).toLocaleString();
               :class="{ off: !state.snap.enabled }"
               @click="state.snap.enabled = !state.snap.enabled"
               :title="state.snap.enabled ? 'Snap is on — click to disable globally' : 'Snap is off — click to enable'">
-        <Icon name="magnet" /><span class="snap-label">{{ state.snap.enabled ? 'Snap' : 'No snap' }}</span>
+        <Icon name="magnet" /><span class="lbl">{{ state.snap.enabled ? 'Snap' : 'No snap' }}</span>
       </button>
 
       <button @click="showHelp = true" title="Help / shortcuts / FOLD basics">
         <span class="qmark">?</span>
+      </button>
+
+      <button class="panel-toggle mobile-only"
+              :class="{ active: state.ui.mobileInspector }"
+              @click="state.ui.mobileInspector = !state.ui.mobileInspector"
+              title="Show selection / fold angle / validation drawer">
+        <Icon name="panelRight" />
       </button>
     </div>
 
@@ -305,13 +319,16 @@ button.danger { color: var(--ac); padding: 4px 6px; }
 .help-grid kbd { background: var(--bg); border: 1px solid var(--bd); border-radius: 3px; padding: 0 5px; font: 500 0.7rem 'DM Mono', monospace; color: var(--t); }
 .help-grid .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
 
-/* Mobile compaction: drop button labels, shrink padding, ensure wrap. */
+.mobile-only { display: none; }
+
+/* Mobile compaction: drop button labels (icon survives), shrink padding,
+   ensure wrap. Only .lbl is hidden so the icon span keeps rendering. */
 @media (max-width: 700px) {
   .topbar { padding: 8px 10px; gap: 8px; }
   .brand { font-size: 1.1rem; }
   .title { font-size: 0.85rem; }
-  .actions button span,
-  .actions .filebtn span { display: none; }
+  .actions .lbl { display: none; }
   .actions button, .actions .filebtn { padding: 8px 10px; min-height: 40px; }
+  .mobile-only { display: inline-flex; }
 }
 </style>
