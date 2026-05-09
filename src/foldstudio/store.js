@@ -45,6 +45,8 @@ if (persisted?.snap && persisted.snap.enabled === undefined) {
 export const state = reactive({
   model: emptyModel(),
   tool: 'draw',          // draw | select | mirror | repeat | angle
+  // What the Select tool can pick: 'edges' | 'vertices' | 'both'.
+  selectMode: persisted?.selectMode || 'both',
   assignment: persisted?.assignment || 'V',
   grid: persisted?.grid || { types: ['square'], density: 8, snap: true, visible: true, extend: false, snapPow2: true },
   labels: persisted?.labels || { vertices: false, edges: false, faces: false, oneBased: false },
@@ -72,6 +74,7 @@ watch(
     grid: { ...state.grid },
     labels: { ...state.labels },
     snap: { ...state.snap },
+    selectMode: state.selectMode,
     toolOptions: JSON.parse(JSON.stringify(state.toolOptions)),
   }),
   prefs => savePrefs(prefs),
