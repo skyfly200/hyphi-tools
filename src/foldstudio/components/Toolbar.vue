@@ -65,6 +65,21 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
       </button>
     </div>
 
+    <template v-if="state.tool === 'select'">
+      <div class="divider" />
+      <div class="seg" role="radiogroup" aria-label="Select target">
+        <button :class="{ on: state.selectMode === 'edges' }"
+                @click="state.selectMode = 'edges'"
+                title="Pick only edges">Edges</button>
+        <button :class="{ on: state.selectMode === 'vertices' }"
+                @click="state.selectMode = 'vertices'"
+                title="Pick only vertices">Vertices</button>
+        <button :class="{ on: state.selectMode === 'both' }"
+                @click="state.selectMode = 'both'"
+                title="Pick vertices first, then edges">Both</button>
+      </div>
+    </template>
+
     <div class="divider" />
 
     <div class="group">
@@ -118,6 +133,14 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 .snap-toggle { color: var(--ac2); border-color: var(--ac2); }
 .snap-toggle.off { color: var(--sub); border-color: var(--bd); }
 .snap-toggle.off :deep(svg) { opacity: 0.5; }
+
+.seg { display: inline-flex; }
+.seg button { background: var(--bg); color: var(--sub); border: 1px solid var(--bd); padding: 6px 10px; font: 500 0.7rem 'DM Sans', sans-serif; cursor: pointer; border-radius: 0; min-height: 34px; }
+.seg button:first-child { border-top-left-radius: 6px; border-bottom-left-radius: 6px; }
+.seg button:last-child { border-top-right-radius: 6px; border-bottom-right-radius: 6px; }
+.seg button + button { border-left: none; }
+.seg button.on { background: var(--acd); border-color: var(--ac2); color: var(--t); }
+.seg button:hover:not(.on) { color: var(--t); }
 .mobile-only { display: none; }
 
 @media (max-width: 900px) {

@@ -11,19 +11,7 @@ import { state, mirrorSelection, repeatSelection } from '../store.js';
     </template>
 
     <template v-else-if="state.tool === 'select'">
-      <div class="seg-label">Pick</div>
-      <div class="seg" role="radiogroup" aria-label="Select target">
-        <button :class="{ on: state.selectMode === 'edges' }"
-                @click="state.selectMode = 'edges'"
-                title="Click only edges; ignore vertices">Edges</button>
-        <button :class="{ on: state.selectMode === 'vertices' }"
-                @click="state.selectMode = 'vertices'"
-                title="Click only vertices; ignore edges">Vertices</button>
-        <button :class="{ on: state.selectMode === 'both' }"
-                @click="state.selectMode = 'both'"
-                title="Click vertices first, then edges">Both</button>
-      </div>
-      <p class="hint">Click to select. <kbd>Shift</kbd>-click to add. <kbd>1</kbd>–<kbd>5</kbd> reassigns. <kbd>Del</kbd> removes.</p>
+      <p class="hint">Pick mode (Edges / Vertices / Both) is on the toolbar. Click to select; <kbd>Shift</kbd>-click to add; <kbd>1</kbd>–<kbd>5</kbd> reassigns; <kbd>Del</kbd> removes.</p>
       <p class="meta">{{ state.selection.edges.size }} edge(s) · {{ state.selection.vertices.size }} vertex/vertices selected</p>
     </template>
 
