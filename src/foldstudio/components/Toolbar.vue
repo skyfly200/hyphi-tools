@@ -102,15 +102,18 @@ button { background: var(--bg); color: var(--t); border: 1px solid var(--bd); bo
 button:hover:not(:disabled) { border-color: var(--ac2); }
 button.active { background: var(--acd); border-color: var(--ac2); color: var(--t); }
 button:disabled { opacity: 0.35; cursor: not-allowed; }
-.swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+/* Outline so dark swatches (B / U) stay visible against the dark UI bg. */
+.swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; box-shadow: 0 0 0 1px rgba(255,255,255,0.25); }
 .mobile-only { display: none; }
 
 @media (max-width: 900px) {
   .mobile-only { display: flex; }
-  /* Hide tool labels to keep the toolbar compact, leaving icons. */
-  button .lbl { display: none; }
+  /* Shrink labels on touch to keep the bar compact instead of dropping
+     them entirely — labels are the only thing telling users what each icon
+     does without a tooltip. */
+  button .lbl { font-size: 0.6rem; }
   /* Bigger tap target on touch devices. */
-  button { padding: 8px 10px; min-height: 40px; }
+  button { padding: 6px 8px; min-height: 40px; }
   .toolbar { padding: 8px 10px; gap: 5px; }
 }
 </style>

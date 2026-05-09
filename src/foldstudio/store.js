@@ -8,6 +8,7 @@ import {
   cleanupRedundant,
 } from './lib/model.js';
 import { buildGrid } from './lib/grid.js';
+import { buildTemplate } from './lib/templates.js';
 import { computeFaces, validateFlatFoldability } from './lib/rabbitear.js';
 import {
   matRotateAround, matTranslate, matReflectLine, applyMatrix, segmentIntersection,
@@ -349,6 +350,13 @@ export function loadModel(newModel) {
 
 export function resetPaper() {
   loadModel(emptyModel());
+}
+
+// Start a new project from a template id. Clears the current project name.
+export function newFromTemplate(id = 'blank') {
+  loadModel(buildTemplate(id));
+  state.currentProject = null;
+  state.status = `New project from ${id}`;
 }
 
 // Initial validation

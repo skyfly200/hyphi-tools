@@ -1,86 +1,9 @@
 <script setup>
-import { ref, computed } from 'vue';
-import {
-  state, loadModel, resetPaper, cleanup,
-  saveCurrentProject, loadSavedProject, deleteSavedProject,
-} from '../store.js';
-import { modelToFOLD, foldToModel, modelToSVG, downloadJSON, downloadText } from '../lib/fold-io.js';
-import { setHandoff } from '../../lib/foldHandoff.js';
+import { ref } from 'vue';
+import { state } from '../store.js';
 import Icon from './Icon.vue';
 
-const showSave = ref(false);
-const showLoad = ref(false);
 const showHelp = ref(false);
-const showSimulator = ref(false);
-const projectName = ref('');
-
-// Origami Simulator's importer.js listens for postMessage events with
-// op: 'importFold' or 'importSVG'. We open the simulator in a popup, then
-// post the FOLD a few times since there's no ready-handshake.
-// Hand off the current pattern to a sibling tool by stashing the FOLD in
-// sessionStorage and full-page navigating — the React routes will pick up
-// the handoff on mount.
-function openInTool(path) {
-  setHandoff(modelToFOLD(state.model, { ids: false }));
-  window.location.assign(path);
-}
-
-function openInOrigamiSimulator() {
-  const filename = (state.currentProject || 'pattern') + '.fold';
-  const fold = modelToFOLD(state.model, { ids: false });
-  const popup = window.open('https://origamisimulator.org/', '_blank');
-  if (!popup) {
-    // Popup blocked → fall back to download + manual import.
-    downloadJSON(filename, fold);
-    showSimulator.value = true;
-    return;
-  }
-  let attempts = 0;
-  const send = () => {
-    if (popup.closed || attempts >= 12) return;
-    try {
-      popup.postMessage(
-        { op: 'importFold', fold, filename, file_title: state.currentProject || 'FoldStudio' },
-        '*'
-      );
-    } catch (_) { /* ignore — origin may not be ready */ }
-    attempts++;
-    setTimeout(send, attempts === 1 ? 1800 : 1000);
-  };
-  send();
-}
-
-function openSave() {
-  projectName.value = state.currentProject || '';
-  showSave.value = true;
-}
-
-function commitSave() {
-  const n = projectName.value.trim();
-  if (!n) return;
-  saveCurrentProject(n);
-  showSave.value = false;
-}
-
-function exportFold() {
-  downloadJSON((state.currentProject || 'pattern') + '.fold', modelToFOLD(state.model, { ids: true }));
-}
-function exportSVG() {
-  downloadText((state.currentProject || 'pattern') + '.svg', modelToSVG(state.model));
-}
-function importFile(ev) {
-  const f = ev.target.files?.[0];
-  if (!f) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    try { loadModel(foldToModel(JSON.parse(reader.result))); }
-    catch (e) { alert('Could not parse FOLD file: ' + e.message); }
-  };
-  reader.readAsText(f);
-  ev.target.value = '';
-}
-
-const fmt = ts => new Date(ts).toLocaleString();
 </script>
 
 <template>
@@ -96,46 +19,8 @@ const fmt = ts => new Date(ts).toLocaleString();
               :class="{ active: state.ui.mobileSidebar }"
               @click="state.ui.mobileSidebar = !state.ui.mobileSidebar"
               title="Show grid / labels / tool options drawer">
-        <Icon name="panelLeft" />
+        <Icon name="panelLeft" /><span class="lbl">Tools</span>
       </button>
-
-      <button @click="resetPaper" title="New blank paper">
-        <Icon name="newDoc" /><span class="lbl">New</span>
-      </button>
-      <button @click="cleanup" title="Remove redundant vertices: merges degree-2 colinear nodes and prunes orphans">
-        <Icon name="broom" /><span class="lbl">Cleanup</span>
-      </button>
-      <button @click="openSave" title="Save project to browser">
-        <Icon name="save" /><span class="lbl">Save</span>
-      </button>
-      <button @click="showLoad = true" title="Open saved project">
-        <Icon name="open" /><span class="lbl">Open</span>
-      </button>
-
-      <div class="divider" />
-
-      <label class="filebtn" title="Import .fold file">
-        <Icon name="upload" /><span class="lbl">Import</span>
-        <input type="file" accept=".fold,application/json" @change="importFile" hidden />
-      </label>
-      <button @click="exportFold" title="Export FOLD JSON">
-        <Icon name="download" /><span class="lbl">FOLD</span>
-      </button>
-      <button @click="exportSVG" title="Export SVG">
-        <Icon name="download" /><span class="lbl">SVG</span>
-      </button>
-      <button @click="openInOrigamiSimulator"
-              title="Open this pattern in origamisimulator.org with the configured fold angles">
-        <Icon name="open" /><span class="lbl">Simulator</span>
-      </button>
-      <button @click="openInTool('/foldform')" title="Open this pattern in FoldForm to make a living-hinge model">
-        <Icon name="open" /><span class="lbl">FoldForm</span>
-      </button>
-      <button @click="openInTool('/fold')" title="Open this pattern in FoldPress to make press plates">
-        <Icon name="open" /><span class="lbl">FoldPress</span>
-      </button>
-
-      <div class="divider" />
 
       <button class="snap-toggle"
               :class="{ off: !state.snap.enabled }"
@@ -145,68 +30,15 @@ const fmt = ts => new Date(ts).toLocaleString();
       </button>
 
       <button @click="showHelp = true" title="Help / shortcuts / FOLD basics">
-        <span class="qmark">?</span>
+        <span class="qmark">?</span><span class="lbl">Help</span>
       </button>
 
       <button class="panel-toggle mobile-only"
               :class="{ active: state.ui.mobileInspector }"
               @click="state.ui.mobileInspector = !state.ui.mobileInspector"
               title="Show selection / fold angle / validation drawer">
-        <Icon name="panelRight" />
+        <Icon name="panelRight" /><span class="lbl">Info</span>
       </button>
-    </div>
-
-    <!-- Save modal -->
-    <div v-if="showSave" class="modal-bg" @click.self="showSave = false">
-      <div class="modal">
-        <h3>Save project</h3>
-        <input v-model="projectName" placeholder="project name"
-               @keyup.enter="commitSave" autofocus />
-        <div class="row">
-          <button @click="showSave = false">Cancel</button>
-          <button class="primary" @click="commitSave" :disabled="!projectName.trim()">Save</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Load modal -->
-    <div v-if="showLoad" class="modal-bg" @click.self="showLoad = false">
-      <div class="modal wide">
-        <h3>Open project</h3>
-        <ul v-if="state.projects.length" class="proj-list">
-          <li v-for="p in state.projects" :key="p.name">
-            <button class="link" @click="loadSavedProject(p.name); showLoad = false">
-              {{ p.name }}
-            </button>
-            <span class="when">{{ fmt(p.savedAt) }}</span>
-            <button class="danger" @click="deleteSavedProject(p.name)" title="Delete">
-              <Icon name="trash" :size="14" />
-            </button>
-          </li>
-        </ul>
-        <p v-else class="hint">No saved projects yet.</p>
-        <div class="row">
-          <button @click="showLoad = false">Close</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Simulator handoff modal -->
-    <div v-if="showSimulator" class="modal-bg" @click.self="showSimulator = false">
-      <div class="modal">
-        <h3>Open in Origami Simulator</h3>
-        <p class="hint">
-          Origami Simulator doesn't accept patterns over the URL, so the file has been downloaded for you.
-        </p>
-        <ol class="steps">
-          <li>The simulator is opening in a new tab.</li>
-          <li>Drag <strong>{{ (state.currentProject || 'pattern') + '.fold' }}</strong> into the simulator window — or use <em>File → Import…</em> there.</li>
-          <li>Use the simulator's slider to fold from 0 → 1.</li>
-        </ol>
-        <div class="row">
-          <button class="primary" @click="showSimulator = false">Got it</button>
-        </div>
-      </div>
     </div>
 
     <!-- Help modal -->
@@ -327,8 +159,8 @@ button.danger { color: var(--ac); padding: 4px 6px; }
   .topbar { padding: 8px 10px; gap: 8px; }
   .brand { font-size: 1.1rem; }
   .title { font-size: 0.85rem; }
-  .actions .lbl { display: none; }
-  .actions button, .actions .filebtn { padding: 8px 10px; min-height: 40px; }
+  .actions .lbl { font-size: 0.6rem; }
+  .actions button, .actions .filebtn { padding: 6px 8px; min-height: 40px; }
   .mobile-only { display: inline-flex; }
 }
 </style>

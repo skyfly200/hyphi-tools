@@ -1,6 +1,7 @@
 <script setup>
 import TopBar from './components/TopBar.vue';
 import Toolbar from './components/Toolbar.vue';
+import BottomBar from './components/BottomBar.vue';
 import CanvasSVG from './components/CanvasSVG.vue';
 import Sidebar from './components/Sidebar.vue';
 import Inspector from './components/Inspector.vue';
@@ -13,7 +14,6 @@ import { state } from './store.js';
     <Toolbar />
 
     <div class="body" :class="{ 'show-sidebar': state.ui.mobileSidebar, 'show-inspector': state.ui.mobileInspector }">
-      <!-- Backdrop appears below drawer on mobile to dismiss when tapped. -->
       <div class="backdrop"
            @click="state.ui.mobileSidebar = state.ui.mobileInspector = false"></div>
       <Sidebar />
@@ -21,7 +21,8 @@ import { state } from './store.js';
       <Inspector />
     </div>
 
-    <footer class="status">{{ state.status }} · tool: {{ state.tool }} · paint: {{ state.assignment }}</footer>
+    <div class="status">{{ state.status }} · tool: {{ state.tool }} · paint: {{ state.assignment }}</div>
+    <BottomBar />
   </div>
 </template>
 
@@ -37,7 +38,7 @@ import { state } from './store.js';
 .foldstudio-root .app { display: flex; flex-direction: column; width: 100%; height: 100%; }
 .foldstudio-root .body { display: flex; flex: 1; min-height: 0; position: relative; }
 .foldstudio-root .canvas-area { flex: 1; display: flex; align-items: stretch; justify-content: stretch; min-width: 0; min-height: 0; overflow: hidden; }
-.foldstudio-root .status { font-family: 'DM Mono', monospace; font-size: 0.7rem; color: var(--sub); padding: 6px 14px; border-top: 1px solid var(--bd); background: var(--s); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.foldstudio-root .status { font-family: 'DM Mono', monospace; font-size: 0.7rem; color: var(--sub); padding: 4px 14px; border-top: 1px solid var(--bd); background: var(--s); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .foldstudio-root .backdrop { display: none; }
 
 /* Mobile: collapse Sidebar + Inspector into off-canvas drawers, taken out of
