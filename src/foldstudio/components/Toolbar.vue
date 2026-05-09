@@ -47,15 +47,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
 
 <template>
   <div class="toolbar">
-    <div class="group mobile-only">
-      <button class="panel-toggle"
-              :class="{ active: state.ui.mobileSidebar }"
-              @click="state.ui.mobileSidebar = !state.ui.mobileSidebar"
-              title="Show grid + label settings">
-        <Icon name="panelLeft" />
-      </button>
-    </div>
-
     <div class="group">
       <button v-for="t in tools" :key="t.id"
               :class="{ active: state.tool === t.id }"
@@ -98,15 +89,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
               title="Delete selected edges and vertices (Del / Backspace)"
               :disabled="!state.selection.edges.size && !state.selection.vertices.size">
         <Icon name="trash" />
-      </button>
-    </div>
-
-    <div class="group mobile-only" style="margin-left:auto">
-      <button class="panel-toggle"
-              :class="{ active: state.ui.mobileInspector }"
-              @click="state.ui.mobileInspector = !state.ui.mobileInspector"
-              title="Show tool options + validation">
-        <Icon name="panelRight" />
       </button>
     </div>
   </div>
