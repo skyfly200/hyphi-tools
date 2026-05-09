@@ -5,6 +5,7 @@ import {
   saveCurrentProject, loadSavedProject, deleteSavedProject,
 } from '../store.js';
 import { modelToFOLD, foldToModel, modelToSVG, downloadJSON, downloadText } from '../lib/fold-io.js';
+import { setHandoff } from '../../lib/foldHandoff.js';
 import Icon from './Icon.vue';
 
 const showSave = ref(false);
@@ -16,6 +17,14 @@ const projectName = ref('');
 // Origami Simulator's importer.js listens for postMessage events with
 // op: 'importFold' or 'importSVG'. We open the simulator in a popup, then
 // post the FOLD a few times since there's no ready-handshake.
+// Hand off the current pattern to a sibling tool by stashing the FOLD in
+// sessionStorage and full-page navigating — the React routes will pick up
+// the handoff on mount.
+function openInTool(path) {
+  setHandoff(modelToFOLD(state.model, { ids: false }));
+  window.location.assign(path);
+}
+
 function openInOrigamiSimulator() {
   const filename = (state.currentProject || 'pattern') + '.fold';
   const fold = modelToFOLD(state.model, { ids: false });
@@ -111,6 +120,12 @@ const fmt = ts => new Date(ts).toLocaleString();
       <button @click="openInOrigamiSimulator"
               title="Open this pattern in origamisimulator.org with the configured fold angles">
         <Icon name="open" /><span>Simulator</span>
+      </button>
+      <button @click="openInTool('/foldform')" title="Open this pattern in FoldForm to make a living-hinge model">
+        <Icon name="open" /><span>FoldForm</span>
+      </button>
+      <button @click="openInTool('/fold')" title="Open this pattern in FoldPress to make press plates">
+        <Icon name="open" /><span>FoldPress</span>
       </button>
 
       <div class="divider" />

@@ -1,5 +1,7 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { EDGE_COLOR, EDGE_DASH } from './lib/foldPalette.js';
+import { setHandoff, takeHandoff } from './lib/foldHandoff.js';
 
 // ── STL helpers ────────────────────────────────────────────────────────────
 const vf = (x,y,z) => `${(+x).toFixed(4)} ${(+y).toFixed(4)} ${(+z).toFixed(4)}`;
@@ -383,6 +385,27 @@ export default function FoldPress() {
     r.readAsText(file);
   }
 
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const fold = takeHandoff();
+    if (!fold) return;
+    const parsed = parseFOLD(JSON.stringify(fold));
+    if (parsed) { setPattern(parsed); setFileName('From another tool'); setMsg(''); }
+  }, []);
+
+  function handoffToTool(path) {
+    if (!pattern) return;
+    setHandoff({
+      file_spec: 1.1,
+      file_creator: 'FoldPress — hyphi-tools',
+      vertices_coords: pattern.vertices.map(v => [v[0], v[1]]),
+      edges_vertices: pattern.edges.map(e => [e.v1, e.v2]),
+      edges_assignment: pattern.edges.map(e => e.type || 'U'),
+    });
+    navigate(path);
+  }
+
   async function doExport() {
     if(!pattern) return;
     setMsg('Building…'); await new Promise(r=>setTimeout(r,20));
@@ -412,6 +435,8 @@ export default function FoldPress() {
     .R{padding:20px;display:flex;flex-direction:column;gap:14px;height:100vh;overflow-y:auto}
     .logo-mark{font-size:1.5rem;font-weight:800;letter-spacing:-.03em}.logo-mark em{color:var(--ac);font-style:normal}
     .sub{font-family:'DM Mono',monospace;font-size:.65rem;color:var(--mu);margin-top:3px}
+    .back-link{display:inline-block;font-family:'DM Mono',monospace;font-size:.7rem;color:var(--mu);text-decoration:none;margin-bottom:8px;padding:3px 8px;border:1px solid var(--bd);border-radius:6px}
+    .back-link:hover{color:var(--t);border-color:var(--ac)}
     .sec{display:flex;flex-direction:column;gap:9px}
     .lbl{font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--mu)}
     .rng{display:flex;align-items:center;gap:10px}
@@ -454,6 +479,7 @@ export default function FoldPress() {
       <div className="shell">
         <div className="L">
           <div>
+            <Link to="/" className="back-link" title="Back to Hyphi Tools">← Tools</Link>
             <div className="logo-mark">Fold<em>Press</em></div>
             <div className="sub">// origami crease press generator</div>
           </div>
@@ -566,6 +592,16 @@ export default function FoldPress() {
             <button className="eb" onClick={doExport} disabled={!pattern}>
               Export Press Plates (.zip)
             </button>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:8}}>
+              <button className="eb" style={{fontSize:'.76rem',padding:'8px 10px'}}
+                onClick={() => handoffToTool('/foldstudio')} disabled={!pattern} title="Open this pattern in FoldStudio for editing">
+                Edit in FoldStudio
+              </button>
+              <button className="eb" style={{fontSize:'.76rem',padding:'8px 10px'}}
+                onClick={() => handoffToTool('/foldform')} disabled={!pattern} title="Open this pattern in FoldForm to make a living-hinge model">
+                Open in FoldForm
+              </button>
+            </div>
             <div className="stlmsg">{msg}</div>
             <div className="notice">
               Zip contains <strong>press_top.stl</strong> and <strong>press_bottom.stl</strong>.

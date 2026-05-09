@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { Link } from "react-router-dom";
 import qrCodeGenerator from "qrcode-generator";
 
 function buildQRData(type, fields) {
@@ -779,6 +780,8 @@ export default function QRForge() {
     .L{padding:28px 24px;border-right:1px solid var(--bd);overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:18px;height:100vh}
     .R{padding:20px;display:flex;flex-direction:column;gap:12px;align-items:stretch;height:100vh;overflow:hidden}
     .logo-mark{font-size:1.5rem;font-weight:800;letter-spacing:-.03em} .logo-mark em{color:var(--ac);font-style:normal}
+    .back-link{display:inline-block;font-family:'DM Mono',monospace;font-size:.7rem;color:var(--mu);text-decoration:none;margin-bottom:8px;padding:3px 8px;border:1px solid var(--bd);border-radius:6px}
+    .back-link:hover{color:var(--t);border-color:var(--ac)}
     .mono{font-family:'DM Mono',monospace}
     .sub{font-family:'DM Mono',monospace;font-size:.65rem;color:var(--mu);margin-top:3px}
     .mtabs{display:grid;grid-template-columns:1fr 1fr 1fr;gap:3px;background:var(--s);border:1px solid var(--bd);border-radius:var(--rr);padding:3px}
@@ -922,6 +925,7 @@ export default function QRForge() {
       <div className="shell">
         <div className="L">
           <div>
+            <Link to="/" className="back-link" title="Back to Hyphi Tools">← Tools</Link>
             <div className="logo-mark">QR<em>forge</em></div>
             <div className="sub">// custom qr code generator</div>
           </div>
