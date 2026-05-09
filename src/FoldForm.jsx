@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { EDGE_COLOR, EDGE_DASH } from './lib/foldPalette.js';
+import { setHandoff, takeHandoff } from './lib/foldHandoff.js';
 
 // ── Parsers ────────────────────────────────────────────────────────────────
 function parseFOLD(text) {
@@ -426,6 +428,32 @@ export default function FoldForm() {
     r.readAsText(file);
   }
 
+  const navigate = useNavigate();
+
+  // Accept a handoff from FoldStudio / FoldPress on mount.
+  useEffect(() => {
+    const fold = takeHandoff();
+    if (!fold) return;
+    const parsed = parseFOLD(JSON.stringify(fold));
+    if (parsed) {
+      setPattern(parsed);
+      setFileName('From another tool');
+      setMsg('');
+    }
+  }, []);
+
+  function handoffToTool(path) {
+    if (!pattern) return;
+    setHandoff({
+      file_spec: 1.1,
+      file_creator: 'FoldForm — hyphi-tools',
+      vertices_coords: pattern.vertices.map(v => [v[0], v[1]]),
+      edges_vertices: pattern.edges.map(e => [e.v1, e.v2]),
+      edges_assignment: pattern.edges.map(e => e.type || 'U'),
+    });
+    navigate(path);
+  }
+
   function loadDesign(file) {
     if (!file) return;
     if (!file.name.endsWith('.svg')) { setMsg('Design must be an SVG file'); return; }
@@ -514,6 +542,8 @@ export default function FoldForm() {
     .leg-line{width:20px;height:2px;border-radius:1px;flex-shrink:0}
     .demo-btn{background:none;border:1px solid var(--bd);border-radius:8px;padding:7px 12px;color:var(--mu);font-family:inherit;font-size:.72rem;cursor:pointer;transition:.15s;text-align:left}
     .demo-btn:hover{border-color:var(--ac)}
+    .back-link{display:inline-block;font-family:'DM Mono',monospace;font-size:.7rem;color:var(--mu);text-decoration:none;margin-bottom:8px;padding:3px 8px;border:1px solid var(--bd);border-radius:6px}
+    .back-link:hover{color:var(--t);border-color:var(--ac2,var(--ac))}
     ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--bd);border-radius:99px}
     *{scrollbar-width:thin;scrollbar-color:var(--bd) transparent}
     @media(max-width:760px){html,body{overflow:auto;height:auto}.shell{grid-template-columns:1fr;height:auto}.L,.R{height:auto}.R{order:-1}}
@@ -525,6 +555,7 @@ export default function FoldForm() {
       <div className="shell">
         <div className="L">
           <div>
+            <Link to="/" className="back-link" title="Back to Hyphi Tools">← Tools</Link>
             <div className="logo-mark">Fold<em>Form</em></div>
             <div className="sub">// living-hinge origami model generator</div>
           </div>
@@ -633,13 +664,21 @@ export default function FoldForm() {
                   {faces.length} panel{faces.length!==1?'s':''} detected. Click any panel to change its color, then export the colored .fold file or open directly in Origami Simulator to see how it folds.
                 </div>
               )}
-              <div style={{display:'flex',gap:8}}>
+              <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
                 <button className="eb" style={{fontSize:'.76rem',padding:'8px 10px'}} onClick={handleExportFOLD} disabled={!pattern}>
                   Export .fold
                 </button>
                 <button className="eb" style={{fontSize:'.76rem',padding:'8px 10px',background:'var(--acd)',border:'1px solid var(--ac)',color:'var(--ac)'}}
                   onClick={handleOpenSimulator} disabled={!pattern}>
                   Open in Origami Simulator
+                </button>
+                <button className="eb" style={{fontSize:'.76rem',padding:'8px 10px'}}
+                  onClick={() => handoffToTool('/foldstudio')} disabled={!pattern} title="Open this pattern in FoldStudio for editing">
+                  Edit in FoldStudio
+                </button>
+                <button className="eb" style={{fontSize:'.76rem',padding:'8px 10px'}}
+                  onClick={() => handoffToTool('/fold')} disabled={!pattern} title="Open this pattern in FoldPress to make press plates">
+                  Open in FoldPress
                 </button>
               </div>
               <div style={{fontSize:'.62rem',color:'var(--sub)',lineHeight:1.5}}>
