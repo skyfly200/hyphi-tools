@@ -1,19 +1,7 @@
-// Thin wrapper around rabbit-ear for face computation and validation.
-// rabbit-ear's exact API surface varies between versions — we feature-detect.
+// Flat-foldability validation. Face computation lives in faces.js (was
+// rabbit-ear's graph.populate, now self-contained to drop the dep).
 
-import ear from 'rabbit-ear';
-import { modelToFOLD, foldToModel } from './fold-io.js';
-
-export function computeFaces(model) {
-  try {
-    const fold = modelToFOLD(model);
-    const g = ear.graph?.populate ? ear.graph.populate(fold) : fold;
-    if (g.faces_vertices) {
-      return g.faces_vertices.map(f => f.slice());
-    }
-  } catch (_) { /* fall through */ }
-  return [];
-}
+export { computeFaces } from './faces.js';
 
 // Returns { ok: boolean, vertexIssues: [{ vertex, type, msg }] }
 // Maekawa: |#M - #V| === 2 at every interior vertex with all M/V creases.

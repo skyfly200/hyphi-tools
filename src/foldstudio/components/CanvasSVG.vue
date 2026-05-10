@@ -16,13 +16,27 @@ const cursor = ref(null);
 const drawStart = ref(null);
 const angleAnchor = ref(null);
 
-// Convert a pointer event into model-space coords [0..1] (paper space).
-// The paper is inset by MARGIN inside the SVG so users can click slightly
-// outside it to grab edge-adjacent vertices/lines.
-function eventToModel(ev) {
+// View transform applied to the contents <g>: translate(tx ty) scale(s).
+// All viewBox-space; model coords run through the same xToPx mapping below
+// and then through this transform. eventToModel inverses both.
+const view = ref({ s: 1, tx: 0, ty: 0 });
+function clampScale(s) { return Math.max(0.4, Math.min(8, s)); }
+
+// Convert a pointer event to viewBox px (independent of scale).
+function eventToViewbox(ev) {
   const rect = svgRef.value.getBoundingClientRect();
-  const px = ((ev.clientX - rect.left) / rect.width) * SIZE;
-  const py = ((ev.clientY - rect.top) / rect.height) * SIZE;
+  return {
+    x: ((ev.clientX - rect.left) / rect.width) * SIZE,
+    y: ((ev.clientY - rect.top) / rect.height) * SIZE,
+  };
+}
+
+// Convert a pointer event to model-space coords, accounting for the view
+// transform so picking still hits where the user expects after zoom/pan.
+function eventToModel(ev) {
+  const v = eventToViewbox(ev);
+  const px = (v.x - view.value.tx) / view.value.s;
+  const py = (v.y - view.value.ty) / view.value.s;
   return [(px - MARGIN) / INNER, 1 - (py - MARGIN) / INNER];
 }
 
@@ -50,13 +64,86 @@ function pickVertexIndex(p) {
   return best;
 }
 
+// Multi-pointer state for pinch-zoom + two-finger pan.
+const activePointers = new Map();
+let gestureStart = null; // { dist, midV, view: {s,tx,ty} }
+
+function recordPointer(ev) {
+  activePointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+}
+function releasePointer(ev) {
+  activePointers.delete(ev.pointerId);
+  if (activePointers.size < 2) gestureStart = null;
+}
+function pointerCentroidViewbox() {
+  const rect = svgRef.value.getBoundingClientRect();
+  let sx = 0, sy = 0, n = 0;
+  for (const p of activePointers.values()) { sx += p.x; sy += p.y; n++; }
+  if (!n) return { x: 0, y: 0 };
+  return {
+    x: ((sx / n - rect.left) / rect.width) * SIZE,
+    y: ((sy / n - rect.top) / rect.height) * SIZE,
+  };
+}
+function pointerSpread() {
+  if (activePointers.size < 2) return 0;
+  const pts = [...activePointers.values()];
+  let sx = 0, sy = 0;
+  for (const p of pts) { sx += p.x; sy += p.y; }
+  const cx = sx / pts.length, cy = sy / pts.length;
+  let s = 0;
+  for (const p of pts) s += Math.hypot(p.x - cx, p.y - cy);
+  return s / pts.length;
+}
+
 function onPointerMove(ev) {
+  if (activePointers.has(ev.pointerId)) {
+    activePointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  }
+  if (activePointers.size >= 2) {
+    if (!gestureStart) {
+      gestureStart = {
+        dist: pointerSpread() || 1,
+        midV: pointerCentroidViewbox(),
+        view: { ...view.value },
+      };
+    } else {
+      const k = (pointerSpread() || gestureStart.dist) / gestureStart.dist;
+      const newS = clampScale(gestureStart.view.s * k);
+      const midV = pointerCentroidViewbox();
+      // Anchor the pinch center: keep the model point under midV stationary.
+      const newTx = midV.x - (gestureStart.midV.x - gestureStart.view.tx) * (newS / gestureStart.view.s);
+      const newTy = midV.y - (gestureStart.midV.y - gestureStart.view.ty) * (newS / gestureStart.view.s);
+      view.value = { s: newS, tx: newTx, ty: newTy };
+    }
+    cursor.value = null;
+    return;
+  }
   const raw = eventToModel(ev);
   cursor.value = snapPoint(raw);
 }
 
+function onWheel(ev) {
+  if (activePointers.size > 0) return;
+  ev.preventDefault();
+  const k = Math.exp(-ev.deltaY * 0.0015);
+  const newS = clampScale(view.value.s * k);
+  const v = eventToViewbox(ev);
+  const ratio = newS / view.value.s;
+  const newTx = v.x - (v.x - view.value.tx) * ratio;
+  const newTy = v.y - (v.y - view.value.ty) * ratio;
+  view.value = { s: newS, tx: newTx, ty: newTy };
+}
+
+function resetView() {
+  view.value = { s: 1, tx: 0, ty: 0 };
+}
+
 function onPointerDown(ev) {
+  recordPointer(ev);
   if (ev.button !== 0) return;
+  // Block draw/select while a 2-finger gesture is in progress.
+  if (activePointers.size >= 2) { drawStart.value = null; angleAnchor.value = null; return; }
   const p = snapPoint(eventToModel(ev));
   if (state.tool === 'draw') {
     if (!drawStart.value) drawStart.value = p;
@@ -151,10 +238,18 @@ const ghostLine = computed(() => {
          class="surface"
          @pointermove="onPointerMove"
          @pointerdown="onPointerDown"
-         @pointerleave="cursor = null">
+         @pointerup="releasePointer"
+         @pointercancel="releasePointer"
+         @pointerleave="(ev) => { releasePointer(ev); cursor = null }"
+         @wheel.prevent="onWheel"
+         style="touch-action: none">
 
-      <!-- Workspace background -->
+      <!-- Workspace background fills the visible SVG regardless of zoom. -->
       <rect x="0" y="0" :width="SIZE" :height="SIZE" fill="#1a1a24" />
+
+      <!-- Everything else lives inside this <g>; pinch / wheel zoom + pan
+           operates on this transform. -->
+      <g :transform="`translate(${view.tx} ${view.ty}) scale(${view.s})`">
       <!-- Paper -->
       <rect :x="MARGIN" :y="MARGIN" :width="INNER" :height="INNER" fill="#fff" stroke="#ddd" />
 
@@ -253,11 +348,17 @@ const ghostLine = computed(() => {
           {{ formatId('f', i, state.labels.oneBased) }}
         </text>
       </g>
+      </g><!-- /transformed content -->
     </svg>
+    <button v-if="view.s !== 1 || view.tx !== 0 || view.ty !== 0"
+            class="reset-view" @click="resetView"
+            title="Reset zoom + pan">⤢ 1:1</button>
   </div>
 </template>
 
 <style scoped>
-.canvas-wrap { display: flex; align-items: center; justify-content: center; padding: 12px; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.canvas-wrap { display: flex; align-items: center; justify-content: center; padding: 12px; flex: 1; min-width: 0; min-height: 0; overflow: hidden; position: relative; }
 .surface { width: auto; height: auto; max-width: 100%; max-height: 100%; aspect-ratio: 1 / 1; background: var(--bg); cursor: crosshair; display: block; }
+.reset-view { position: absolute; right: 16px; bottom: 16px; background: rgba(20,20,30,0.85); color: #fff; border: 1px solid var(--bd); border-radius: 6px; padding: 5px 8px; font: 500 0.7rem 'DM Mono', monospace; cursor: pointer; }
+.reset-view:hover { border-color: var(--ac2); }
 </style>
