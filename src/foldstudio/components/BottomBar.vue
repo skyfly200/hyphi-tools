@@ -201,7 +201,10 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 @media (max-width: 700px) {
   .bottombar { padding: 6px 8px; gap: 4px; justify-content: center; }
-  .lbl { font-size: 0.62rem; }
-  button, .filebtn { padding: 6px 8px; min-height: 38px; }
+  /* Icons-only on mobile so all the file actions fit on one row. */
+  .lbl { display: none; }
+  button, .filebtn { padding: 6px 8px; min-height: 36px; gap: 0; }
+  .grp { gap: 3px; }
+  .export-pair select { padding: 0 4px; font-size: 0.65rem; }
 }
 </style>

@@ -145,12 +145,13 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 
 @media (max-width: 900px) {
   .mobile-only { display: flex; }
-  /* Shrink labels on touch to keep the bar compact instead of dropping
-     them entirely — labels are the only thing telling users what each icon
-     does without a tooltip. */
-  button .lbl { font-size: 0.6rem; }
-  /* Bigger tap target on touch devices. */
-  button { padding: 6px 8px; min-height: 40px; }
-  .toolbar { padding: 8px 10px; gap: 5px; }
+  /* Mobile is icons-only — labels eat too much room. The segmented Pick
+     control keeps text (Edges / Vertices / Both) since it has no icons,
+     but its font/padding shrink. */
+  button .lbl { display: none; }
+  button { padding: 6px 7px; min-height: 36px; gap: 0; }
+  .toolbar { padding: 6px 8px; gap: 4px; }
+  .seg button { padding: 6px 8px; font-size: 0.65rem; min-height: 36px; }
+  .divider { margin: 0 2px; }
 }
 </style>
