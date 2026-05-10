@@ -70,13 +70,19 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
       <div class="seg" role="radiogroup" aria-label="Select target">
         <button :class="{ on: state.selectMode === 'edges' }"
                 @click="state.selectMode = 'edges'"
-                title="Pick only edges">Edges</button>
+                title="Pick edges only">
+          <Icon name="pickEdge" /><span class="lbl">Edges</span>
+        </button>
         <button :class="{ on: state.selectMode === 'vertices' }"
                 @click="state.selectMode = 'vertices'"
-                title="Pick only vertices">Vertices</button>
+                title="Pick vertices only">
+          <Icon name="pickVertex" /><span class="lbl">Vertices</span>
+        </button>
         <button :class="{ on: state.selectMode === 'both' }"
                 @click="state.selectMode = 'both'"
-                title="Pick vertices first, then edges">Both</button>
+                title="Pick vertices first, then edges">
+          <Icon name="pickBoth" /><span class="lbl">Both</span>
+        </button>
       </div>
     </template>
 
@@ -135,7 +141,7 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 .snap-toggle.off :deep(svg) { opacity: 0.5; }
 
 .seg { display: inline-flex; }
-.seg button { background: var(--bg); color: var(--sub); border: 1px solid var(--bd); padding: 6px 10px; font: 500 0.7rem 'DM Sans', sans-serif; cursor: pointer; border-radius: 0; min-height: 34px; }
+.seg button { background: var(--bg); color: var(--sub); border: 1px solid var(--bd); padding: 6px 9px; font: 500 0.7rem 'DM Sans', sans-serif; cursor: pointer; border-radius: 0; min-height: 34px; display: inline-flex; align-items: center; gap: 6px; }
 .seg button:first-child { border-top-left-radius: 6px; border-bottom-left-radius: 6px; }
 .seg button:last-child { border-top-right-radius: 6px; border-bottom-right-radius: 6px; }
 .seg button + button { border-left: none; }

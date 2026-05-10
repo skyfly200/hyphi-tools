@@ -84,6 +84,11 @@ const fmt = ts => new Date(ts).toLocaleString();
 
 <template>
   <footer class="bottombar">
+    <div class="status" :title="state.status">
+      {{ state.status }}
+      <span class="dim">· {{ state.tool }} · {{ state.assignment }}</span>
+    </div>
+
     <div class="grp project">
       <button @click="showNew = true" title="Start a new project (blank or template)">
         <Icon name="newDoc" /><span class="lbl">New</span>
@@ -175,7 +180,9 @@ const fmt = ts => new Date(ts).toLocaleString();
 </template>
 
 <style scoped>
-.bottombar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; background: var(--s); border-top: 1px solid var(--bd); }
+.bottombar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 8px; padding: 8px 12px; background: var(--s); border-top: 1px solid var(--bd); }
+.status { font-family: 'DM Mono', monospace; font-size: 0.7rem; color: var(--sub); flex: 1 1 240px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status .dim { color: var(--bd); }
 .grp { display: flex; gap: 4px; flex-wrap: wrap; }
 button, .filebtn { background: var(--bg); color: var(--t); border: 1px solid var(--bd); border-radius: 6px; padding: 6px 9px; font: 500 0.75rem 'DM Sans', sans-serif; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; }
 button:hover, .filebtn:hover { border-color: var(--ac2); }

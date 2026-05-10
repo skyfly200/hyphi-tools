@@ -27,6 +27,10 @@ export const Icons = {
   foldform: `<path d="M3 8l4 -4l4 4l4 -4l4 4l2 -2"/><path d="M3 14l4 4l4 -4l4 4l4 -4l2 2"/>`,
   // Plate + downward arrows for FoldPress (press / stamp generator).
   foldpress: `<rect x="3" y="14" width="18" height="3" rx="0.5"/><path d="M8 11l4 -4l4 4"/><path d="M12 7v4"/><path d="M5 20h14"/>`,
+  // Select-mode targets.
+  pickEdge: `<line x1="4" y1="20" x2="20" y2="4"/>`,
+  pickVertex: `<circle cx="12" cy="12" r="3.5" fill="currentColor"/>`,
+  pickBoth: `<line x1="4" y1="20" x2="20" y2="4"/><circle cx="20" cy="4" r="3" fill="currentColor"/><circle cx="4" cy="20" r="3" fill="currentColor"/>`,
 };
 
 export function iconSvg(name, size = 18) {
