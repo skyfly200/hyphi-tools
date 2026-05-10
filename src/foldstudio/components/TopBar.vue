@@ -146,11 +146,13 @@ button.danger { color: var(--ac); padding: 4px 6px; }
 /* Mobile compaction: drop button labels (icon survives), shrink padding,
    ensure wrap. Only .lbl is hidden so the icon span keeps rendering. */
 @media (max-width: 700px) {
-  .topbar { padding: 8px 10px; gap: 8px; }
-  .brand { font-size: 1.1rem; }
-  .title { font-size: 0.85rem; }
-  .actions .lbl { font-size: 0.6rem; }
-  .actions button, .actions .filebtn { padding: 6px 8px; min-height: 40px; }
+  .topbar { padding: 6px 10px; gap: 6px; }
+  .brand { font-size: 1.05rem; }
+  .title { font-size: 0.8rem; }
+  .actions { gap: 4px; }
+  /* Icons-only on mobile to keep the bar tight. */
+  .actions .lbl { display: none; }
+  .actions button, .actions .filebtn { padding: 6px 8px; min-height: 36px; gap: 0; }
   .mobile-only { display: inline-flex; }
 }
 </style>
