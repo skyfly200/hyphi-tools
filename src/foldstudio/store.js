@@ -19,6 +19,7 @@ import {
   saveProject as saveProjectRaw,
   loadProject as loadProjectRaw,
   deleteProject as deleteProjectRaw,
+  renameProject as renameProjectRaw,
 } from './lib/persistence.js';
 
 const persisted = (typeof localStorage !== 'undefined' && loadPrefs()) || null;
@@ -113,6 +114,20 @@ export function deleteSavedProject(name) {
   deleteProjectRaw(name);
   if (state.currentProject === name) state.currentProject = null;
   refreshProjects();
+}
+
+export function renameSavedProject(oldName, newName) {
+  const trimmed = (newName || '').trim();
+  if (!trimmed || trimmed === oldName) return false;
+  const ok = renameProjectRaw(oldName, trimmed);
+  if (!ok) {
+    state.status = `Couldn't rename — "${trimmed}" may already exist`;
+    return false;
+  }
+  if (state.currentProject === oldName) state.currentProject = trimmed;
+  refreshProjects();
+  state.status = `Renamed to "${trimmed}"`;
+  return true;
 }
 
 // Set per-edge foldAngle for currently-selected edges. Pass null to clear

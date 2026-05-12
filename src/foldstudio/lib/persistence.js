@@ -39,3 +39,14 @@ export function deleteProject(name) {
   delete all[name];
   localStorage.setItem(PROJECTS_KEY, JSON.stringify(all));
 }
+
+export function renameProject(oldName, newName) {
+  if (!newName || oldName === newName) return false;
+  const all = safeParse(localStorage.getItem(PROJECTS_KEY), {});
+  if (!all[oldName]) return false;
+  if (all[newName]) return false; // refuse to clobber an existing project
+  all[newName] = all[oldName];
+  delete all[oldName];
+  localStorage.setItem(PROJECTS_KEY, JSON.stringify(all));
+  return true;
+}

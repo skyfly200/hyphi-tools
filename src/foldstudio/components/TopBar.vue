@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue';
-import { state } from '../store.js';
+import { state, cleanup } from '../store.js';
 import Icon from './Icon.vue';
 
 const showHelp = ref(false);
@@ -20,6 +20,11 @@ const showHelp = ref(false);
               @click="state.ui.mobileSidebar = !state.ui.mobileSidebar"
               title="Show grid / labels / tool options drawer">
         <Icon name="panelLeft" /><span class="lbl">Tools</span>
+      </button>
+
+      <button @click="cleanup"
+              title="Remove redundant vertices and merge collinear creases">
+        <Icon name="broom" /><span class="lbl">Cleanup</span>
       </button>
 
       <button @click="state.theme = state.theme === 'dark' ? 'light' : 'dark'"
