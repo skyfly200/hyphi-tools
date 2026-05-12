@@ -1,8 +1,8 @@
 <script setup>
 import { ref } from 'vue';
 import {
-  state, loadModel, cleanup, saveCurrentProject,
-  loadSavedProject, deleteSavedProject,
+  state, loadModel, saveCurrentProject,
+  loadSavedProject, deleteSavedProject, renameSavedProject,
 } from '../store.js';
 import {
   modelToFOLD, foldToModel, modelToSVG, downloadJSON, downloadText,
@@ -10,6 +10,37 @@ import {
 import { setHandoff } from '../../lib/foldHandoff.js';
 import Icon from './Icon.vue';
 import NewProjectModal from './NewProjectModal.vue';
+
+const handoffOpen = ref(false);
+function closeHandoffMenu() { handoffOpen.value = false; }
+const vClickOutside = {
+  mounted(el, binding) {
+    el.__clickOutside__ = (ev) => {
+      if (!el.contains(ev.target)) binding.value();
+    };
+    setTimeout(() => document.addEventListener('pointerdown', el.__clickOutside__), 0);
+  },
+  unmounted(el) {
+    if (el.__clickOutside__) document.removeEventListener('pointerdown', el.__clickOutside__);
+  },
+};
+
+const renaming = ref(null);
+const renameValue = ref('');
+function startRename(name) {
+  renaming.value = name;
+  renameValue.value = name;
+}
+function cancelRename() {
+  renaming.value = null;
+  renameValue.value = '';
+}
+function commitRename(oldName) {
+  const target = renameValue.value;
+  if (renaming.value !== oldName) return;
+  if (target && target !== oldName) renameSavedProject(oldName, target);
+  cancelRename();
+}
 
 const showNew = ref(false);
 const showSave = ref(false);
@@ -93,9 +124,6 @@ const fmt = ts => new Date(ts).toLocaleString();
       <button @click="showNew = true" title="Start a new project (blank or template)">
         <Icon name="newDoc" /><span class="lbl">New</span>
       </button>
-      <button @click="cleanup" title="Remove redundant vertices">
-        <Icon name="broom" /><span class="lbl">Cleanup</span>
-      </button>
       <button @click="openSave" title="Save project to browser">
         <Icon name="save" /><span class="lbl">Save</span>
       </button>
@@ -118,16 +146,27 @@ const fmt = ts => new Date(ts).toLocaleString();
       </div>
     </div>
 
-    <div class="grp handoff">
-      <button @click="openInOrigamiSimulator" title="Open in Origami Simulator">
-        <Icon name="external" /><span class="lbl">Simulator</span>
+    <div class="grp handoff" v-click-outside="closeHandoffMenu">
+      <button class="handoff-trigger"
+              @click="handoffOpen = !handoffOpen"
+              title="Open this pattern in another tool">
+        <Icon name="external" /><span class="lbl">Open in…</span>
+        <span class="chev">▾</span>
       </button>
-      <button @click="openInTool('/foldform')" title="Open this pattern in FoldForm">
-        <Icon name="foldform" /><span class="lbl">FoldForm</span>
-      </button>
-      <button @click="openInTool('/fold')" title="Open this pattern in FoldPress">
-        <Icon name="foldpress" /><span class="lbl">FoldPress</span>
-      </button>
+      <div v-if="handoffOpen" class="handoff-popover">
+        <button @click="openInOrigamiSimulator(); handoffOpen = false"
+                title="Open in origamisimulator.org with the configured fold angles">
+          <Icon name="external" /><span class="handoff-label">Origami Simulator</span>
+        </button>
+        <button @click="openInTool('/foldform'); handoffOpen = false"
+                title="Open this pattern in FoldForm to make a living-hinge model">
+          <Icon name="foldform" /><span class="handoff-label">FoldForm</span>
+        </button>
+        <button @click="openInTool('/fold'); handoffOpen = false"
+                title="Open this pattern in FoldPress to make press plates">
+          <Icon name="foldpress" /><span class="handoff-label">FoldPress</span>
+        </button>
+      </div>
     </div>
 
     <NewProjectModal :open="showNew" @close="showNew = false" />
@@ -149,13 +188,26 @@ const fmt = ts => new Date(ts).toLocaleString();
         <h3>Open project</h3>
         <ul v-if="state.projects.length" class="proj-list">
           <li v-for="p in state.projects" :key="p.name">
-            <button class="link" @click="loadSavedProject(p.name); showLoad = false">
-              {{ p.name }}
-            </button>
-            <span class="when">{{ fmt(p.savedAt) }}</span>
-            <button class="danger" @click="deleteSavedProject(p.name)" title="Delete">
-              <Icon name="trash" :size="14" />
-            </button>
+            <template v-if="renaming === p.name">
+              <input ref="renameInput"
+                     v-model="renameValue"
+                     @keyup.enter="commitRename(p.name)"
+                     @keyup.esc="cancelRename"
+                     @blur="commitRename(p.name)"
+                     autofocus />
+              <span class="when">{{ fmt(p.savedAt) }}</span>
+              <button class="rename" @mousedown.prevent @click="commitRename(p.name)" title="Confirm rename">✓</button>
+            </template>
+            <template v-else>
+              <button class="link" @click="loadSavedProject(p.name); showLoad = false">
+                {{ p.name }}
+              </button>
+              <span class="when">{{ fmt(p.savedAt) }}</span>
+              <button class="rename" @click="startRename(p.name)" title="Rename project">✎</button>
+              <button class="danger" @click="deleteSavedProject(p.name)" title="Delete">
+                <Icon name="trash" :size="14" />
+              </button>
+            </template>
           </li>
         </ul>
         <p v-else class="hint">No saved projects yet.</p>
@@ -192,6 +244,13 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .export-pair button { border-top-right-radius: 0; border-bottom-right-radius: 0; padding-right: 8px; }
 .export-pair select { background: var(--bg); color: var(--t); border: 1px solid var(--bd); border-left: none; border-top-left-radius: 0; border-bottom-left-radius: 0; border-top-right-radius: 6px; border-bottom-right-radius: 6px; padding: 0 6px; font: 500 0.72rem 'DM Mono'; cursor: pointer; }
 
+.handoff { position: relative; }
+.handoff-trigger .chev { font-size: 0.7rem; color: var(--sub); margin-left: 1px; }
+.handoff-popover { position: absolute; z-index: 30; right: 0; bottom: calc(100% + 6px); background: var(--s); border: 1px solid var(--bd); border-radius: 8px; padding: 4px; display: flex; flex-direction: column; gap: 2px; box-shadow: 0 6px 20px rgba(0,0,0,0.45); min-width: 200px; }
+.handoff-popover button { display: grid; grid-template-columns: 18px 1fr; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; border: 1px solid transparent; background: var(--bg); color: var(--t); font: 500 0.78rem 'DM Sans', sans-serif; cursor: pointer; min-height: 36px; }
+.handoff-popover button:hover { background: var(--acd); }
+.handoff-label { text-align: left; }
+
 .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; z-index: 60; padding: 12px; }
 .modal { background: var(--s); border: 1px solid var(--bd); border-radius: 10px; padding: 20px; min-width: min(360px, calc(100vw - 24px)); max-width: 640px; max-height: calc(100vh - 24px); overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
 .modal h3 { margin: 0; font: 500 1rem 'DM Sans'; }
@@ -199,7 +258,10 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .modal .row { display: flex; gap: 8px; justify-content: flex-end; }
 .modal .row button.primary { background: var(--ac2); border-color: var(--ac2); color: #fff; }
 .proj-list { list-style: none; padding: 0; margin: 0; max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
-.proj-list li { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 12px; padding: 6px 8px; border-radius: 6px; }
+.proj-list li { display: grid; grid-template-columns: 1fr auto auto auto; align-items: center; gap: 12px; padding: 6px 8px; border-radius: 6px; }
+.proj-list input { background: var(--bg); color: var(--t); border: 1px solid var(--ac2); border-radius: 4px; padding: 4px 6px; font: 500 0.85rem 'DM Sans'; min-width: 0; }
+.rename { background: none; border: none; color: var(--ac2); padding: 4px 8px; min-height: auto; font-size: 0.95rem; cursor: pointer; }
+.rename:hover { color: var(--ac); }
 .danger { background: none; border: none; color: var(--ac); padding: 4px 6px; cursor: pointer; min-height: auto; }
 .proj-list li:hover { background: var(--acd); }
 .when { font-family: 'DM Mono', monospace; font-size: 0.7rem; color: var(--sub); }
@@ -209,12 +271,12 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 @media (max-width: 700px) {
   /* Status text occupies its own first line; all action groups share a
      single row beneath it that wraps as a unit only if it really has to. */
-  .bottombar { padding: 6px 6px; gap: 4px; justify-content: flex-start; flex-wrap: wrap; align-items: center; }
-  .status { flex: 1 1 100%; width: 100%; text-align: center; white-space: normal; }
-  .grp { gap: 3px; }
+  .bottombar { padding: 12px 8px 14px; gap: 8px; justify-content: flex-start; flex-wrap: wrap; align-items: center; }
+  .status { flex: 1 1 100%; width: 100%; text-align: center; white-space: normal; margin-bottom: 2px; }
+  .grp { gap: 4px; padding: 2px 0; }
   /* Icons-only on mobile. */
   .lbl { display: none; }
-  button, .filebtn { padding: 6px 7px; min-height: 36px; gap: 0; }
+  button, .filebtn { padding: 6px 7px; min-height: 38px; gap: 0; }
   .export-pair select { padding: 0 4px; font-size: 0.65rem; }
 }
 </style>
