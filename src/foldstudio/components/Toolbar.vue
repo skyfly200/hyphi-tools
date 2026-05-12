@@ -28,6 +28,7 @@ const transformTools = [
   { id: 'mirror', icon: 'mirror', label: 'Mirror', key: 'M' },
   { id: 'repeat', icon: 'rotate', label: 'Rotate', key: 'R' },
   { id: 'angle',  icon: 'angle',  label: 'Angle',  key: 'A' },
+  { id: 'relief', icon: 'relief', label: 'Relief', key: 'C' },
 ];
 
 const assignments = [
@@ -52,6 +53,7 @@ function onKey(ev) {
   else if (k === 'm' && !(ev.ctrlKey || ev.metaKey)) state.tool = 'mirror';
   else if (k === 'a' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); selectAll(); }
   else if (k === 'a') state.tool = 'angle';
+  else if (k === 'c' && !(ev.ctrlKey || ev.metaKey)) state.tool = 'relief';
   else if (k === 'z' && (ev.ctrlKey || ev.metaKey) && ev.shiftKey) { ev.preventDefault(); redo(); }
   else if (k === 'z' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); undo(); }
   else if (k === 'delete' || k === 'backspace') { ev.preventDefault(); deleteSelection(); }

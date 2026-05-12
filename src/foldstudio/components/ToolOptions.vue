@@ -96,6 +96,15 @@ import { state, mirrorSelection, repeatSelection } from '../store.js';
       </label>
       <p class="hint">Click an anchor point on the canvas to commit the crease at the configured angle.</p>
     </template>
+
+    <template v-else-if="state.tool === 'relief'">
+      <p class="hint">Tap a fold junction (vertex) to cut a small boundary polygon around it. The incident creases reconnect to the polygon's perimeter, relieving paper tension at tight junctions.</p>
+      <label title="Cutout radius in paper-units (1 = paper width). Larger means a bigger hole.">Radius
+        <input type="range" min="0.005" max="0.15" step="0.005" v-model.number="state.toolOptions.relief.radius" />
+        <span class="meta">{{ state.toolOptions.relief.radius.toFixed(3) }}</span>
+      </label>
+      <p class="hint">Refuses to apply if the radius is larger than any incident crease's length.</p>
+    </template>
   </section>
 </template>
 

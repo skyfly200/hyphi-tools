@@ -5,7 +5,7 @@ import { reactive, computed, ref, watch } from 'vue';
 import {
   emptyModel, cloneModel, addEdgeWithSplits, deleteEdges, setEdgeAssignment,
   History, repeatTransform, repairPlanarGraph, pruneIsolatedVertices,
-  cleanupRedundant,
+  cleanupRedundant, addOrFindVertex,
 } from './lib/model.js';
 import { buildGrid } from './lib/grid.js';
 import { buildTemplate } from './lib/templates.js';
@@ -52,6 +52,10 @@ if (persisted?.labels && persisted.labels.type === undefined) {
     hoverOnly: false,
   };
 }
+// Backfill new tool options (e.g. corner relief) for older prefs.
+if (persisted?.toolOptions && !persisted.toolOptions.relief) {
+  persisted.toolOptions.relief = { radius: 0.04 };
+}
 
 export const state = reactive({
   model: emptyModel(),
@@ -89,6 +93,8 @@ export const state = reactive({
     repeat: { kind: 'rotational', count: 4, angle: 90, dx: 0.1, dy: 0, cx: 0.5, cy: 0.5 },
     // length is in paper-units. mode: 'fixed' | 'edge' | 'paper'
     angle: { angle: 45, length: 0.5, mode: 'fixed' },
+    // Corner-relief cutout radius in paper-units.
+    relief: { radius: 0.04 },
   },
 });
 
@@ -424,6 +430,72 @@ export function drawAngleCrease(opts) {
   const { end } = angleCreaseEnd(opts);
   emitWithSymmetry(anchor, end, state.assignment);
   pushHistory();
+}
+
+// Cut a small polygon hole around a fold junction. For every crease that
+// meets at the vertex, place a polygon vertex along the crease direction
+// at the configured radius, reconnect the crease to that polygon vertex,
+// and link the polygon vertices with B-assignment edges to form the
+// cutout boundary. The original junction vertex is pruned afterward.
+export function applyCornerRelief(vIdx, opts) {
+  const radius = Math.max(1e-4, opts?.radius || 0.04);
+  const v = state.model.vertices[vIdx];
+  if (!v) return;
+
+  const incident = [];
+  state.model.edges.forEach((e, i) => {
+    const other = e.v1 === vIdx ? e.v2 : e.v2 === vIdx ? e.v1 : -1;
+    if (other < 0) return;
+    const Q = state.model.vertices[other];
+    incident.push({
+      idx: i,
+      other,
+      angle: Math.atan2(Q[1] - v[1], Q[0] - v[0]),
+      assignment: e.assignment,
+      foldAngle: e.foldAngle,
+    });
+  });
+  if (incident.length < 2) {
+    state.status = 'Corner relief needs at least 2 creases at the vertex';
+    return;
+  }
+  // Refuse if any incident crease is shorter than the requested radius —
+  // would invert the segment.
+  for (const inc of incident) {
+    const other = state.model.vertices[inc.other];
+    const L = Math.hypot(other[0] - v[0], other[1] - v[1]);
+    if (L <= radius + 1e-6) {
+      state.status = `Radius too large for crease v${vIdx}→v${inc.other} (length ${L.toFixed(3)})`;
+      return;
+    }
+  }
+  incident.sort((a, b) => a.angle - b.angle);
+
+  // Drop the existing incident edges in one pass.
+  const drop = new Set(incident.map(i => i.idx));
+  state.model.edges = state.model.edges.filter((_, i) => !drop.has(i));
+
+  // Place polygon vertices, then add reconnections + perimeter.
+  const polyIdx = incident.map(inc => addOrFindVertex(state.model, [
+    v[0] + Math.cos(inc.angle) * radius,
+    v[1] + Math.sin(inc.angle) * radius,
+  ]));
+  for (let i = 0; i < incident.length; i++) {
+    const inc = incident[i];
+    const e = { v1: polyIdx[i], v2: inc.other, assignment: inc.assignment };
+    if (Number.isFinite(inc.foldAngle)) e.foldAngle = inc.foldAngle;
+    state.model.edges.push(e);
+  }
+  for (let i = 0; i < polyIdx.length; i++) {
+    state.model.edges.push({
+      v1: polyIdx[i],
+      v2: polyIdx[(i + 1) % polyIdx.length],
+      assignment: 'B',
+    });
+  }
+  pruneIsolatedVertices(state.model);
+  pushHistory();
+  state.status = `Corner relief: cut radius ${radius.toFixed(3)} around junction (${incident.length} creases)`;
 }
 
 export function loadModel(newModel) {
