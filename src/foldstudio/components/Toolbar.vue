@@ -1,7 +1,24 @@
 <script setup>
 import { state, undo, redo, deleteSelection, assignSelection, selectAll, clearSelection, resetPaper, invertCreases } from '../store.js';
-import { onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import Icon from './Icon.vue';
+
+const paintMenuOpen = ref(false);
+function closePaintMenu() { paintMenuOpen.value = false; }
+
+// Tiny click-outside directive — closes the paint dropdown when the user
+// taps anywhere else. Scoped to this component.
+const vClickOutside = {
+  mounted(el, binding) {
+    el.__clickOutside__ = (ev) => {
+      if (!el.contains(ev.target)) binding.value();
+    };
+    setTimeout(() => document.addEventListener('pointerdown', el.__clickOutside__), 0);
+  },
+  unmounted(el) {
+    if (el.__clickOutside__) document.removeEventListener('pointerdown', el.__clickOutside__);
+  },
+};
 
 const tools = [
   { id: 'draw',   icon: 'draw',   label: 'Draw',   key: 'D' },
@@ -16,10 +33,14 @@ const transformTools = [
 const assignments = [
   { id: 'M', label: 'Mountain', color: '#e23b3b', hint: 'Mountain fold (default −180°). Click to set as paint; click with edges selected to reassign them.' },
   { id: 'V', label: 'Valley',   color: '#3a7bd5', hint: 'Valley fold (default +180°). Click to paint future creases as valley.' },
-  { id: 'B', label: 'Border',   color: '#111',    hint: 'Paper boundary. Doesn\'t fold; counts as the edge of the paper.' },
-  { id: 'F', label: 'Flat',     color: '#999',    hint: 'Flat / reference line (0°). Drawn but not folded.' },
-  { id: 'U', label: 'Unknown',  color: '#777',    hint: 'Unknown / unassigned crease type.' },
+  { id: 'B', label: 'Border',   color: '#5c6478', hint: 'Paper boundary. Doesn\'t fold; counts as the edge of the paper.' },
+  { id: 'F', label: 'Flat',     color: '#9aa0aa', hint: 'Flat / reference line (0°). Drawn but not folded.' },
+  { id: 'U', label: 'Unknown',  color: '#6e7382', hint: 'Unknown / unassigned crease type.' },
 ];
+
+const currentPaint = computed(() =>
+  assignments.find(a => a.id === state.assignment) || assignments[0]
+);
 
 function onKey(ev) {
   if (ev.target.tagName === 'INPUT' || ev.target.tagName === 'TEXTAREA') return;
@@ -88,7 +109,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
 
     <div class="divider" />
 
-    <div class="group">
+    <div class="group paint-row">
       <button v-for="a in assignments" :key="a.id"
               :class="{ active: state.assignment === a.id }"
               :style="{ borderColor: state.assignment === a.id ? a.color : 'var(--bd)' }"
@@ -97,6 +118,29 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
         <span class="swatch" :style="{ background: a.color }" />
         {{ a.id }}
       </button>
+    </div>
+
+    <!-- Mobile-only compact paint dropdown. Trigger shows the active paint;
+         tapping opens a popover with all five options. -->
+    <div class="group paint-menu" v-click-outside="closePaintMenu">
+      <button class="paint-trigger"
+              :style="{ borderColor: currentPaint.color }"
+              @click="paintMenuOpen = !paintMenuOpen"
+              :title="`Paint: ${currentPaint.label} (tap to change)`">
+        <span class="swatch" :style="{ background: currentPaint.color }" />
+        {{ currentPaint.id }}
+        <span class="chev">▾</span>
+      </button>
+      <div v-if="paintMenuOpen" class="paint-popover">
+        <button v-for="a in assignments" :key="a.id"
+                :class="{ active: state.assignment === a.id }"
+                @click="assignSelection(a.id); paintMenuOpen = false"
+                :title="a.hint">
+          <span class="swatch" :style="{ background: a.color }" />
+          <span class="paint-id">{{ a.id }}</span>
+          <span class="paint-label">{{ a.label }}</span>
+        </button>
+      </div>
     </div>
 
     <div class="divider" />
@@ -153,15 +197,28 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 .seg button:hover:not(.on) { color: var(--t); }
 .mobile-only { display: none; }
 
+.paint-menu { position: relative; display: none; }
+.paint-trigger .chev { font-size: 0.7rem; color: var(--sub); margin-left: 1px; }
+.paint-popover { position: absolute; z-index: 30; left: 0; bottom: calc(100% + 6px); background: var(--s); border: 1px solid var(--bd); border-radius: 8px; padding: 4px; display: flex; flex-direction: column; gap: 2px; box-shadow: 0 6px 20px rgba(0,0,0,0.45); min-width: 160px; }
+.paint-popover button { display: grid; grid-template-columns: 16px 18px 1fr; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 6px; border: 1px solid transparent; background: var(--bg); color: var(--t); font: 500 0.78rem 'DM Sans', sans-serif; cursor: pointer; min-height: 36px; }
+.paint-popover button:hover { background: var(--acd); }
+.paint-popover button.active { border-color: var(--ac2); }
+.paint-popover .paint-id { font-family: 'DM Mono', monospace; font-size: 0.72rem; color: var(--sub); }
+.paint-popover .paint-label { font-size: 0.78rem; color: var(--t); }
+
 @media (max-width: 900px) {
   .mobile-only { display: flex; }
   /* Mobile is icons-only — labels eat too much room. The segmented Pick
      control keeps text (Edges / Vertices / Both) since it has no icons,
-     but its font/padding shrink. */
+     but its font/padding shrink. The paint row collapses to a single
+     dropdown trigger. */
   button .lbl { display: none; }
   button { padding: 6px 7px; min-height: 36px; gap: 0; }
   .toolbar { padding: 6px 8px; gap: 4px; }
   .seg button { padding: 6px 8px; font-size: 0.65rem; min-height: 36px; }
   .divider { margin: 0 2px; }
+  .paint-row { display: none; }
+  .paint-menu { display: flex; }
+  .paint-trigger { gap: 4px; padding: 6px 8px; }
 }
 </style>
