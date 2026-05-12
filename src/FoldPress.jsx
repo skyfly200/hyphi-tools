@@ -597,10 +597,6 @@ export default function FoldPress() {
                 onClick={() => handoffToTool('/foldstudio')} disabled={!pattern} title="Open this pattern in FoldStudio for editing">
                 Edit in FoldStudio
               </button>
-              <button className="eb" style={{fontSize:'.76rem',padding:'8px 10px'}}
-                onClick={() => handoffToTool('/foldform')} disabled={!pattern} title="Open this pattern in FoldForm to make a living-hinge model">
-                Open in FoldForm
-              </button>
             </div>
             <div className="stlmsg">{msg}</div>
             <div className="notice">

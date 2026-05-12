@@ -207,11 +207,13 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .link { background: none; border: none; color: var(--ac2); padding: 4px 0; font: 500 0.85rem 'DM Sans'; text-align: left; cursor: pointer; }
 
 @media (max-width: 700px) {
-  .bottombar { padding: 6px 8px; gap: 4px; justify-content: center; }
-  /* Icons-only on mobile so all the file actions fit on one row. */
+  /* On mobile we stack: status text on its own line, then button groups. */
+  .bottombar { padding: 6px 8px; gap: 4px; justify-content: flex-start; flex-direction: column; align-items: stretch; }
+  .status { flex: 0 0 auto; width: 100%; text-align: center; white-space: normal; }
+  .grp { width: 100%; justify-content: center; gap: 4px; }
+  /* Icons-only on mobile. */
   .lbl { display: none; }
   button, .filebtn { padding: 6px 8px; min-height: 36px; gap: 0; }
-  .grp { gap: 3px; }
   .export-pair select { padding: 0 4px; font-size: 0.65rem; }
 }
 </style>
