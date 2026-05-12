@@ -47,6 +47,9 @@ export const state = reactive({
   model: emptyModel(),
   tool: 'draw',          // draw | select | mirror | repeat | angle
   theme: persisted?.theme || 'dark',  // 'dark' | 'light'
+  // When false the Maekawa / Kawasaki checks are skipped so a half-done
+  // pattern doesn't surface a bunch of distracting red rings.
+  validateFold: persisted?.validateFold ?? true,
   // What the Select tool can pick: 'edges' | 'vertices' | 'both'.
   selectMode: persisted?.selectMode || 'both',
   // Global auto-symmetry: when drawing or placing an angle crease, the
@@ -83,6 +86,7 @@ watch(
     selectMode: state.selectMode,
     symmetry: state.symmetry,
     theme: state.theme,
+    validateFold: state.validateFold,
     toolOptions: JSON.parse(JSON.stringify(state.toolOptions)),
   }),
   prefs => savePrefs(prefs),
@@ -177,6 +181,11 @@ export function refreshFaces() {
 let validationTimer = null;
 export function runValidation() {
   clearTimeout(validationTimer);
+  if (!state.validateFold) {
+    state.validation = { ok: true, issues: [] };
+    state.status = `Validation off · ${state.model.vertices.length}v ${state.model.edges.length}e ${state.model.faces.length}f`;
+    return;
+  }
   validationTimer = setTimeout(() => {
     state.validation = validateFlatFoldability(state.model);
     state.status = state.validation.ok
@@ -184,6 +193,9 @@ export function runValidation() {
       : `${state.validation.issues.length} issue(s) · ${state.model.vertices.length}v ${state.model.edges.length}e`;
   }, 80);
 }
+
+// Rerun (or clear) validation whenever the toggle flips.
+watch(() => state.validateFold, () => runValidation());
 
 export function snapPoint(p) {
   if (!state.snap.enabled) return p;

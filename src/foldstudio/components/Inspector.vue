@@ -46,15 +46,22 @@ const sharedFoldAngle = computed(() => {
 
     <section>
       <h3>Validation</h3>
-      <p :class="['status', state.validation.ok ? 'ok' : 'bad']">
-        {{ state.validation.ok ? 'Flat-foldable at every interior corner' : `${state.validation.issues.length} corner${state.validation.issues.length === 1 ? '' : 's'} won’t fold flat` }}
-      </p>
-      <ul v-if="state.validation.issues.length" class="issues">
-        <li v-for="(iss, idx) in state.validation.issues" :key="idx" :title="iss.msg">
-          <strong>v{{ iss.vertex }} — {{ iss.title }}</strong>
-          <span class="msg">{{ iss.msg }}</span>
-        </li>
-      </ul>
+      <label class="check" title="Turn off to stop Maekawa / Kawasaki checking while you sketch">
+        <input type="checkbox" v-model="state.validateFold" />
+        Check flat-foldability
+      </label>
+      <template v-if="state.validateFold">
+        <p :class="['status', state.validation.ok ? 'ok' : 'bad']">
+          {{ state.validation.ok ? 'Flat-foldable at every interior corner' : `${state.validation.issues.length} corner${state.validation.issues.length === 1 ? '' : 's'} won’t fold flat` }}
+        </p>
+        <ul v-if="state.validation.issues.length" class="issues">
+          <li v-for="(iss, idx) in state.validation.issues" :key="idx" :title="iss.msg">
+            <strong>v{{ iss.vertex }} — {{ iss.title }}</strong>
+            <span class="msg">{{ iss.msg }}</span>
+          </li>
+        </ul>
+      </template>
+      <p v-else class="hint">Validation is off — issue markers and the foldability report are paused.</p>
     </section>
   </div>
 </template>
@@ -64,6 +71,7 @@ const sharedFoldAngle = computed(() => {
 section { display: flex; flex-direction: column; gap: 8px; }
 h3 { font: 500 0.85rem 'DM Sans'; color: var(--t); margin: 0; padding-bottom: 4px; border-bottom: 1px solid var(--bd); }
 label { display: flex; flex-direction: column; gap: 3px; font: 400 0.7rem 'DM Mono', monospace; color: var(--sub); }
+label.check { flex-direction: row; align-items: center; gap: 8px; color: var(--t); font-size: 0.75rem; }
 input, select { background: var(--bg); color: var(--t); border: 1px solid var(--bd); border-radius: 4px; padding: 5px 7px; font: 400 0.78rem 'DM Sans'; }
 input[type=range] { padding: 0; }
 button { background: var(--bg); color: var(--t); border: 1px solid var(--bd); border-radius: 6px; padding: 7px 10px; font: 500 0.78rem 'DM Sans'; cursor: pointer; }
