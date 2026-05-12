@@ -75,6 +75,19 @@ watch(() => state.grid.snapPow2, on => {
       </label>
     </section>
 
+    <section>
+      <h3>Symmetry</h3>
+      <p class="meta">Auto-mirrors every new crease around the paper center.</p>
+      <div class="sym-row">
+        <button v-for="n in [1, 2, 4, 8, 16, 32]" :key="n"
+                :class="{ active: state.symmetry === n }"
+                @click="state.symmetry = n"
+                :title="n === 1 ? 'No symmetry' : `${n}-fold rotational`">
+          {{ n === 1 ? 'Off' : `1⁄${n}` }}
+        </button>
+      </div>
+    </section>
+
     <ToolOptions />
 
     <section>
@@ -105,5 +118,7 @@ button.active { background: var(--acd); border-color: var(--ac2); }
 .pow-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 3px; }
 .pow-row button { padding: 5px 0; }
 .meta { font: 400 0.7rem 'DM Mono'; color: var(--sub); }
+.sym-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 3px; }
+.sym-row button { padding: 5px 0; font-size: 0.7rem; }
 .hint-inline { color: var(--sub); font-size: 0.7em; margin-left: 4px; }
 </style>

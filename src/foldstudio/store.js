@@ -47,6 +47,10 @@ export const state = reactive({
   tool: 'draw',          // draw | select | mirror | repeat | angle
   // What the Select tool can pick: 'edges' | 'vertices' | 'both'.
   selectMode: persisted?.selectMode || 'both',
+  // Global auto-symmetry: when drawing or placing an angle crease, the
+  // crease is duplicated by rotating around (0.5, 0.5). n = 1 disables it;
+  // 2 = half, 4 = quarter, 8 = eighth, 16 = sixteenth, 32 = 32nds.
+  symmetry: persisted?.symmetry || 1,
   assignment: persisted?.assignment || 'V',
   grid: persisted?.grid || { types: ['square'], density: 8, snap: true, visible: true, extend: false, snapPow2: true },
   labels: persisted?.labels || { vertices: false, edges: false, faces: false, oneBased: false },
@@ -75,6 +79,7 @@ watch(
     labels: { ...state.labels },
     snap: { ...state.snap },
     selectMode: state.selectMode,
+    symmetry: state.symmetry,
     toolOptions: JSON.parse(JSON.stringify(state.toolOptions)),
   }),
   prefs => savePrefs(prefs),
@@ -186,9 +191,45 @@ export function snapPoint(p) {
   return best ? [best[0], best[1]] : p;
 }
 
+// Apply state.symmetry around (0.5, 0.5): adds n-1 rotated copies of the
+// given crease in addition to the original.
+function emitWithSymmetry(p1, p2, assignment) {
+  const n = Math.max(1, Math.floor(state.symmetry) || 1);
+  addEdgeWithSplits(state.model, p1, p2, assignment);
+  if (n < 2) return;
+  const cx = 0.5, cy = 0.5;
+  for (let i = 1; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const c = Math.cos(a), s = Math.sin(a);
+    const rot = ([x, y]) => [cx + (x - cx) * c - (y - cy) * s, cy + (x - cx) * s + (y - cy) * c];
+    addEdgeWithSplits(state.model, rot(p1), rot(p2), assignment);
+  }
+}
+
 export function drawCrease(p1, p2) {
-  addEdgeWithSplits(state.model, p1, p2, state.assignment);
+  emitWithSymmetry(p1, p2, state.assignment);
   pushHistory();
+}
+
+// Flip M↔V on every edge (or just the selection if there is one). Useful
+// for converting a preliminary base into a waterbomb base and vice versa.
+export function invertCreases() {
+  const flip = { M: 'V', V: 'M' };
+  const indices = state.selection.edges.size
+    ? [...state.selection.edges]
+    : state.model.edges.map((_, i) => i);
+  let changed = 0;
+  for (const i of indices) {
+    const e = state.model.edges[i];
+    if (!e || !flip[e.assignment]) continue;
+    e.assignment = flip[e.assignment];
+    if (Number.isFinite(e.foldAngle)) e.foldAngle = -e.foldAngle;
+    changed++;
+  }
+  if (changed) {
+    pushHistory();
+    state.status = `Inverted ${changed} M/V crease${changed === 1 ? '' : 's'}`;
+  }
 }
 
 export function cleanup() {
@@ -335,7 +376,7 @@ function nearestBoundaryT(anchor, dir) {
 export function drawAngleCrease(opts) {
   const { anchor } = opts;
   const { end } = angleCreaseEnd(opts);
-  addEdgeWithSplits(state.model, anchor, end, state.assignment);
+  emitWithSymmetry(anchor, end, state.assignment);
   pushHistory();
 }
 
