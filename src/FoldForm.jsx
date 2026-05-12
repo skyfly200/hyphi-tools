@@ -665,10 +665,6 @@ export default function FoldForm() {
                   onClick={() => handoffToTool('/foldstudio')} disabled={!pattern} title="Open this pattern in FoldStudio for editing">
                   Edit in FoldStudio
                 </button>
-                <button className="eb" style={{fontSize:'.76rem',padding:'8px 10px'}}
-                  onClick={() => handoffToTool('/fold')} disabled={!pattern} title="Open this pattern in FoldPress to make press plates">
-                  Open in FoldPress
-                </button>
               </div>
             </div>
           )}
