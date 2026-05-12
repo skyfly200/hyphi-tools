@@ -199,7 +199,7 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .paint-menu { position: relative; display: none; }
 .paint-trigger .chev { font-size: 0.7rem; color: var(--sub); margin-left: 1px; }
-.paint-popover { position: absolute; z-index: 30; left: 0; bottom: calc(100% + 6px); background: var(--s); border: 1px solid var(--bd); border-radius: 8px; padding: 4px; display: flex; flex-direction: column; gap: 2px; box-shadow: 0 6px 20px rgba(0,0,0,0.45); min-width: 160px; }
+.paint-popover { position: absolute; z-index: 30; left: 0; top: calc(100% + 6px); background: var(--s); border: 1px solid var(--bd); border-radius: 8px; padding: 4px; display: flex; flex-direction: column; gap: 2px; box-shadow: 0 6px 20px rgba(0,0,0,0.45); min-width: 160px; }
 .paint-popover button { display: grid; grid-template-columns: 16px 18px 1fr; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 6px; border: 1px solid transparent; background: var(--bg); color: var(--t); font: 500 0.78rem 'DM Sans', sans-serif; cursor: pointer; min-height: 36px; }
 .paint-popover button:hover { background: var(--acd); }
 .paint-popover button.active { border-color: var(--ac2); }
