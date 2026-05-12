@@ -22,6 +22,12 @@ const showHelp = ref(false);
         <Icon name="panelLeft" /><span class="lbl">Tools</span>
       </button>
 
+      <button @click="state.theme = state.theme === 'dark' ? 'light' : 'dark'"
+              :title="`Switch to ${state.theme === 'dark' ? 'light' : 'dark'} theme`">
+        <Icon :name="state.theme === 'dark' ? 'sun' : 'moon'" />
+        <span class="lbl">{{ state.theme === 'dark' ? 'Light' : 'Dark' }}</span>
+      </button>
+
       <button @click="showHelp = true" title="Help / shortcuts / FOLD basics">
         <span class="qmark">?</span><span class="lbl">Help</span>
       </button>
@@ -55,9 +61,9 @@ const showHelp = ref(false);
             <dl>
               <dt><span class="sw" style="background:#e23b3b"></span>M Mountain</dt><dd>Folds away from you (default angle −180°).</dd>
               <dt><span class="sw" style="background:#3a7bd5"></span>V Valley</dt><dd>Folds toward you (default angle +180°).</dd>
-              <dt><span class="sw" style="background:#111"></span>B Border</dt><dd>Paper boundary, doesn't fold.</dd>
-              <dt><span class="sw" style="background:#999"></span>F Flat</dt><dd>Drawn but flat (0°), used as a reference line.</dd>
-              <dt><span class="sw" style="background:#777"></span>U Unknown</dt><dd>Type not yet decided.</dd>
+              <dt><span class="sw" style="background:#5c6478"></span>B Border</dt><dd>Paper boundary, doesn't fold.</dd>
+              <dt><span class="sw" style="background:#9aa0aa"></span>F Flat</dt><dd>Drawn but flat (0°), used as a reference line.</dd>
+              <dt><span class="sw" style="background:#6e7382"></span>U Unknown</dt><dd>Type not yet decided.</dd>
             </dl>
           </section>
 
@@ -139,7 +145,7 @@ button.danger { color: var(--ac); padding: 4px 6px; }
 .help-grid p strong { color: var(--t); font-weight: 500; }
 .help-grid p a { color: var(--ac2); }
 .help-grid kbd { background: var(--bg); border: 1px solid var(--bd); border-radius: 3px; padding: 0 5px; font: 500 0.7rem 'DM Mono', monospace; color: var(--t); }
-.help-grid .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.help-grid .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; box-shadow: 0 0 0 1px rgba(255,255,255,0.35); }
 
 .mobile-only { display: none; }
 

@@ -45,6 +45,7 @@ if (persisted?.snap && persisted.snap.enabled === undefined) {
 export const state = reactive({
   model: emptyModel(),
   tool: 'draw',          // draw | select | mirror | repeat | angle
+  theme: persisted?.theme || 'dark',  // 'dark' | 'light'
   // What the Select tool can pick: 'edges' | 'vertices' | 'both'.
   selectMode: persisted?.selectMode || 'both',
   // Global auto-symmetry: when drawing or placing an angle crease, the
@@ -80,6 +81,7 @@ watch(
     snap: { ...state.snap },
     selectMode: state.selectMode,
     symmetry: state.symmetry,
+    theme: state.theme,
     toolOptions: JSON.parse(JSON.stringify(state.toolOptions)),
   }),
   prefs => savePrefs(prefs),

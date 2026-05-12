@@ -33,6 +33,8 @@ export const Icons = {
   pickBoth: `<line x1="4" y1="20" x2="20" y2="4"/><circle cx="20" cy="4" r="3" fill="currentColor"/><circle cx="4" cy="20" r="3" fill="currentColor"/>`,
   // Swap arrows — used by Invert M/V action.
   invert: `<path d="M7 10l-4 -4l4 -4"/><path d="M3 6h13a4 4 0 0 1 4 4v0"/><path d="M17 14l4 4l-4 4"/><path d="M21 18H8a4 4 0 0 1 -4 -4v0"/>`,
+  sun: `<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4l1.4 -1.4M17 7l1.4 -1.4"/>`,
+  moon: `<path d="M20 14.5a8 8 0 0 1 -10.5 -10.5a8.5 8.5 0 1 0 10.5 10.5z"/>`,
 };
 
 export function iconSvg(name, size = 18) {

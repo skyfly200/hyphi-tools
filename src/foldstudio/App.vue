@@ -10,7 +10,7 @@ import { state } from './store.js';
 </script>
 
 <template>
-  <div class="app">
+  <div class="app" :class="`theme-${state.theme}`">
     <TopBar />
     <Toolbar />
 
@@ -30,11 +30,23 @@ import { state } from './store.js';
 <style>
 .foldstudio-root, .foldstudio-root * { box-sizing: border-box; }
 .foldstudio-root {
-  --bg:#0a0a0f; --s:#111118; --bd:#2a2a3a; --t:#e8e8f0; --sub:#7a7a9a; --ac:#ff6b35; --ac2:#7b5cfa; --acd:rgba(123,92,250,.12);
+  /* Dark theme is the default; CSS vars get redeclared inside .theme-light. */
+  --bg:#0a0a0f; --s:#111118; --bd:#2a2a3a; --t:#e8e8f0; --sub:#7a7a9a;
+  --ac:#ff6b35; --ac2:#7b5cfa; --acd:rgba(123,92,250,.12);
+  --canvas-bg:#1a1a24; --paper:#ffffff; --paper-stroke:#dddddd;
+  --grid-line:#9aa3b8; --grid-node:#6e7488; --vertex:#222222;
   font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--t);
   position: fixed; inset: 0; display: flex;
   /* Prevent the editor from triggering mobile browser zoom on double-tap. */
   touch-action: manipulation;
+}
+/* Light theme overrides — vars inherit down, so every component repaints. */
+.foldstudio-root .app.theme-light {
+  --bg:#f5f6fb; --s:#ffffff; --bd:#d5d9e6; --t:#1a1a24; --sub:#5a6078;
+  --ac:#ff6b35; --ac2:#6347e0; --acd:rgba(99,71,224,.10);
+  --canvas-bg:#e4e7ef; --paper:#ffffff; --paper-stroke:#b0b6c5;
+  --grid-line:#b0b6c5; --grid-node:#8a91a4; --vertex:#1a1a24;
+  background: var(--bg); color: var(--t);
 }
 .foldstudio-root .app { display: flex; flex-direction: column; width: 100%; height: 100%; }
 .foldstudio-root .body { display: flex; flex: 1; min-height: 0; position: relative; }
