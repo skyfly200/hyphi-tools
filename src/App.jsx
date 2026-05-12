@@ -4,6 +4,7 @@ import QRForge from './QRForge'
 import FoldPress from './FoldPress'
 import FoldForm from './FoldForm'
 import FoldStudio from './FoldStudio'
+import FoldStudioDocs from './FoldStudioDocs'
 
 export default function App() {
   return (
@@ -13,6 +14,7 @@ export default function App() {
       <Route path="/fold" element={<FoldPress />} />
       <Route path="/foldform" element={<FoldForm />} />
       <Route path="/foldstudio" element={<FoldStudio />} />
+      <Route path="/foldstudio/docs" element={<FoldStudioDocs />} />
     </Routes>
   )
 }

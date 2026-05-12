@@ -95,7 +95,10 @@ const showHelp = ref(false);
             <p>Projects and preferences are stored in your browser's localStorage — they don't leave this machine. Use Export FOLD to back them up.</p>
           </section>
         </div>
-        <div class="row">
+        <div class="row" style="justify-content: space-between">
+          <a href="/foldstudio/docs" target="_blank" rel="noopener" class="docs-link">
+            Open full docs ↗
+          </a>
           <button class="primary" @click="showHelp = false">Got it</button>
         </div>
       </div>
@@ -151,6 +154,8 @@ button.danger { color: var(--ac); padding: 4px 6px; }
 .help-grid p a { color: var(--ac2); }
 .help-grid kbd { background: var(--bg); border: 1px solid var(--bd); border-radius: 3px; padding: 0 5px; font: 500 0.7rem 'DM Mono', monospace; color: var(--t); }
 .help-grid .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; box-shadow: 0 0 0 1px rgba(255,255,255,0.35); }
+.docs-link { font-family: 'DM Mono', monospace; font-size: 0.78rem; color: var(--ac2); text-decoration: none; padding: 7px 10px; border: 1px solid var(--bd); border-radius: 6px; align-self: center; }
+.docs-link:hover { color: var(--ac); border-color: var(--ac2); }
 
 .mobile-only { display: none; }
 

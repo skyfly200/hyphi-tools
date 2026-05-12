@@ -42,6 +42,16 @@ if (persisted && !persisted.snap) {
 if (persisted?.snap && persisted.snap.enabled === undefined) {
   persisted.snap.enabled = true;
 }
+// Older prefs had independent labels.{vertices,edges,faces} bools — collapse
+// to the single labels.type radio. Vertex wins if multiple were true.
+if (persisted?.labels && persisted.labels.type === undefined) {
+  const L = persisted.labels;
+  persisted.labels = {
+    type: L.vertices ? 'vertices' : L.edges ? 'edges' : L.faces ? 'faces' : 'off',
+    oneBased: !!L.oneBased,
+    hoverOnly: false,
+  };
+}
 
 export const state = reactive({
   model: emptyModel(),
@@ -52,13 +62,19 @@ export const state = reactive({
   validateFold: persisted?.validateFold ?? true,
   // What the Select tool can pick: 'edges' | 'vertices' | 'both'.
   selectMode: persisted?.selectMode || 'both',
+  // Sticky-additive flag: when on, every click toggles into the selection
+  // even without shift. Useful on touch devices.
+  multiSelect: persisted?.multiSelect || false,
   // Global auto-symmetry: when drawing or placing an angle crease, the
   // crease is duplicated by rotating around (0.5, 0.5). n = 1 disables it;
   // 2 = half, 4 = quarter, 8 = eighth, 16 = sixteenth, 32 = 32nds.
   symmetry: persisted?.symmetry || 1,
   assignment: persisted?.assignment || 'V',
   grid: persisted?.grid || { types: ['square'], density: 8, snap: true, visible: true, extend: false, snapPow2: true },
-  labels: persisted?.labels || { vertices: false, edges: false, faces: false, oneBased: false },
+  // Only one label type can be active at a time. 'off' / 'vertices' /
+  // 'edges' / 'faces'. hoverOnly restricts the display to whatever the
+  // pointer is closest to.
+  labels: persisted?.labels || { type: 'off', oneBased: false, hoverOnly: false },
   selection: { edges: new Set(), vertices: new Set() },
   view: { zoom: 1, pan: [0, 0] },
   validation: { ok: true, issues: [] },
@@ -84,6 +100,7 @@ watch(
     labels: { ...state.labels },
     snap: { ...state.snap },
     selectMode: state.selectMode,
+    multiSelect: state.multiSelect,
     symmetry: state.symmetry,
     theme: state.theme,
     validateFold: state.validateFold,
