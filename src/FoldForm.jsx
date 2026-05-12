@@ -406,13 +406,6 @@ export default function FoldForm() {
     URL.revokeObjectURL(url);
   }
 
-  function handleOpenSimulator() {
-    if (!pattern) return;
-    const json = toFOLD(pattern, faces, faceColors, paperMM);
-    const b64  = btoa(unescape(encodeURIComponent(json)));
-    window.open(`https://origamisimulator.org/?pattern=data:text/plain;base64,${b64}`, '_blank');
-  }
-
   function loadPattern(file) {
     if (!file) return;
     setFileName(file.name);
@@ -661,16 +654,12 @@ export default function FoldForm() {
                 </div>
               ) : (
                 <div className="notice" style={{fontSize:'.68rem'}}>
-                  {faces.length} panel{faces.length!==1?'s':''} detected. Click any panel to change its color, then export the colored .fold file or open directly in Origami Simulator to see how it folds.
+                  {faces.length} panel{faces.length!==1?'s':''} detected. Click any panel to change its color, then export the colored .fold file or hand it off to FoldStudio for editing.
                 </div>
               )}
               <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
                 <button className="eb" style={{fontSize:'.76rem',padding:'8px 10px'}} onClick={handleExportFOLD} disabled={!pattern}>
                   Export .fold
-                </button>
-                <button className="eb" style={{fontSize:'.76rem',padding:'8px 10px',background:'var(--acd)',border:'1px solid var(--ac)',color:'var(--ac)'}}
-                  onClick={handleOpenSimulator} disabled={!pattern}>
-                  Open in Origami Simulator
                 </button>
                 <button className="eb" style={{fontSize:'.76rem',padding:'8px 10px'}}
                   onClick={() => handoffToTool('/foldstudio')} disabled={!pattern} title="Open this pattern in FoldStudio for editing">
@@ -680,9 +669,6 @@ export default function FoldForm() {
                   onClick={() => handoffToTool('/fold')} disabled={!pattern} title="Open this pattern in FoldPress to make press plates">
                   Open in FoldPress
                 </button>
-              </div>
-              <div style={{fontSize:'.62rem',color:'var(--sub)',lineHeight:1.5}}>
-                If the pattern doesn&apos;t load in Origami Simulator, use <em>Export .fold</em> above and drag the file directly into <a href="https://origamisimulator.org" target="_blank" rel="noopener noreferrer" style={{color:'var(--sub)'}}>origamisimulator.org</a>.
               </div>
             </div>
           )}
