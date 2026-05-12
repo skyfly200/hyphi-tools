@@ -105,6 +105,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
           <Icon name="pickBoth" /><span class="lbl">Both</span>
         </button>
       </div>
+      <button class="multi-toggle"
+              :class="{ active: state.multiSelect }"
+              @click="state.multiSelect = !state.multiSelect"
+              :title="state.multiSelect ? 'Add-to-selection mode is on — every tap toggles into the selection. Click to disable.' : 'Add-to-selection mode (sticky shift) — useful on touch when you can\'t hold Shift.'">
+        <span class="plus">+</span><span class="lbl">Multi</span>
+      </button>
     </template>
 
     <div class="divider" />
@@ -195,6 +201,9 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 .seg button + button { border-left: none; }
 .seg button.on { background: var(--acd); border-color: var(--ac2); color: var(--t); }
 .seg button:hover:not(.on) { color: var(--t); }
+.multi-toggle { color: var(--sub); }
+.multi-toggle .plus { font-weight: 700; font-size: 0.95rem; color: inherit; width: 14px; text-align: center; }
+.multi-toggle.active { background: var(--acd); border-color: var(--ac2); color: var(--ac2); }
 .mobile-only { display: none; }
 
 .paint-menu { position: relative; display: none; }

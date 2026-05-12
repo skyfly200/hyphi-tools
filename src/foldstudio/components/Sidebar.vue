@@ -92,10 +92,28 @@ watch(() => state.grid.snapPow2, on => {
 
     <section>
       <h3>Labels</h3>
-      <label class="check" title="Show v0, v1, … on every vertex"><input type="checkbox" v-model="state.labels.vertices" /> Vertex IDs</label>
-      <label class="check" title="Show e0, e1, … on every edge midpoint"><input type="checkbox" v-model="state.labels.edges" /> Edge IDs</label>
-      <label class="check" title="Show f0, f1, … on every face centroid"><input type="checkbox" v-model="state.labels.faces" /> Face IDs</label>
-      <label class="check" title="Number from 1 instead of 0"><input type="checkbox" v-model="state.labels.oneBased" /> 1-based numbering</label>
+      <div class="seg-row" role="radiogroup" aria-label="Label type">
+        <button :class="{ on: state.labels.type === 'off' }" @click="state.labels.type = 'off'" title="Hide all labels">Off</button>
+        <button :class="{ on: state.labels.type === 'vertices' }" @click="state.labels.type = 'vertices'" title="Vertex IDs">V</button>
+        <button :class="{ on: state.labels.type === 'edges' }" @click="state.labels.type = 'edges'" title="Edge IDs">E</button>
+        <button :class="{ on: state.labels.type === 'faces' }" @click="state.labels.type = 'faces'" title="Face IDs">F</button>
+      </div>
+      <label class="check" title="Only label the closest item to the cursor">
+        <input type="checkbox" v-model="state.labels.hoverOnly" :disabled="state.labels.type === 'off'" />
+        Hover-only
+      </label>
+      <label class="check" title="Number from 1 instead of 0">
+        <input type="checkbox" v-model="state.labels.oneBased" :disabled="state.labels.type === 'off'" />
+        1-based numbering
+      </label>
+    </section>
+
+    <section>
+      <h3>Checks</h3>
+      <label class="check" title="Pause Maekawa / Kawasaki flat-foldability checks (also in Inspector)">
+        <input type="checkbox" v-model="state.validateFold" />
+        Check flat-foldability
+      </label>
     </section>
 
   </aside>
@@ -120,5 +138,11 @@ button.active { background: var(--acd); border-color: var(--ac2); }
 .meta { font: 400 0.7rem 'DM Mono'; color: var(--sub); }
 .sym-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 3px; }
 .sym-row button { padding: 5px 0; font-size: 0.7rem; }
+.seg-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; }
+.seg-row button { padding: 7px 0; font: 500 0.75rem 'DM Sans', sans-serif; border-radius: 0; margin: 0; min-height: 32px; }
+.seg-row button:first-child { border-top-left-radius: 6px; border-bottom-left-radius: 6px; }
+.seg-row button:last-child { border-top-right-radius: 6px; border-bottom-right-radius: 6px; }
+.seg-row button + button { border-left: none; }
+.seg-row button.on { background: var(--acd); border-color: var(--ac2); color: var(--t); }
 .hint-inline { color: var(--sub); font-size: 0.7em; margin-left: 4px; }
 </style>

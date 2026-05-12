@@ -201,7 +201,7 @@ function onPointerDown(ev) {
     const wantE = mode !== 'vertices';
     const vIdx = wantV ? pickVertexIndex(p) : -1;
     const eIdx = (wantE && vIdx < 0) ? pickEdgeIndex(p) : -1;
-    const additive = ev.shiftKey || state.tool === 'mirror';
+    const additive = ev.shiftKey || state.multiSelect || state.tool === 'mirror';
     if (vIdx >= 0) {
       if (additive) {
         if (state.selection.vertices.has(vIdx)) state.selection.vertices.delete(vIdx);
@@ -249,6 +249,51 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
 
 const xToPx = x => MARGIN + x * INNER;
 const yToPx = y => MARGIN + (1 - y) * INNER;
+
+// Label visibility lists. Hover-only restricts to the nearest item under
+// the current pointer-snap target; otherwise every item of the chosen type
+// gets labelled.
+const visibleVertexLabels = computed(() => {
+  const m = state.model;
+  if (!state.labels.hoverOnly) return m.vertices.map((_, i) => i);
+  const p = cursor.value;
+  if (!p) return [];
+  let best = -1, bd = 0.04;
+  for (let i = 0; i < m.vertices.length; i++) {
+    const v = m.vertices[i];
+    const d = Math.hypot(v[0] - p[0], v[1] - p[1]);
+    if (d < bd) { bd = d; best = i; }
+  }
+  return best >= 0 ? [best] : [];
+});
+const visibleEdgeLabels = computed(() => {
+  const m = state.model;
+  if (!state.labels.hoverOnly) return m.edges.map((_, i) => i);
+  const p = cursor.value;
+  if (!p) return [];
+  let best = -1, bd = 0.04;
+  for (let i = 0; i < m.edges.length; i++) {
+    const e = m.edges[i];
+    const A = m.vertices[e.v1], B = m.vertices[e.v2];
+    const { point } = closestOnSegment(p, A, B);
+    const d = Math.hypot(point[0] - p[0], point[1] - p[1]);
+    if (d < bd) { bd = d; best = i; }
+  }
+  return best >= 0 ? [best] : [];
+});
+const visibleFaceLabels = computed(() => {
+  const m = state.model;
+  if (!state.labels.hoverOnly) return m.faces.map((_, i) => i);
+  const p = cursor.value;
+  if (!p) return [];
+  let best = -1, bd = 0.05;
+  for (let i = 0; i < m.faces.length; i++) {
+    const c = faceCentroid(m, m.faces[i]);
+    const d = Math.hypot(c[0] - p[0], c[1] - p[1]);
+    if (d < bd) { bd = d; best = i; }
+  }
+  return best >= 0 ? [best] : [];
+});
 
 // First selected edge index (insertion order via Set iteration). Used as
 // the visual "axis" indicator when Mirror tool is set to axis = 'edge'.
@@ -390,26 +435,27 @@ const ghostLine = computed(() => {
       </g>
 
       <!-- Labels -->
-      <g v-if="state.labels.vertices" class="labels">
-        <text v-for="(v, i) in state.model.vertices" :key="i"
-              :x="xToPx(v[0]) + 5" :y="yToPx(v[1]) - 5"
+      <g v-if="state.labels.type === 'vertices'" class="labels">
+        <text v-for="i in visibleVertexLabels" :key="i"
+              :x="xToPx(state.model.vertices[i][0]) + 5"
+              :y="yToPx(state.model.vertices[i][1]) - 5"
               font-size="10" fill="#7b5cfa" font-family="DM Mono, monospace">
           {{ formatId('v', i, state.labels.oneBased) }}
         </text>
       </g>
-      <g v-if="state.labels.edges" class="labels">
-        <text v-for="(e, i) in state.model.edges" :key="i"
-              :x="xToPx(edgeMidpoint(state.model, e)[0])"
-              :y="yToPx(edgeMidpoint(state.model, e)[1])"
+      <g v-if="state.labels.type === 'edges'" class="labels">
+        <text v-for="i in visibleEdgeLabels" :key="i"
+              :x="xToPx(edgeMidpoint(state.model, state.model.edges[i])[0])"
+              :y="yToPx(edgeMidpoint(state.model, state.model.edges[i])[1])"
               font-size="9" fill="#0a8a4a" font-family="DM Mono, monospace"
               text-anchor="middle">
           {{ formatId('e', i, state.labels.oneBased) }}
         </text>
       </g>
-      <g v-if="state.labels.faces" class="labels">
-        <text v-for="(f, i) in state.model.faces" :key="i"
-              :x="xToPx(faceCentroid(state.model, f)[0])"
-              :y="yToPx(faceCentroid(state.model, f)[1])"
+      <g v-if="state.labels.type === 'faces'" class="labels">
+        <text v-for="i in visibleFaceLabels" :key="i"
+              :x="xToPx(faceCentroid(state.model, state.model.faces[i])[0])"
+              :y="yToPx(faceCentroid(state.model, state.model.faces[i])[1])"
               font-size="11" fill="#ff6b35" font-family="DM Mono, monospace"
               text-anchor="middle" font-weight="600">
           {{ formatId('f', i, state.labels.oneBased) }}
