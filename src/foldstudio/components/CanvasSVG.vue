@@ -15,6 +15,8 @@ const svgRef = ref(null);
 const cursor = ref(null);
 const drawStart = ref(null);
 const angleAnchor = ref(null);
+// Rubber-band box select state (Select tool only). Stored in model space.
+const boxSel = ref(null); // { start: [x,y], end: [x,y], additive: bool }
 
 // View transform applied to the contents <g>: translate(tx ty) scale(s).
 // All viewBox-space; model coords run through the same xToPx mapping below
@@ -120,7 +122,47 @@ function onPointerMove(ev) {
     return;
   }
   const raw = eventToModel(ev);
+  if (boxSel.value) {
+    boxSel.value = { ...boxSel.value, end: raw };
+    cursor.value = null;
+    return;
+  }
   cursor.value = snapPoint(raw);
+}
+
+function cancelBoxSelect() { boxSel.value = null; }
+
+function finishBoxSelect() {
+  const b = boxSel.value;
+  boxSel.value = null;
+  if (!b) return;
+  const minX = Math.min(b.start[0], b.end[0]);
+  const maxX = Math.max(b.start[0], b.end[0]);
+  const minY = Math.min(b.start[1], b.end[1]);
+  const maxY = Math.max(b.start[1], b.end[1]);
+  // Tiny box = a stray click; treat as deselect.
+  if (Math.abs(maxX - minX) < 0.01 && Math.abs(maxY - minY) < 0.01) {
+    if (!b.additive) clearSelection();
+    return;
+  }
+  if (!b.additive) clearSelection();
+  const mode = state.selectMode;
+  if (mode !== 'edges') {
+    state.model.vertices.forEach((v, i) => {
+      if (v[0] >= minX && v[0] <= maxX && v[1] >= minY && v[1] <= maxY) {
+        state.selection.vertices.add(i);
+      }
+    });
+  }
+  if (mode !== 'vertices') {
+    state.model.edges.forEach((e, i) => {
+      const a = state.model.vertices[e.v1], q = state.model.vertices[e.v2];
+      // Edge selected if either endpoint sits inside the box.
+      const aIn = a[0] >= minX && a[0] <= maxX && a[1] >= minY && a[1] <= maxY;
+      const qIn = q[0] >= minX && q[0] <= maxX && q[1] >= minY && q[1] <= maxY;
+      if (aIn && qIn) state.selection.edges.add(i);
+    });
+  }
 }
 
 function onWheel(ev) {
@@ -176,7 +218,10 @@ function onPointerDown(ev) {
         clearSelection();
         state.selection.edges.add(eIdx);
       }
-    } else if (!ev.shiftKey && state.tool === 'select') clearSelection();
+    } else if (state.tool === 'select') {
+      // Empty space: start a rubber-band box select.
+      boxSel.value = { start: p, end: p, additive };
+    }
   } else if (state.tool === 'angle') {
     if (!angleAnchor.value) angleAnchor.value = p;
     else {
@@ -238,8 +283,8 @@ const ghostLine = computed(() => {
          class="surface"
          @pointermove="onPointerMove"
          @pointerdown="onPointerDown"
-         @pointerup="releasePointer"
-         @pointercancel="releasePointer"
+         @pointerup="(ev) => { finishBoxSelect(); releasePointer(ev); }"
+         @pointercancel="(ev) => { cancelBoxSelect(); releasePointer(ev); }"
          @pointerleave="(ev) => { releasePointer(ev); cursor = null }"
          @wheel.prevent="onWheel"
          style="touch-action: none">
@@ -270,6 +315,19 @@ const ghostLine = computed(() => {
                  fill="rgba(123,92,250,0.04)" stroke="none" />
       </g>
 
+      <!-- Selection halo: drawn behind the edge strokes in a single bright
+           color so the selection state reads the same regardless of the
+           edge's own (sometimes faint) M/V/B/F/U color. -->
+      <g class="sel-halo">
+        <line v-for="i in [...state.selection.edges]" :key="i"
+              :x1="xToPx(state.model.vertices[state.model.edges[i].v1][0])"
+              :y1="yToPx(state.model.vertices[state.model.edges[i].v1][1])"
+              :x2="xToPx(state.model.vertices[state.model.edges[i].v2][0])"
+              :y2="yToPx(state.model.vertices[state.model.edges[i].v2][1])"
+              stroke="#ff6b35" stroke-width="6" stroke-linecap="round"
+              opacity="0.45" />
+      </g>
+
       <!-- Edges -->
       <g class="edges">
         <line v-for="(e, i) in state.model.edges" :key="i"
@@ -278,7 +336,7 @@ const ghostLine = computed(() => {
               :x2="xToPx(state.model.vertices[e.v2][0])"
               :y2="yToPx(state.model.vertices[e.v2][1])"
               :stroke="STROKE[e.assignment] || '#333'"
-              :stroke-width="state.selection.edges.has(i) ? 3.5 : 1.8"
+              :stroke-width="1.8"
               :stroke-dasharray="EDGE_DASH[e.assignment] || null"
               stroke-linecap="round" />
       </g>
@@ -313,6 +371,15 @@ const ghostLine = computed(() => {
       <!-- Cursor snap indicator -->
       <circle v-if="cursor" :cx="xToPx(cursor[0])" :cy="yToPx(cursor[1])"
               r="5" fill="none" stroke="#ff6b35" stroke-width="1.2" />
+
+      <!-- Rubber-band box select -->
+      <rect v-if="boxSel"
+            :x="xToPx(Math.min(boxSel.start[0], boxSel.end[0]))"
+            :y="yToPx(Math.max(boxSel.start[1], boxSel.end[1]))"
+            :width="Math.abs(boxSel.end[0] - boxSel.start[0]) * INNER"
+            :height="Math.abs(boxSel.end[1] - boxSel.start[1]) * INNER"
+            fill="rgba(123,92,250,0.10)" stroke="#7b5cfa"
+            stroke-width="1.2" stroke-dasharray="4 3" />
 
       <!-- Validation issue markers -->
       <g class="issues">

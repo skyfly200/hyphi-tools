@@ -1,5 +1,5 @@
 <script setup>
-import { state, undo, redo, deleteSelection, assignSelection, selectAll, clearSelection, resetPaper } from '../store.js';
+import { state, undo, redo, deleteSelection, assignSelection, selectAll, clearSelection, resetPaper, invertCreases } from '../store.js';
 import { onMounted, onUnmounted } from 'vue';
 import Icon from './Icon.vue';
 
@@ -110,6 +110,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
               title="Delete selected edges and vertices (Del / Backspace)"
               :disabled="!state.selection.edges.size && !state.selection.vertices.size">
         <Icon name="trash" />
+      </button>
+      <button @click="invertCreases"
+              :title="state.selection.edges.size ? 'Flip M↔V on selected creases' : 'Flip M↔V on every crease'">
+        <Icon name="invert" /><span class="lbl">Invert</span>
       </button>
     </div>
 
