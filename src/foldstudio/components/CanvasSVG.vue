@@ -290,22 +290,22 @@ const ghostLine = computed(() => {
          style="touch-action: none">
 
       <!-- Workspace background fills the visible SVG regardless of zoom. -->
-      <rect x="0" y="0" :width="SIZE" :height="SIZE" fill="#1a1a24" />
+      <rect x="0" y="0" :width="SIZE" :height="SIZE" fill="var(--canvas-bg)" />
 
       <!-- Everything else lives inside this <g>; pinch / wheel zoom + pan
            operates on this transform. -->
       <g :transform="`translate(${view.tx} ${view.ty}) scale(${view.s})`">
       <!-- Paper -->
-      <rect :x="MARGIN" :y="MARGIN" :width="INNER" :height="INNER" fill="#fff" stroke="#ddd" />
+      <rect :x="MARGIN" :y="MARGIN" :width="INNER" :height="INNER" fill="var(--paper)" stroke="var(--paper-stroke)" />
 
       <!-- Grid -->
       <g v-if="state.grid.visible" class="grid">
         <line v-for="(ln, i) in gridGeom.lines" :key="i"
               :x1="xToPx(ln[0][0])" :y1="yToPx(ln[0][1])"
               :x2="xToPx(ln[1][0])" :y2="yToPx(ln[1][1])"
-              stroke="#eef0f5" stroke-width="0.6" />
+              stroke="var(--grid-line)" stroke-width="0.6" opacity="0.45" />
         <circle v-for="(n, i) in gridGeom.nodes" :key="'n'+i"
-                :cx="xToPx(n[0])" :cy="yToPx(n[1])" r="1.2" fill="#dfe3ee" />
+                :cx="xToPx(n[0])" :cy="yToPx(n[1])" r="1.2" fill="var(--grid-node)" />
       </g>
 
       <!-- Faces (subtle fill if computed) -->
@@ -356,7 +356,7 @@ const ghostLine = computed(() => {
         <circle v-for="(v, i) in state.model.vertices" :key="i"
                 :cx="xToPx(v[0])" :cy="yToPx(v[1])"
                 :r="state.selection.vertices.has(i) ? 5 : 2.5"
-                :fill="state.selection.vertices.has(i) ? '#ff6b35' : '#222'"
+                :fill="state.selection.vertices.has(i) ? '#ff6b35' : 'var(--vertex, #222)'"
                 :stroke="state.selection.vertices.has(i) ? '#ff6b35' : 'none'"
                 stroke-width="1.5" />
       </g>
