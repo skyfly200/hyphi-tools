@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import {
   state, gridGeom, snapPoint, drawCrease, clearSelection, drawAngleCrease, angleCreaseEnd,
+  applyCornerRelief,
 } from '../store.js';
 import { closestOnSegment } from '../lib/geometry.js';
 import { edgeMidpoint, faceCentroid, formatId } from '../lib/ids.js';
@@ -232,6 +233,14 @@ function onPointerDown(ev) {
         mode: state.toolOptions.angle.mode,
       });
       angleAnchor.value = null;
+    }
+  } else if (state.tool === 'relief') {
+    // Need a vertex to cut around; pick the closest one to the click.
+    const vIdx = pickVertexIndex(p);
+    if (vIdx >= 0) {
+      applyCornerRelief(vIdx, state.toolOptions.relief);
+    } else {
+      state.status = 'Tap a fold junction (vertex) to apply relief';
     }
   }
 }

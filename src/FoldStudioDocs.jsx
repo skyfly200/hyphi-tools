@@ -126,6 +126,10 @@ export default function FoldStudioDocs() {
           <li><strong>Translational</strong> — N copies shifted by <code>(dx, dy)</code> per step.</li>
         </ul>
 
+        <h3>Relief <kbd>C</kbd></h3>
+        <p>Cut a small boundary polygon around a fold junction to relieve paper tension at the meeting point of many creases. Tap a vertex with two or more incident creases; the tool drops the inner ends of those creases, places polygon vertices along each crease direction at the configured radius, reconnects each crease to its polygon vertex, and links the polygon vertices with <strong>B</strong>-assignment edges as the cutout perimeter.</p>
+        <p>The radius slider (Tool options drawer) is in paper-units, capped at 0.15. The action refuses to apply if the radius is larger than any incident crease's length so it can't invert a segment.</p>
+
         <h3>Angle <kbd>A</kbd></h3>
         <p>Place a crease anchored at one click, extending at a configured angle and length. Length modes:</p>
         <ul>

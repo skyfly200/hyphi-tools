@@ -34,6 +34,8 @@ export const Icons = {
   // Swap arrows — used by Invert M/V action.
   invert: `<path d="M7 10l-4 -4l4 -4"/><path d="M3 6h13a4 4 0 0 1 4 4v0"/><path d="M17 14l4 4l-4 4"/><path d="M21 18H8a4 4 0 0 1 -4 -4v0"/>`,
   sun: `<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4l1.4 -1.4M17 7l1.4 -1.4"/>`,
+  // Corner-relief cutout — small circle with creases radiating out.
+  relief: `<circle cx="12" cy="12" r="4.5" fill="none" stroke-dasharray="2 1.5"/><line x1="12" y1="2" x2="12" y2="7.5"/><line x1="12" y1="16.5" x2="12" y2="22"/><line x1="2" y1="12" x2="7.5" y2="12"/><line x1="16.5" y1="12" x2="22" y2="12"/>`,
   moon: `<path d="M20 14.5a8 8 0 0 1 -10.5 -10.5a8.5 8.5 0 1 0 10.5 10.5z"/>`,
 };
 
