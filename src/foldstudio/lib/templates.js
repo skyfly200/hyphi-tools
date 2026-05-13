@@ -36,33 +36,34 @@ function blank() {
 
 function preliminary() {
   // Classic preliminary base: 4 diagonals V + 4 mid-edge crosses M.
-  // With 4V + 4M at the centre it fails Maekawa (needs |M-V|=2). The
-  // bottom mid-edge crease is flipped to V so the centre becomes
-  // 5V + 3M and the pattern actually folds flat.
+  // 4V + 4M at the centre fails Maekawa. The horizontal mid-edge pair
+  // (left and right) is set to F (flat / reference) — the validator
+  // filters F creases out, leaving 4V + 2M with |M-V|=2.
   return buildFromEdges([
     [[0, 0], [0.5, 0.5], 'V'],
     [[1, 0], [0.5, 0.5], 'V'],
     [[1, 1], [0.5, 0.5], 'V'],
     [[0, 1], [0.5, 0.5], 'V'],
-    [[0.5, 0], [0.5, 0.5], 'V'],   // flipped from M for Maekawa
+    [[0.5, 0], [0.5, 0.5], 'M'],
     [[0.5, 1], [0.5, 0.5], 'M'],
-    [[0, 0.5], [0.5, 0.5], 'M'],
-    [[1, 0.5], [0.5, 0.5], 'M'],
+    [[0, 0.5], [0.5, 0.5], 'F'],   // diametral pair → F to satisfy Maekawa
+    [[1, 0.5], [0.5, 0.5], 'F'],
   ]);
 }
 
 function waterbomb() {
-  // Inverse of preliminary: 4 diagonals M + 4 mid-edge crosses V, with
-  // the bottom mid-edge crease flipped to M to give 5M + 3V at centre.
+  // Inverse of preliminary: 4 diagonals M + 4 mid-edge crosses V.
+  // Same trick — horizontal V mid-edges set to F so the centre is
+  // 4M + 2V + 2F → after filtering, 4M + 2V with |M-V|=2.
   return buildFromEdges([
     [[0, 0], [0.5, 0.5], 'M'],
     [[1, 0], [0.5, 0.5], 'M'],
     [[1, 1], [0.5, 0.5], 'M'],
     [[0, 1], [0.5, 0.5], 'M'],
-    [[0.5, 0], [0.5, 0.5], 'M'],   // flipped from V for Maekawa
+    [[0.5, 0], [0.5, 0.5], 'V'],
     [[0.5, 1], [0.5, 0.5], 'V'],
-    [[0, 0.5], [0.5, 0.5], 'V'],
-    [[1, 0.5], [0.5, 0.5], 'V'],
+    [[0, 0.5], [0.5, 0.5], 'F'],   // diametral pair → F to satisfy Maekawa
+    [[1, 0.5], [0.5, 0.5], 'F'],
   ]);
 }
 
@@ -98,20 +99,22 @@ function squareTwist() {
 }
 
 function radialStar(spokes = 16) {
+  // Spokes radiate from the paper centre, alternating M/V around the
+  // ring. Pure alternation gives 8M + 8V at the centre and fails
+  // Maekawa, so the horizontal diametral pair (spoke 0 and the spoke
+  // 180° opposite) is set to F. The validator filters F creases out,
+  // leaving 6M + 8V (or 6V + 8M depending on parity) with |M-V|=2.
   const edges = [];
   const cx = 0.5, cy = 0.5;
-  // Alternate M/V around the star. Pure alternation gives equal counts
-  // (8+8) at the centre and fails Maekawa — flip the first spoke so the
-  // centre splits 9M+7V and the pattern folds flat.
+  const halfway = spokes / 2;
   for (let i = 0; i < spokes; i++) {
     const a = (i / spokes) * Math.PI * 2;
     const dx = Math.cos(a), dy = Math.sin(a);
     const tx = dx > 0 ? (1 - cx) / dx : (dx < 0 ? -cx / dx : Infinity);
     const ty = dy > 0 ? (1 - cy) / dy : (dy < 0 ? -cy / dy : Infinity);
     const t = Math.min(Math.abs(tx), Math.abs(ty));
-    // Even spokes M, odd spokes V — flip spoke 1 to M so the centre is
-    // 9M + 7V instead of the failing 8M + 8V.
-    const assignment = (i % 2 === 0 || i === 1) ? 'M' : 'V';
+    const isFlatPair = i === 0 || i === halfway;
+    const assignment = isFlatPair ? 'F' : (i % 2 === 0 ? 'M' : 'V');
     edges.push([[cx, cy], [cx + dx * t, cy + dy * t], assignment]);
   }
   return buildFromEdges(edges);
