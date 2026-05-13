@@ -381,7 +381,7 @@ function PatternPreview({ pattern, faces, faceColors, selectedFace, onFaceClick,
       {/* Colored face polygons */}
       {faces?.map((fv, i) => {
         const removal = removedFaces?.[i];
-        const fillOpacity = removal === 'thin' ? 0.25 : removal === 'border' ? 0.15 : (selectedFace === i ? 1 : 0.75);
+        const fillOpacity = removal === 'thin' ? 0.25 : removal === 'hole' ? 0.15 : (selectedFace === i ? 1 : 0.75);
         return (
           <polygon key={i}
             points={fv.map(vi => `${pattern.vertices[vi][0]*sz},${(1-pattern.vertices[vi][1])*sz}`).join(' ')}
@@ -433,7 +433,9 @@ export default function FoldForm() {
   const [edgeHingeW,   setEdgeHingeW]   = useState({});
   const [selectedEdge, setSelectedEdge] = useState(null);
   // removedFaces[i] = 'thin' makes face i print at hinge thickness;
-  // 'border' converts the face's perimeter edges to B in the model.
+  // 'hole' converts the face's perimeter edges to B in the FOLD export
+  // (cut-out boundary). buildModelSTL doesn't punch a true hole in the
+  // STL — the geometry there is left at panel thickness.
   const [removedFaces, setRemovedFaces] = useState({});
   const [msg,          setMsg]          = useState('');
   const [dragging,     setDragging]     = useState(false);
@@ -525,7 +527,11 @@ export default function FoldForm() {
     setPattern(p.pattern);
     setFaceColors(p.faceColors || []);
     setEdgeHingeW(p.edgeHingeW || {});
-    setRemovedFaces(p.removedFaces || {});
+    // Older saves used 'border' for what is now called 'hole'.
+    const rf = p.removedFaces || {};
+    const migrated = {};
+    for (const k of Object.keys(rf)) migrated[k] = rf[k] === 'border' ? 'hole' : rf[k];
+    setRemovedFaces(migrated);
     setDesignSVG(p.designSVG || null);
     setDesignName(p.designName || '');
     if (Number.isFinite(p.paperMM))     setPaperMM(p.paperMM);
@@ -587,14 +593,14 @@ export default function FoldForm() {
     if (!pattern) return;
     try {
       setMsg('Building model…'); await new Promise(r => setTimeout(r, 20));
-      // Apply 'border' panel-removal by flipping perimeter edges to B for
+      // Apply 'hole' panel-removal by flipping perimeter edges to B for
       // export purposes (doesn't touch the React state). This makes those
       // edges paper boundaries — the hinge thinner skips them and the
-      // FOLD export records them as cut lines.
+      // FOLD export records them as cut lines around the hole.
       const exportPattern = (() => {
         const borderEdgeKeys = new Set();
         for (const key of Object.keys(removedFaces)) {
-          if (removedFaces[key] !== 'border') continue;
+          if (removedFaces[key] !== 'hole') continue;
           const face = faces[+key];
           if (!face) continue;
           for (let i = 0; i < face.length; i++) {
@@ -887,10 +893,10 @@ export default function FoldForm() {
                     Thin (hinge-thick)
                   </button>
                   <button className="rm-btn"
-                    title="Convert this panel's perimeter to paper borders in the FOLD export (cut-line)"
-                    onClick={() => setRemovedFaces(prev => ({ ...prev, [selectedFace]: prev[selectedFace] === 'border' ? undefined : 'border' }))}
-                    style={{background: removedFaces[selectedFace] === 'border' ? 'var(--ac)' : undefined, color: removedFaces[selectedFace] === 'border' ? '#000' : undefined}}>
-                    Border (FOLD cutout)
+                    title="Convert this panel's perimeter to paper borders in the FOLD export (cut-out hole)"
+                    onClick={() => setRemovedFaces(prev => ({ ...prev, [selectedFace]: prev[selectedFace] === 'hole' ? undefined : 'hole' }))}
+                    style={{background: removedFaces[selectedFace] === 'hole' ? 'var(--ac)' : undefined, color: removedFaces[selectedFace] === 'hole' ? '#000' : undefined}}>
+                    Hole
                   </button>
                   {removedFaces[selectedFace] && (
                     <button className="rm-btn" onClick={() => setRemovedFaces(prev => { const c={...prev}; delete c[selectedFace]; return c; })}>
