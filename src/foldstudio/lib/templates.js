@@ -53,17 +53,19 @@ function preliminary() {
 
 function waterbomb() {
   // Inverse of preliminary: 4 diagonals M + 4 mid-edge crosses V.
-  // Same trick — horizontal V mid-edges set to F so the centre is
-  // 4M + 2V + 2F → after filtering, 4M + 2V with |M-V|=2.
+  // The bottom-left ↔ top-right diagonal pair is F so this base picks a
+  // *different* flat axis than the preliminary's (which uses the
+  // horizontal mid-edges). After filtering F the centre is 2M + 4V with
+  // |M-V|=2.
   return buildFromEdges([
-    [[0, 0], [0.5, 0.5], 'M'],
+    [[0, 0], [0.5, 0.5], 'F'],   // diametral diagonal pair → F
+    [[1, 1], [0.5, 0.5], 'F'],
     [[1, 0], [0.5, 0.5], 'M'],
-    [[1, 1], [0.5, 0.5], 'M'],
     [[0, 1], [0.5, 0.5], 'M'],
     [[0.5, 0], [0.5, 0.5], 'V'],
     [[0.5, 1], [0.5, 0.5], 'V'],
-    [[0, 0.5], [0.5, 0.5], 'F'],   // diametral pair → F to satisfy Maekawa
-    [[1, 0.5], [0.5, 0.5], 'F'],
+    [[0, 0.5], [0.5, 0.5], 'V'],
+    [[1, 0.5], [0.5, 0.5], 'V'],
   ]);
 }
 
@@ -77,23 +79,25 @@ function accordion(n = 8) {
 }
 
 function squareTwist() {
-  // Central rotated square + spokes from each paper corner. Each square
-  // corner ends up with three meeting creases — that doesn't fold flat
-  // without extra pleats, so we ship as 'U' and let the user paint.
+  // Central rotated square (V edges) + spokes from each paper corner
+  // (M). Each square corner has 2V + 1M = 3 meeting creases and that
+  // doesn't satisfy Maekawa without additional pleat folds, so this
+  // template intentionally trips the flat-fold checker. The M/V are
+  // kept (rather than U) so the visual reads as a real square twist.
   const c = 0.5;
   const r = 0.18;
   const pts = [
     [c + r, c], [c, c + r], [c - r, c], [c, c - r],
   ];
   const edges = [
-    [pts[0], pts[1], 'U'],
-    [pts[1], pts[2], 'U'],
-    [pts[2], pts[3], 'U'],
-    [pts[3], pts[0], 'U'],
-    [[0, 0], pts[2], 'U'],
-    [[1, 0], pts[3], 'U'],
-    [[1, 1], pts[0], 'U'],
-    [[0, 1], pts[1], 'U'],
+    [pts[0], pts[1], 'V'],
+    [pts[1], pts[2], 'V'],
+    [pts[2], pts[3], 'V'],
+    [pts[3], pts[0], 'V'],
+    [[0, 0], pts[2], 'M'],
+    [[1, 0], pts[3], 'M'],
+    [[1, 1], pts[0], 'M'],
+    [[0, 1], pts[1], 'M'],
   ];
   return buildFromEdges(edges);
 }
@@ -125,7 +129,7 @@ export const TEMPLATES = [
   { id: 'preliminary', name: 'Preliminary base', tagline: 'Diagonals + mid-edge cross · flat-foldable', build: preliminary },
   { id: 'waterbomb', name: 'Waterbomb base', tagline: 'Inverse of preliminary · flat-foldable',         build: waterbomb },
   { id: 'accordion', name: 'Accordion fold (8)', tagline: 'Parallel M/V pleats',                        build: () => accordion(8) },
-  { id: 'square-twist', name: 'Square twist', tagline: 'Central twist + 4 spokes · paint M/V to fold',  build: squareTwist },
+  { id: 'square-twist', name: 'Square twist', tagline: 'Central twist + 4 spokes · needs extra pleats to fold flat', build: squareTwist },
   { id: 'radial-16', name: 'Radial star (16)', tagline: '16 alternating spokes · flat-foldable',        build: () => radialStar(16) },
 ];
 
