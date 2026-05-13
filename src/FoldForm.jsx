@@ -2,6 +2,10 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { EDGE_COLOR, EDGE_DASH } from './lib/foldPalette.js';
 import { setHandoff, takeHandoff } from './lib/foldHandoff.js';
+import {
+  listFoldFormProjects, saveFoldFormProject, loadFoldFormProject,
+  deleteFoldFormProject, renameFoldFormProject,
+} from './lib/foldFormPersistence.js';
 
 // ── Parsers ────────────────────────────────────────────────────────────────
 function parseFOLD(text) {
@@ -186,20 +190,36 @@ function heightfieldToSTL(H, N, step) {
 
 // ── Living-hinge model STL ─────────────────────────────────────────────────
 // Panels are panelH thick; a strip of hingeW mm either side of every
-// non-boundary fold line is thinned to hingeH so it can flex.
-function buildModelSTL(pattern, { paperMM: S, panelH, hingeH, hingeW }) {
+// non-boundary fold line is thinned to hingeH so it can flex. Per-edge
+// widths in `edgeHingeW` (mm) override the global hingeW. Faces marked
+// 'thin' in `removedFaces` are filled at hingeH inside their polygon.
+function pointInPoly(x, y, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i][0], yi = poly[i][1];
+    const xj = poly[j][0], yj = poly[j][1];
+    const intersect = ((yi > y) !== (yj > y)) &&
+      (x < (xj - xi) * (y - yi) / ((yj - yi) || 1e-12) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+function buildModelSTL(pattern, { paperMM: S, panelH, hingeH, hingeW, edgeHingeW = {}, removedFaces = {}, faces = [] }) {
   const N = 300;
   const step = S / N;
   const H = new Float32Array((N+1)*(N+1)).fill(panelH);
 
-  for (const e of pattern.edges) {
+  for (let ei = 0; ei < pattern.edges.length; ei++) {
+    const e = pattern.edges[ei];
     if (e.type === 'B') continue;
     const [x1, y1] = [pattern.vertices[e.v1][0] * S, pattern.vertices[e.v1][1] * S];
     const [x2, y2] = [pattern.vertices[e.v2][0] * S, pattern.vertices[e.v2][1] * S];
     const len = Math.hypot(x2-x1, y2-y1);
     if (len < 1e-6) continue;
     const dx = (x2-x1)/len, dy = (y2-y1)/len;
-    const half = hingeW / 2;
+    const widthMm = Number.isFinite(edgeHingeW[ei]) ? edgeHingeW[ei] : hingeW;
+    const half = widthMm / 2;
     const pad  = half + step;
 
     const c0 = Math.max(0, Math.floor((Math.min(x1,x2) - pad) / step));
@@ -213,6 +233,28 @@ function buildModelSTL(pattern, { paperMM: S, panelH, hingeH, hingeW }) {
         const t = Math.max(0, Math.min(len, (px-x1)*dx + (py-y1)*dy));
         const dist = Math.hypot(px-x1 - t*dx, py-y1 - t*dy);
         if (dist < half) H[row*(N+1)+col] = hingeH;
+      }
+    }
+  }
+
+  // Faces flagged 'thin' get filled at hinge thickness inside their polygon.
+  for (const key of Object.keys(removedFaces)) {
+    if (removedFaces[key] !== 'thin') continue;
+    const face = faces[+key];
+    if (!face) continue;
+    const poly = face.map(vi => [pattern.vertices[vi][0] * S, pattern.vertices[vi][1] * S]);
+    let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
+    for (const [x, y] of poly) {
+      if (x < xMin) xMin = x; if (x > xMax) xMax = x;
+      if (y < yMin) yMin = y; if (y > yMax) yMax = y;
+    }
+    const c0 = Math.max(0, Math.floor(xMin / step));
+    const c1 = Math.min(N, Math.ceil( xMax / step));
+    const r0 = Math.max(0, Math.floor(yMin / step));
+    const r1 = Math.min(N, Math.ceil( yMax / step));
+    for (let row = r0; row <= r1; row++) {
+      for (let col = c0; col <= c1; col++) {
+        if (pointInPoly(col*step, row*step, poly)) H[row*(N+1)+col] = hingeH;
       }
     }
   }
@@ -326,7 +368,7 @@ const LILY_DEMO = (() => {
 
 // ── Pattern preview ────────────────────────────────────────────────────────
 
-function PatternPreview({ pattern, faces, faceColors, selectedFace, onFaceClick }) {
+function PatternPreview({ pattern, faces, faceColors, selectedFace, onFaceClick, removedFaces, selectedEdge, onEdgeClick }) {
   if (!pattern) return (
     <div style={{display:'flex',alignItems:'center',justifyContent:'center',width:'100%',aspectRatio:'1',background:'var(--s)',border:'1px solid var(--bd)',borderRadius:12,color:'var(--mu)',fontSize:'.8rem'}}>
       upload a .fold or .svg to preview
@@ -335,28 +377,35 @@ function PatternPreview({ pattern, faces, faceColors, selectedFace, onFaceClick 
   const sz = 300;
   return (
     <svg viewBox={`0 0 ${sz} ${sz}`} width="100%" style={{display:'block',borderRadius:4,background:'var(--s)',border:'1px solid var(--bd)',cursor:'default'}}
-      onClick={() => onFaceClick?.(null)}>
+      onClick={() => { onFaceClick?.(null); onEdgeClick?.(null); }}>
       {/* Colored face polygons */}
-      {faces?.map((fv, i) => (
-        <polygon key={i}
-          points={fv.map(vi => `${pattern.vertices[vi][0]*sz},${(1-pattern.vertices[vi][1])*sz}`).join(' ')}
-          fill={faceColors?.[i] || '#333'}
-          opacity={selectedFace === i ? 1 : 0.75}
-          stroke={selectedFace === i ? '#fff' : 'none'}
-          strokeWidth={1.5}
-          style={{cursor:'pointer'}}
-          onClick={e => { e.stopPropagation(); onFaceClick?.(i); }}
-        />
-      ))}
+      {faces?.map((fv, i) => {
+        const removal = removedFaces?.[i];
+        const fillOpacity = removal === 'thin' ? 0.25 : removal === 'border' ? 0.15 : (selectedFace === i ? 1 : 0.75);
+        return (
+          <polygon key={i}
+            points={fv.map(vi => `${pattern.vertices[vi][0]*sz},${(1-pattern.vertices[vi][1])*sz}`).join(' ')}
+            fill={faceColors?.[i] || '#333'}
+            opacity={fillOpacity}
+            stroke={selectedFace === i ? '#fff' : (removal ? '#ff6b35' : 'none')}
+            strokeDasharray={removal ? '4 3' : undefined}
+            strokeWidth={1.5}
+            style={{cursor:'pointer'}}
+            onClick={e => { e.stopPropagation(); onFaceClick?.(i); }}
+          />
+        );
+      })}
       {/* Fold lines on top */}
       {pattern.edges.map((e, i) => {
         const [x1,y1] = pattern.vertices[e.v1], [x2,y2] = pattern.vertices[e.v2];
+        const sel = selectedEdge === i;
         return <line key={i}
           x1={x1*sz} y1={(1-y1)*sz} x2={x2*sz} y2={(1-y2)*sz}
-          stroke={EDGE_COLOR[e.type] || '#888'}
-          strokeWidth={e.type==='B' ? 1.5 : 1}
+          stroke={sel ? '#ff6b35' : (EDGE_COLOR[e.type] || '#888')}
+          strokeWidth={sel ? 3 : (e.type==='B' ? 1.5 : 1)}
           strokeDasharray={EDGE_DASH[e.type]}
-          style={{pointerEvents:'none'}}
+          style={{cursor:'pointer'}}
+          onClick={ev => { ev.stopPropagation(); onEdgeClick?.(i); }}
         />;
       })}
     </svg>
@@ -380,11 +429,25 @@ export default function FoldForm() {
   const [designEmb,    setDesignEmb]    = useState(0.4);
   const [faceColors,   setFaceColors]   = useState([]);
   const [selectedFace, setSelectedFace] = useState(null);
+  // Per-edge hinge width overrides (mm). Keyed by edge index in pattern.edges.
+  const [edgeHingeW,   setEdgeHingeW]   = useState({});
+  const [selectedEdge, setSelectedEdge] = useState(null);
+  // removedFaces[i] = 'thin' makes face i print at hinge thickness;
+  // 'border' converts the face's perimeter edges to B in the model.
+  const [removedFaces, setRemovedFaces] = useState({});
   const [msg,          setMsg]          = useState('');
   const [dragging,     setDragging]     = useState(false);
   const [dragDes,      setDragDes]      = useState(false);
   const fileRef   = useRef();
   const designRef = useRef();
+  // Save / Load project state.
+  const [projectName,  setProjectName]  = useState('');
+  const [showSave,     setShowSave]     = useState(false);
+  const [showLoad,     setShowLoad]     = useState(false);
+  const [saveInput,    setSaveInput]    = useState('');
+  const [projects,     setProjects]     = useState(() => listFoldFormProjects());
+  const [renamingProj, setRenamingProj] = useState(null);
+  const [renameValue,  setRenameValue]  = useState('');
 
   const faces = useMemo(() => {
     if (!pattern) return [];
@@ -435,6 +498,70 @@ export default function FoldForm() {
     }
   }, []);
 
+  // ── Project save/load ────────────────────────────────────────────────────
+  function snapshotProject() {
+    return {
+      pattern,
+      faceColors,
+      edgeHingeW,
+      removedFaces,
+      designSVG, designName,
+      paperMM, panelH, hingeH, hingeW, designBaseH, designEmb,
+    };
+  }
+  function commitSave() {
+    const n = saveInput.trim() || projectName.trim();
+    if (!n) return;
+    saveFoldFormProject(n, snapshotProject());
+    setProjectName(n);
+    setProjects(listFoldFormProjects());
+    setShowSave(false);
+    setMsg(`Saved "${n}"`);
+    setTimeout(() => setMsg(''), 2000);
+  }
+  function loadProject(name) {
+    const p = loadFoldFormProject(name);
+    if (!p) return;
+    setPattern(p.pattern);
+    setFaceColors(p.faceColors || []);
+    setEdgeHingeW(p.edgeHingeW || {});
+    setRemovedFaces(p.removedFaces || {});
+    setDesignSVG(p.designSVG || null);
+    setDesignName(p.designName || '');
+    if (Number.isFinite(p.paperMM))     setPaperMM(p.paperMM);
+    if (Number.isFinite(p.panelH))      setPanelH(p.panelH);
+    if (Number.isFinite(p.hingeH))      setHingeH(p.hingeH);
+    if (Number.isFinite(p.hingeW))      setHingeW(p.hingeW);
+    if (Number.isFinite(p.designBaseH)) setDesignBaseH(p.designBaseH);
+    if (Number.isFinite(p.designEmb))   setDesignEmb(p.designEmb);
+    setFileName(name);
+    setProjectName(name);
+    setShowLoad(false);
+    setSelectedFace(null);
+    setSelectedEdge(null);
+  }
+  function removeProject(name) {
+    deleteFoldFormProject(name);
+    setProjects(listFoldFormProjects());
+    if (projectName === name) setProjectName('');
+  }
+  function commitRename(oldName) {
+    if (renamingProj !== oldName) return;
+    const target = renameValue.trim();
+    if (target && target !== oldName) {
+      const ok = renameFoldFormProject(oldName, target);
+      if (ok) {
+        if (projectName === oldName) setProjectName(target);
+        setProjects(listFoldFormProjects());
+      } else {
+        setMsg(`Couldn't rename — "${target}" may already exist`);
+        setTimeout(() => setMsg(''), 2500);
+      }
+    }
+    setRenamingProj(null);
+    setRenameValue('');
+  }
+
   function handoffToTool(path) {
     if (!pattern) return;
     setHandoff({
@@ -460,7 +587,31 @@ export default function FoldForm() {
     if (!pattern) return;
     try {
       setMsg('Building model…'); await new Promise(r => setTimeout(r, 20));
-      const modelStl = buildModelSTL(pattern, { paperMM, panelH, hingeH, hingeW });
+      // Apply 'border' panel-removal by flipping perimeter edges to B for
+      // export purposes (doesn't touch the React state). This makes those
+      // edges paper boundaries — the hinge thinner skips them and the
+      // FOLD export records them as cut lines.
+      const exportPattern = (() => {
+        const borderEdgeKeys = new Set();
+        for (const key of Object.keys(removedFaces)) {
+          if (removedFaces[key] !== 'border') continue;
+          const face = faces[+key];
+          if (!face) continue;
+          for (let i = 0; i < face.length; i++) {
+            const a = face[i], b = face[(i + 1) % face.length];
+            borderEdgeKeys.add(`${Math.min(a,b)}-${Math.max(a,b)}`);
+          }
+        }
+        if (!borderEdgeKeys.size) return pattern;
+        return {
+          ...pattern,
+          edges: pattern.edges.map(e => {
+            const k = `${Math.min(e.v1,e.v2)}-${Math.max(e.v1,e.v2)}`;
+            return borderEdgeKeys.has(k) ? { ...e, type: 'B' } : e;
+          }),
+        };
+      })();
+      const modelStl = buildModelSTL(exportPattern, { paperMM, panelH, hingeH, hingeW, edgeHingeW, removedFaces, faces });
       const files = [{ name: 'foldform_model.stl', data: modelStl }];
 
       if (designSVG) {
@@ -543,6 +694,24 @@ export default function FoldForm() {
     ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--bd);border-radius:99px}
     *{scrollbar-width:thin;scrollbar-color:var(--bd) transparent}
     @media(max-width:760px){html,body{overflow:auto;height:auto}.shell{grid-template-columns:1fr;height:auto}.L,.R{height:auto}.R{order:-1}}
+
+    .ff-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:80;padding:14px}
+    .ff-modal{background:var(--s);border:1px solid var(--bd);border-radius:10px;padding:20px;min-width:min(360px,calc(100vw - 28px));max-width:560px;max-height:calc(100vh - 28px);overflow-y:auto;display:flex;flex-direction:column;gap:12px}
+    .ff-modal.wide{min-width:min(440px,calc(100vw - 28px))}
+    .ff-modal h3{margin:0;font:500 1rem 'DM Sans',sans-serif}
+    .ff-modal input{background:var(--bg);color:var(--t);border:1px solid var(--bd);border-radius:6px;padding:8px 10px;font:400 .85rem 'DM Sans',sans-serif}
+    .ff-row{display:flex;gap:8px;justify-content:flex-end}
+    .rm-btn.primary{background:var(--ac);color:#000;border-color:var(--ac)}
+    .ff-projs{list-style:none;padding:0;margin:0;max-height:320px;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
+    .ff-projs li{display:grid;grid-template-columns:1fr auto auto auto;align-items:center;gap:10px;padding:6px 8px;border-radius:6px}
+    .ff-projs li:hover{background:rgba(255,255,255,.04)}
+    .ff-projs input{font:500 .85rem 'DM Sans',sans-serif;padding:4px 6px}
+    .ff-link{background:none;border:none;color:var(--ac);font:500 .85rem 'DM Sans',sans-serif;cursor:pointer;text-align:left;padding:4px 0}
+    .ff-link:hover{text-decoration:underline}
+    .ff-when{font-family:'DM Mono',monospace;font-size:.66rem;color:var(--mu)}
+    .ff-edit,.ff-danger{background:none;border:none;cursor:pointer;padding:4px 6px;font-size:.9rem;color:var(--mu)}
+    .ff-edit:hover{color:var(--ac)}
+    .ff-danger:hover{color:#ff5555}
   `;
 
   return (
@@ -554,6 +723,27 @@ export default function FoldForm() {
             <Link to="/" className="back-link" title="Back to Hyphi Tools">← Tools</Link>
             <div className="logo-mark">Fold<em>Form</em></div>
             <div className="sub">// living-hinge origami model generator</div>
+          </div>
+
+          {/* Project save/load */}
+          <div className="sec">
+            <div className="lbl">Project
+              {projectName && <span style={{fontWeight:400,textTransform:'none',letterSpacing:0,fontSize:'.62rem',marginLeft:6,color:'var(--ac)'}}>/ {projectName}</span>}
+            </div>
+            <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+              <button className="rm-btn" onClick={() => { setSaveInput(projectName); setShowSave(true); }} disabled={!pattern}>
+                Save
+              </button>
+              <button className="rm-btn" onClick={() => { setProjects(listFoldFormProjects()); setShowLoad(true); }}>
+                Open
+              </button>
+              {projectName && (
+                <button className="rm-btn" onClick={() => { commitSave(); }} disabled={!pattern} title="Quick-save with the current name">
+                  Update
+                </button>
+              )}
+            </div>
+            <div className="notice" style={{fontSize:'.62rem'}}>Saved in your browser's localStorage (paper size, hinge settings, colors, per-edge widths and removed panels).</div>
           </div>
 
           {/* Crease pattern */}
@@ -639,25 +829,79 @@ export default function FoldForm() {
 
         <div className="R">
           <PatternPreview pattern={pattern} faces={faces} faceColors={faceColors}
-            selectedFace={selectedFace} onFaceClick={setSelectedFace} />
+            selectedFace={selectedFace} onFaceClick={i => { setSelectedFace(i); setSelectedEdge(null); }}
+            removedFaces={removedFaces}
+            selectedEdge={selectedEdge} onEdgeClick={i => { setSelectedEdge(i); setSelectedFace(null); }} />
 
-          {/* Face color painter */}
+          {/* Selected-edge hinge width override */}
+          {selectedEdge !== null && pattern && (
+            <div className="sec">
+              <div className="lbl">Fold width override
+                <span style={{fontWeight:400,textTransform:'none',letterSpacing:0,fontSize:'.6rem',marginLeft:6}}>edge {selectedEdge+1}</span>
+              </div>
+              <div style={{display:'flex',alignItems:'center',gap:8}}>
+                <input type="range" min={0.2} max={Math.max(8, hingeW*4)} step={0.1}
+                  value={edgeHingeW[selectedEdge] ?? hingeW}
+                  onChange={e => setEdgeHingeW(prev => ({ ...prev, [selectedEdge]: +e.target.value }))}
+                  style={{flex:1}} />
+                <input type="number" min={0.2} max={20} step={0.1}
+                  value={edgeHingeW[selectedEdge] ?? hingeW}
+                  onChange={e => setEdgeHingeW(prev => ({ ...prev, [selectedEdge]: +e.target.value }))}
+                  style={{width:60,background:'var(--s)',color:'var(--t)',border:'1px solid var(--bd)',borderRadius:4,padding:'4px 6px',fontSize:'.78rem'}} />
+                <span style={{fontSize:'.72rem',color:'var(--mu)'}}>mm</span>
+              </div>
+              <div style={{display:'flex',gap:6,fontSize:'.7rem'}}>
+                <button className="rm-btn" onClick={() => setEdgeHingeW(prev => { const c={...prev}; delete c[selectedEdge]; return c; })}
+                        disabled={edgeHingeW[selectedEdge] === undefined}>
+                  Use global ({hingeW.toFixed(1)}mm)
+                </button>
+                <button className="rm-btn" onClick={() => setSelectedEdge(null)}>Done</button>
+              </div>
+              <div className="notice" style={{fontSize:'.66rem'}}>
+                Override the global Hinge Width for this single edge. {Object.keys(edgeHingeW).length} edge{Object.keys(edgeHingeW).length === 1 ? '' : 's'} customised.
+              </div>
+            </div>
+          )}
+
+          {/* Face color painter + panel removal */}
           {faces.length > 0 && (
             <div className="sec">
               <div className="lbl">Panel Colors
                 <span style={{fontWeight:400,textTransform:'none',letterSpacing:0,fontSize:'.6rem',marginLeft:6}}>click a panel to paint</span>
               </div>
               {selectedFace !== null ? (
-                <div style={{display:'flex',alignItems:'center',gap:10}}>
+                <>
+                <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
                   <span style={{fontSize:'.76rem',color:'var(--mu)'}}>Panel {selectedFace+1}</span>
                   <input type="color" value={faceColors[selectedFace] || '#888888'}
                     onChange={e => setFaceColors(prev => { const c=[...prev]; c[selectedFace]=e.target.value; return c; })}
                     style={{width:36,height:28,borderRadius:6,border:'1px solid var(--bd)',cursor:'pointer',padding:2,background:'none'}} />
                   <button className="rm-btn" onClick={() => setSelectedFace(null)}>Done</button>
                 </div>
+                <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',marginTop:6}}>
+                  <span style={{fontSize:'.68rem',color:'var(--mu)'}}>Remove this panel:</span>
+                  <button className="rm-btn"
+                    title="Print this panel at hinge thickness — it becomes a fully-flexible area"
+                    onClick={() => setRemovedFaces(prev => ({ ...prev, [selectedFace]: prev[selectedFace] === 'thin' ? undefined : 'thin' }))}
+                    style={{background: removedFaces[selectedFace] === 'thin' ? 'var(--ac)' : undefined, color: removedFaces[selectedFace] === 'thin' ? '#000' : undefined}}>
+                    Thin (hinge-thick)
+                  </button>
+                  <button className="rm-btn"
+                    title="Convert this panel's perimeter to paper borders in the FOLD export (cut-line)"
+                    onClick={() => setRemovedFaces(prev => ({ ...prev, [selectedFace]: prev[selectedFace] === 'border' ? undefined : 'border' }))}
+                    style={{background: removedFaces[selectedFace] === 'border' ? 'var(--ac)' : undefined, color: removedFaces[selectedFace] === 'border' ? '#000' : undefined}}>
+                    Border (FOLD cutout)
+                  </button>
+                  {removedFaces[selectedFace] && (
+                    <button className="rm-btn" onClick={() => setRemovedFaces(prev => { const c={...prev}; delete c[selectedFace]; return c; })}>
+                      Restore
+                    </button>
+                  )}
+                </div>
+                </>
               ) : (
                 <div className="notice" style={{fontSize:'.68rem'}}>
-                  {faces.length} panel{faces.length!==1?'s':''} detected. Click any panel to change its color, then export the colored .fold file or hand it off to FoldStudio for editing.
+                  {faces.length} panel{faces.length!==1?'s':''} detected. Click any panel to paint or remove. Click any fold line to override its hinge width.
                 </div>
               )}
               <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
@@ -702,6 +946,59 @@ export default function FoldForm() {
           </div>
         </div>
       </div>
+
+      {showSave && (
+        <div className="ff-modal-bg" onClick={() => setShowSave(false)}>
+          <div className="ff-modal" onClick={e => e.stopPropagation()}>
+            <h3>Save FoldForm project</h3>
+            <input value={saveInput} onChange={e => setSaveInput(e.target.value)}
+                   placeholder="project name" autoFocus
+                   onKeyDown={e => e.key === 'Enter' && commitSave()} />
+            <div className="ff-row">
+              <button className="rm-btn" onClick={() => setShowSave(false)}>Cancel</button>
+              <button className="rm-btn primary" onClick={commitSave} disabled={!saveInput.trim()}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showLoad && (
+        <div className="ff-modal-bg" onClick={() => setShowLoad(false)}>
+          <div className="ff-modal wide" onClick={e => e.stopPropagation()}>
+            <h3>Open FoldForm project</h3>
+            {projects.length ? (
+              <ul className="ff-projs">
+                {projects.map(p => (
+                  <li key={p.name}>
+                    {renamingProj === p.name ? (
+                      <>
+                        <input value={renameValue} onChange={e => setRenameValue(e.target.value)}
+                               autoFocus
+                               onKeyDown={e => { if (e.key === 'Enter') commitRename(p.name); if (e.key === 'Escape') { setRenamingProj(null); setRenameValue(''); } }}
+                               onBlur={() => commitRename(p.name)} />
+                        <span className="ff-when">{new Date(p.savedAt).toLocaleString()}</span>
+                      </>
+                    ) : (
+                      <>
+                        <button className="ff-link" onClick={() => loadProject(p.name)}>{p.name}</button>
+                        <span className="ff-when">{new Date(p.savedAt).toLocaleString()}</span>
+                        <button className="ff-edit" title="Rename"
+                                onClick={() => { setRenamingProj(p.name); setRenameValue(p.name); }}>✎</button>
+                        <button className="ff-danger" title="Delete" onClick={() => removeProject(p.name)}>🗑</button>
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="notice" style={{fontSize:'.7rem'}}>No saved projects yet.</div>
+            )}
+            <div className="ff-row">
+              <button className="rm-btn" onClick={() => setShowLoad(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
