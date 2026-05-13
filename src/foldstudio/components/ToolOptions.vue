@@ -99,11 +99,20 @@ import { state, mirrorSelection, repeatSelection } from '../store.js';
 
     <template v-else-if="state.tool === 'relief'">
       <p class="hint">Tap a fold junction (vertex) to cut a small boundary polygon around it. The incident creases reconnect to the polygon's perimeter, relieving paper tension at tight junctions.</p>
-      <label title="Cutout radius in paper-units (1 = paper width). Larger means a bigger hole.">Radius
+      <label title="Cutout radius as a % of paper width. 1% ≈ 1.5mm on 150mm paper.">
+        <span class="row-between">
+          <span>Cutout radius</span>
+          <span class="meta">{{ (state.toolOptions.relief.radius * 100).toFixed(1) }}% of paper</span>
+        </span>
         <input type="range" min="0.005" max="0.15" step="0.005" v-model.number="state.toolOptions.relief.radius" />
-        <span class="meta">{{ state.toolOptions.relief.radius.toFixed(3) }}</span>
+        <span class="row-between minmax">
+          <span>0.5%</span>
+          <input type="number" class="num" min="0.005" max="0.15" step="0.005"
+                 v-model.number="state.toolOptions.relief.radius" />
+          <span>15%</span>
+        </span>
       </label>
-      <p class="hint">Refuses to apply if the radius is larger than any incident crease's length.</p>
+      <p class="hint">A live preview circle on the canvas shows the cut size. Refuses to apply if the radius is longer than any incident crease.</p>
     </template>
   </section>
 </template>
@@ -122,6 +131,9 @@ button:hover:not(:disabled) { filter: brightness(1.15); border-color: var(--ac2)
 .hint kbd { background: var(--bg); border: 1px solid var(--bd); border-radius: 3px; padding: 0 4px; font-size: 0.7rem; }
 .meta { font: 400 0.7rem 'DM Mono'; color: var(--sub); }
 .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.row-between { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.row-between.minmax { font: 400 0.66rem 'DM Mono', monospace; color: var(--sub); }
+.num { background: var(--bg); color: var(--t); border: 1px solid var(--bd); border-radius: 4px; padding: 3px 5px; width: 60px; font: 500 0.74rem 'DM Sans'; text-align: center; }
 .seg-label { font: 400 0.7rem 'DM Mono', monospace; color: var(--sub); margin-top: 2px; }
 .seg { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0; }
 .seg button { background: var(--bg); color: var(--sub); border: 1px solid var(--bd); padding: 6px 4px; font: 500 0.7rem 'DM Sans', sans-serif; cursor: pointer; border-radius: 0; margin: 0; }
