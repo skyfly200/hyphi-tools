@@ -402,8 +402,8 @@ export default function FoldForm() {
     const url  = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
     const base = fileName.replace(/\.[^.]+$/, '') || 'pattern';
     const a    = Object.assign(document.createElement('a'), { href: url, download: `${base}.fold` });
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
   }
 
   function loadPattern(file) {
@@ -482,8 +482,11 @@ export default function FoldForm() {
       const a    = Object.assign(document.createElement('a'), { href: url, download: `${base}_${ts}.zip` });
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      // Defer cleanup so the browser has a chance to start the download
+      // before we revoke the blob URL. Revoking synchronously after
+      // a.click() races the download and produces a 0-byte file in some
+      // browsers (notably Safari).
+      setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
       setMsg('✓ Downloaded!'); setTimeout(() => setMsg(''), 2500);
     } catch (err) {
       setMsg(`Error: ${err.message}`);

@@ -306,6 +306,17 @@ const visibleFaceLabels = computed(() => {
 
 // First selected edge index (insertion order via Set iteration). Used as
 // the visual "axis" indicator when Mirror tool is set to axis = 'edge'.
+// Live preview for the Relief tool — finds the vertex closest to the
+// pointer (within picking range) and exposes it so the canvas can render
+// a circle at the configured radius around it.
+const reliefPreview = computed(() => {
+  if (state.tool !== 'relief' || !cursor.value) return null;
+  const idx = pickVertexIndex(cursor.value);
+  if (idx < 0) return null;
+  const v = state.model.vertices[idx];
+  return { x: v[0], y: v[1], r: state.toolOptions.relief.radius };
+});
+
 const axisEdgeIdx = computed(() => {
   if (state.tool !== 'mirror') return -1;
   if (state.toolOptions.mirror.axis !== 'edge') return -1;
@@ -425,6 +436,14 @@ const ghostLine = computed(() => {
       <!-- Cursor snap indicator -->
       <circle v-if="cursor" :cx="xToPx(cursor[0])" :cy="yToPx(cursor[1])"
               r="5" fill="none" stroke="#ff6b35" stroke-width="1.2" />
+
+      <!-- Relief tool: live preview of the cutout around the nearest vertex. -->
+      <circle v-if="reliefPreview"
+              :cx="xToPx(reliefPreview.x)"
+              :cy="yToPx(reliefPreview.y)"
+              :r="reliefPreview.r * INNER"
+              fill="rgba(255,107,53,0.10)"
+              stroke="#ff6b35" stroke-width="1.5" stroke-dasharray="5 4" />
 
       <!-- Rubber-band box select -->
       <rect v-if="boxSel"

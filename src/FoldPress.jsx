@@ -417,7 +417,10 @@ export default function FoldPress() {
       : 'foldpress';
     const ts = new Date().toISOString().slice(0,16).replace('T','_').replace(':','');
     const a=Object.assign(document.createElement('a'),{href:url,download:`${base}_${ts}.zip`});
-    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    document.body.appendChild(a); a.click();
+    // Defer cleanup; revoking the blob URL synchronously can race the
+    // download in some browsers and produce a 0-byte file.
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
     setMsg('✓ Downloaded!'); setTimeout(()=>setMsg(''),2500);
   }
 

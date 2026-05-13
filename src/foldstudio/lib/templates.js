@@ -35,13 +35,16 @@ function blank() {
 }
 
 function preliminary() {
-  // Diagonals (V) + mid-edge crosses (M) meeting at center.
+  // Classic preliminary base: 4 diagonals V + 4 mid-edge crosses M.
+  // With 4V + 4M at the centre it fails Maekawa (needs |M-V|=2). The
+  // bottom mid-edge crease is flipped to V so the centre becomes
+  // 5V + 3M and the pattern actually folds flat.
   return buildFromEdges([
     [[0, 0], [0.5, 0.5], 'V'],
     [[1, 0], [0.5, 0.5], 'V'],
     [[1, 1], [0.5, 0.5], 'V'],
     [[0, 1], [0.5, 0.5], 'V'],
-    [[0.5, 0], [0.5, 0.5], 'M'],
+    [[0.5, 0], [0.5, 0.5], 'V'],   // flipped from M for Maekawa
     [[0.5, 1], [0.5, 0.5], 'M'],
     [[0, 0.5], [0.5, 0.5], 'M'],
     [[1, 0.5], [0.5, 0.5], 'M'],
@@ -49,13 +52,14 @@ function preliminary() {
 }
 
 function waterbomb() {
-  // Preliminary's twin: diagonals are M, mid-edge crosses are V.
+  // Inverse of preliminary: 4 diagonals M + 4 mid-edge crosses V, with
+  // the bottom mid-edge crease flipped to M to give 5M + 3V at centre.
   return buildFromEdges([
     [[0, 0], [0.5, 0.5], 'M'],
     [[1, 0], [0.5, 0.5], 'M'],
     [[1, 1], [0.5, 0.5], 'M'],
     [[0, 1], [0.5, 0.5], 'M'],
-    [[0.5, 0], [0.5, 0.5], 'V'],
+    [[0.5, 0], [0.5, 0.5], 'M'],   // flipped from V for Maekawa
     [[0.5, 1], [0.5, 0.5], 'V'],
     [[0, 0.5], [0.5, 0.5], 'V'],
     [[1, 0.5], [0.5, 0.5], 'V'],
@@ -72,21 +76,23 @@ function accordion(n = 8) {
 }
 
 function squareTwist() {
-  // Central rotated square (V) plus four spokes from corners (M).
+  // Central rotated square + spokes from each paper corner. Each square
+  // corner ends up with three meeting creases — that doesn't fold flat
+  // without extra pleats, so we ship as 'U' and let the user paint.
   const c = 0.5;
   const r = 0.18;
   const pts = [
     [c + r, c], [c, c + r], [c - r, c], [c, c - r],
   ];
   const edges = [
-    [pts[0], pts[1], 'V'],
-    [pts[1], pts[2], 'V'],
-    [pts[2], pts[3], 'V'],
-    [pts[3], pts[0], 'V'],
-    [[0, 0], pts[2], 'M'],
-    [[1, 0], pts[3], 'M'],
-    [[1, 1], pts[0], 'M'],
-    [[0, 1], pts[1], 'M'],
+    [pts[0], pts[1], 'U'],
+    [pts[1], pts[2], 'U'],
+    [pts[2], pts[3], 'U'],
+    [pts[3], pts[0], 'U'],
+    [[0, 0], pts[2], 'U'],
+    [[1, 0], pts[3], 'U'],
+    [[1, 1], pts[0], 'U'],
+    [[0, 1], pts[1], 'U'],
   ];
   return buildFromEdges(edges);
 }
@@ -94,26 +100,30 @@ function squareTwist() {
 function radialStar(spokes = 16) {
   const edges = [];
   const cx = 0.5, cy = 0.5;
-  // Spokes from center to the boundary, alternating M/V.
+  // Alternate M/V around the star. Pure alternation gives equal counts
+  // (8+8) at the centre and fails Maekawa — flip the first spoke so the
+  // centre splits 9M+7V and the pattern folds flat.
   for (let i = 0; i < spokes; i++) {
     const a = (i / spokes) * Math.PI * 2;
     const dx = Math.cos(a), dy = Math.sin(a);
-    // Distance to boundary along the ray.
     const tx = dx > 0 ? (1 - cx) / dx : (dx < 0 ? -cx / dx : Infinity);
     const ty = dy > 0 ? (1 - cy) / dy : (dy < 0 ? -cy / dy : Infinity);
     const t = Math.min(Math.abs(tx), Math.abs(ty));
-    edges.push([[cx, cy], [cx + dx * t, cy + dy * t], i % 2 === 0 ? 'M' : 'V']);
+    // Even spokes M, odd spokes V — flip spoke 1 to M so the centre is
+    // 9M + 7V instead of the failing 8M + 8V.
+    const assignment = (i % 2 === 0 || i === 1) ? 'M' : 'V';
+    edges.push([[cx, cy], [cx + dx * t, cy + dy * t], assignment]);
   }
   return buildFromEdges(edges);
 }
 
 export const TEMPLATES = [
   { id: 'blank', name: 'Blank paper', tagline: 'Just the boundary',           build: blank },
-  { id: 'preliminary', name: 'Preliminary base', tagline: 'Diagonals + mid-edge cross', build: preliminary },
-  { id: 'waterbomb', name: 'Waterbomb base', tagline: 'Inverse of preliminary',         build: waterbomb },
-  { id: 'accordion', name: 'Accordion fold (8)', tagline: 'Parallel M/V pleats',        build: () => accordion(8) },
-  { id: 'square-twist', name: 'Square twist', tagline: 'Central twist + 4 spokes',      build: squareTwist },
-  { id: 'radial-16', name: 'Radial star (16)', tagline: '16 spokes from center',        build: () => radialStar(16) },
+  { id: 'preliminary', name: 'Preliminary base', tagline: 'Diagonals + mid-edge cross · flat-foldable', build: preliminary },
+  { id: 'waterbomb', name: 'Waterbomb base', tagline: 'Inverse of preliminary · flat-foldable',         build: waterbomb },
+  { id: 'accordion', name: 'Accordion fold (8)', tagline: 'Parallel M/V pleats',                        build: () => accordion(8) },
+  { id: 'square-twist', name: 'Square twist', tagline: 'Central twist + 4 spokes · paint M/V to fold',  build: squareTwist },
+  { id: 'radial-16', name: 'Radial star (16)', tagline: '16 alternating spokes · flat-foldable',        build: () => radialStar(16) },
 ];
 
 export function buildTemplate(id) {
