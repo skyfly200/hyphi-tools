@@ -5,10 +5,11 @@ import { emptyModel } from './model.js';
 function buildFromEdges(edges) {
   // Vertices and edges in unit-square space [0,1]^2.
   // Adds the four boundary corners + supplied creases, dedupes vertices.
+  const fmt = ([x, y]) => `${x.toFixed(6)},${y.toFixed(6)}`;
   const vertices = [[0, 0], [1, 0], [1, 1], [0, 1]];
-  const idx = new Map([['0,0', 0], ['1,0', 1], ['1,1', 2], ['0,1', 3]]);
+  const idx = new Map(vertices.map((v, i) => [fmt(v), i]));
   const get = p => {
-    const k = `${p[0].toFixed(6)},${p[1].toFixed(6)}`;
+    const k = fmt(p);
     if (idx.has(k)) return idx.get(k);
     idx.set(k, vertices.length);
     vertices.push([p[0], p[1]]);

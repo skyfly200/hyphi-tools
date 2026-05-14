@@ -76,6 +76,60 @@ export function downloadText(filename, text, mime = 'image/svg+xml') {
   setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 0);
 }
 
+// CP (Oripa-style) text format. Each non-empty line:
+//   type x1 y1 x2 y2
+// Types follow Oripa: 1 = border, 2 = mountain, 3 = valley, 4 = flat, 5 = unknown.
+const ASSIGN_TO_CP = { B: 1, M: 2, V: 3, F: 4, U: 5 };
+const CP_TO_ASSIGN = { 1: 'B', 2: 'M', 3: 'V', 4: 'F', 5: 'U' };
+
+export function modelToCP(model) {
+  const lines = ['# FoldStudio CP export'];
+  for (const e of model.edges) {
+    const a = model.vertices[e.v1], b = model.vertices[e.v2];
+    const t = ASSIGN_TO_CP[e.assignment] ?? 5;
+    lines.push(`${t} ${a[0]} ${a[1]} ${b[0]} ${b[1]}`);
+  }
+  return lines.join('\n') + '\n';
+}
+
+export function cpToModel(text) {
+  const vertices = [];
+  const vIdx = new Map();
+  const get = (x, y) => {
+    const k = `${x.toFixed(6)},${y.toFixed(6)}`;
+    if (vIdx.has(k)) return vIdx.get(k);
+    vIdx.set(k, vertices.length);
+    vertices.push([x, y]);
+    return vertices.length - 1;
+  };
+  const edges = [];
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  // First pass to collect coords + bounds.
+  const raw = [];
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const parts = trimmed.split(/\s+/).map(Number);
+    if (parts.length < 5 || parts.some(Number.isNaN)) continue;
+    const [t, x1, y1, x2, y2] = parts;
+    raw.push([t, x1, y1, x2, y2]);
+    if (x1 < minX) minX = x1; if (x1 > maxX) maxX = x1;
+    if (x2 < minX) minX = x2; if (x2 > maxX) maxX = x2;
+    if (y1 < minY) minY = y1; if (y1 > maxY) maxY = y1;
+    if (y2 < minY) minY = y2; if (y2 > maxY) maxY = y2;
+  }
+  if (!raw.length) return null;
+  const span = Math.max(maxX - minX, maxY - minY) || 1;
+  // Normalise into [0,1]² so it matches FoldStudio's model space.
+  for (const [t, x1, y1, x2, y2] of raw) {
+    const v1 = get((x1 - minX) / span, (y1 - minY) / span);
+    const v2 = get((x2 - minX) / span, (y2 - minY) / span);
+    if (v1 === v2) continue;
+    edges.push({ v1, v2, assignment: CP_TO_ASSIGN[t] || 'U' });
+  }
+  return { vertices, edges, faces: [] };
+}
+
 export function modelToSVG(model, { size = 600, simulator = true } = {}) {
   const palette = simulator ? EDGE_COLOR_OS : EDGE_COLOR;
   const lines = model.edges.map(e => {

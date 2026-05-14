@@ -3,6 +3,59 @@
 
 export { computeFaces } from './faces.js';
 
+// Two-colorability check: every flat-foldable crease pattern's faces can
+// be 2-coloured so that any pair of faces sharing an edge get different
+// colours (like a chessboard). Returns { ok, coloring, conflicts } where
+// coloring[i] is 0 or 1 per face index, or -1 if disconnected/uncolored.
+// conflicts lists pairs of adjacent faces that ended up the same colour.
+export function validateTwoColorable(model) {
+  const faces = model.faces || [];
+  if (!faces.length) return { ok: true, coloring: [], conflicts: [] };
+
+  const edgeKey = (a, b) => a < b ? `${a}-${b}` : `${b}-${a}`;
+  const edgeToFaces = Object.create(null);
+  faces.forEach((f, fi) => {
+    for (let i = 0; i < f.length; i++) {
+      const k = edgeKey(f[i], f[(i + 1) % f.length]);
+      (edgeToFaces[k] = edgeToFaces[k] || []).push(fi);
+    }
+  });
+
+  const adj = faces.map(() => []);
+  for (const k in edgeToFaces) {
+    const fs = edgeToFaces[k];
+    if (fs.length === 2) {
+      adj[fs[0]].push(fs[1]);
+      adj[fs[1]].push(fs[0]);
+    }
+  }
+
+  const coloring = new Array(faces.length).fill(-1);
+  const conflictPairs = new Set();
+  const conflicts = [];
+  for (let i = 0; i < faces.length; i++) {
+    if (coloring[i] !== -1) continue;
+    coloring[i] = 0;
+    const queue = [i];
+    while (queue.length) {
+      const f = queue.shift();
+      for (const nb of adj[f]) {
+        if (coloring[nb] === -1) {
+          coloring[nb] = 1 - coloring[f];
+          queue.push(nb);
+        } else if (coloring[nb] === coloring[f]) {
+          const k = f < nb ? `${f}-${nb}` : `${nb}-${f}`;
+          if (!conflictPairs.has(k)) {
+            conflictPairs.add(k);
+            conflicts.push({ face1: Math.min(f, nb), face2: Math.max(f, nb) });
+          }
+        }
+      }
+    }
+  }
+  return { ok: conflicts.length === 0, coloring, conflicts };
+}
+
 // Returns { ok: boolean, vertexIssues: [{ vertex, type, msg }] }
 // Maekawa: |#M - #V| === 2 at every interior vertex with all M/V creases.
 // Kawasaki: alternating angle sums equal at every flat-foldable interior vertex.

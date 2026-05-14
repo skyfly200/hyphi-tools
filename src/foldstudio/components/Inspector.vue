@@ -62,6 +62,22 @@ const sharedFoldAngle = computed(() => {
         </ul>
       </template>
       <p v-else class="hint">Validation is off — issue markers and the foldability report are paused.</p>
+
+      <label class="check" title="Faces are checkerboard-colorable iff the pattern can be flat-folded (necessary condition)">
+        <input type="checkbox" v-model="state.validateTwoColor" />
+        Check 2-colorability
+      </label>
+      <template v-if="state.validateTwoColor">
+        <p :class="['status', state.twoColor.ok ? 'ok' : 'bad']">
+          {{ state.twoColor.ok ? `Faces 2-colorable (${state.model.faces.length} face${state.model.faces.length === 1 ? '' : 's'})` : `${state.twoColor.conflicts.length} adjacency conflict${state.twoColor.conflicts.length === 1 ? '' : 's'}` }}
+        </p>
+        <ul v-if="state.twoColor.conflicts.length" class="issues">
+          <li v-for="(c, idx) in state.twoColor.conflicts" :key="idx">
+            <strong>f{{ c.face1 }} ↔ f{{ c.face2 }}</strong>
+            <span class="msg">Adjacent faces end up the same colour. The crease pattern can't fold flat.</span>
+          </li>
+        </ul>
+      </template>
     </section>
   </div>
 </template>
