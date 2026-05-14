@@ -189,10 +189,12 @@ function heightfieldToSTL(H, N, step) {
 }
 
 // ── Living-hinge model STL ─────────────────────────────────────────────────
-// Panels are panelH thick; a strip of hingeW mm either side of every
-// non-boundary fold line is thinned to hingeH so it can flex. Per-edge
-// widths in `edgeHingeW` (mm) override the global hingeW. Faces marked
-// 'thin' in `removedFaces` are filled at hingeH inside their polygon.
+// Discrete per-cell mesh: classify each cell of the NxN grid as panel /
+// hinge / hole, then emit one box per non-hole cell. Walls are added only
+// where adjacent cells have different heights (or the neighbour is a
+// hole or outside the grid), giving clean vertical faces between
+// panels and hinges. Hole cells produce real through-holes — no top and
+// no bottom there.
 function pointInPoly(x, y, poly) {
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -205,41 +207,48 @@ function pointInPoly(x, y, poly) {
   return inside;
 }
 
+const STL_PANEL = 0, STL_HINGE = 1, STL_HOLE = 2;
+
 function buildModelSTL(pattern, { paperMM: S, panelH, hingeH, hingeW, edgeHingeW = {}, removedFaces = {}, faces = [] }) {
   const N = 300;
   const step = S / N;
-  const H = new Float32Array((N+1)*(N+1)).fill(panelH);
 
+  // 1. Classify cells. Default = panel.
+  const cell = new Uint8Array(N * N);
+
+  // Hinge cells: centre within widthMm/2 of any non-boundary fold line.
   for (let ei = 0; ei < pattern.edges.length; ei++) {
     const e = pattern.edges[ei];
     if (e.type === 'B') continue;
+    const widthMm = Number.isFinite(edgeHingeW[ei]) ? edgeHingeW[ei] : hingeW;
+    const half = widthMm / 2;
     const [x1, y1] = [pattern.vertices[e.v1][0] * S, pattern.vertices[e.v1][1] * S];
     const [x2, y2] = [pattern.vertices[e.v2][0] * S, pattern.vertices[e.v2][1] * S];
     const len = Math.hypot(x2-x1, y2-y1);
     if (len < 1e-6) continue;
     const dx = (x2-x1)/len, dy = (y2-y1)/len;
-    const widthMm = Number.isFinite(edgeHingeW[ei]) ? edgeHingeW[ei] : hingeW;
-    const half = widthMm / 2;
-    const pad  = half + step;
-
+    const pad = half + step;
     const c0 = Math.max(0, Math.floor((Math.min(x1,x2) - pad) / step));
-    const c1 = Math.min(N, Math.ceil( (Math.max(x1,x2) + pad) / step));
+    const c1 = Math.min(N-1, Math.floor((Math.max(x1,x2) + pad) / step));
     const r0 = Math.max(0, Math.floor((Math.min(y1,y2) - pad) / step));
-    const r1 = Math.min(N, Math.ceil( (Math.max(y1,y2) + pad) / step));
-
+    const r1 = Math.min(N-1, Math.floor((Math.max(y1,y2) + pad) / step));
     for (let row = r0; row <= r1; row++) {
       for (let col = c0; col <= c1; col++) {
-        const px = col*step, py = row*step;
-        const t = Math.max(0, Math.min(len, (px-x1)*dx + (py-y1)*dy));
-        const dist = Math.hypot(px-x1 - t*dx, py-y1 - t*dy);
-        if (dist < half) H[row*(N+1)+col] = hingeH;
+        const cx = (col+0.5)*step, cy = (row+0.5)*step;
+        const t = Math.max(0, Math.min(len, (cx-x1)*dx + (cy-y1)*dy));
+        const dist = Math.hypot(cx-x1 - t*dx, cy-y1 - t*dy);
+        if (dist < half) cell[row*N+col] = STL_HINGE;
       }
     }
   }
 
-  // Faces flagged 'thin' get filled at hinge thickness inside their polygon.
+  // Removed faces. 'thin' fills the face polygon at hinge thickness;
+  // 'hole' marks cells as no-material so the bottom plate has a real
+  // through-hole. (For 'hole' the perimeter edges have already been
+  // flipped to B in the export pattern, so the hinge strip around them
+  // isn't double-drawn.)
   for (const key of Object.keys(removedFaces)) {
-    if (removedFaces[key] !== 'thin') continue;
+    const mode = removedFaces[key];
     const face = faces[+key];
     if (!face) continue;
     const poly = face.map(vi => [pattern.vertices[vi][0] * S, pattern.vertices[vi][1] * S]);
@@ -249,17 +258,103 @@ function buildModelSTL(pattern, { paperMM: S, panelH, hingeH, hingeW, edgeHingeW
       if (y < yMin) yMin = y; if (y > yMax) yMax = y;
     }
     const c0 = Math.max(0, Math.floor(xMin / step));
-    const c1 = Math.min(N, Math.ceil( xMax / step));
+    const c1 = Math.min(N-1, Math.floor(xMax / step));
     const r0 = Math.max(0, Math.floor(yMin / step));
-    const r1 = Math.min(N, Math.ceil( yMax / step));
+    const r1 = Math.min(N-1, Math.floor(yMax / step));
+    const target = mode === 'hole' ? STL_HOLE : STL_HINGE;
     for (let row = r0; row <= r1; row++) {
       for (let col = c0; col <= c1; col++) {
-        if (pointInPoly(col*step, row*step, poly)) H[row*(N+1)+col] = hingeH;
+        const cx = (col+0.5)*step, cy = (row+0.5)*step;
+        if (pointInPoly(cx, cy, poly)) cell[row*N+col] = target;
       }
     }
   }
 
-  return heightfieldToSTL(H, N, step);
+  // 2. Mesh helpers.
+  const cellTop = c => c === STL_HOLE ? 0 : c === STL_HINGE ? hingeH : panelH;
+  const cellAt  = (row, col) => (row < 0 || row >= N || col < 0 || col >= N) ? STL_HOLE : cell[row*N+col];
+
+  // 3. Count triangles.
+  let nTris = 0;
+  for (let row = 0; row < N; row++) {
+    for (let col = 0; col < N; col++) {
+      const c = cell[row*N+col];
+      if (c === STL_HOLE) continue;
+      const h = cellTop(c);
+      nTris += 4; // top + bottom (2 each)
+      for (const [dr, dc] of [[0,-1],[0,1],[-1,0],[1,0]]) {
+        const nc = cellAt(row+dr, col+dc);
+        const nh = nc === STL_HOLE ? 0 : cellTop(nc);
+        if (nc === STL_HOLE || nh < h) nTris += 2;
+      }
+    }
+  }
+
+  const buf = new ArrayBuffer(80 + 4 + nTris * 50);
+  const dv  = new DataView(buf);
+  dv.setUint32(80, nTris, true);
+  let p = 84;
+  const wv = (x, y, z) => { dv.setFloat32(p,x,true); p+=4; dv.setFloat32(p,y,true); p+=4; dv.setFloat32(p,z,true); p+=4; };
+  const wn = (x, y, z) => { dv.setFloat32(p,x,true); p+=4; dv.setFloat32(p,y,true); p+=4; dv.setFloat32(p,z,true); p+=4; };
+  const tri = (ax,ay,az, bx,by,bz, cx,cy,cz, nx,ny,nz) => {
+    wn(nx,ny,nz); wv(ax,ay,az); wv(bx,by,bz); wv(cx,cy,cz);
+    dv.setUint16(p, 0, true); p += 2;
+  };
+
+  for (let row = 0; row < N; row++) {
+    for (let col = 0; col < N; col++) {
+      const c = cell[row*N+col];
+      if (c === STL_HOLE) continue;
+      const h = cellTop(c);
+      const x0 = col*step, x1 = (col+1)*step;
+      const y0 = row*step, y1 = (row+1)*step;
+      // Top (+Z)
+      tri(x0,y0,h, x1,y0,h, x1,y1,h, 0,0,1);
+      tri(x0,y0,h, x1,y1,h, x0,y1,h, 0,0,1);
+      // Bottom (-Z)
+      tri(x0,y0,0, x1,y1,0, x1,y0,0, 0,0,-1);
+      tri(x0,y0,0, x0,y1,0, x1,y1,0, 0,0,-1);
+      // Walls — only where neighbour is shorter or absent.
+      // Left (x=x0, -X)
+      {
+        const nc = cellAt(row, col-1);
+        const nh = nc === STL_HOLE ? 0 : cellTop(nc);
+        if (nc === STL_HOLE || nh < h) {
+          tri(x0,y0,nh, x0,y0,h, x0,y1,h, -1,0,0);
+          tri(x0,y0,nh, x0,y1,h, x0,y1,nh, -1,0,0);
+        }
+      }
+      // Right (x=x1, +X)
+      {
+        const nc = cellAt(row, col+1);
+        const nh = nc === STL_HOLE ? 0 : cellTop(nc);
+        if (nc === STL_HOLE || nh < h) {
+          tri(x1,y0,nh, x1,y1,h, x1,y0,h, 1,0,0);
+          tri(x1,y0,nh, x1,y1,nh, x1,y1,h, 1,0,0);
+        }
+      }
+      // Front (y=y0, -Y)
+      {
+        const nc = cellAt(row-1, col);
+        const nh = nc === STL_HOLE ? 0 : cellTop(nc);
+        if (nc === STL_HOLE || nh < h) {
+          tri(x0,y0,nh, x1,y0,nh, x1,y0,h, 0,-1,0);
+          tri(x0,y0,nh, x1,y0,h, x0,y0,h, 0,-1,0);
+        }
+      }
+      // Back (y=y1, +Y)
+      {
+        const nc = cellAt(row+1, col);
+        const nh = nc === STL_HOLE ? 0 : cellTop(nc);
+        if (nc === STL_HOLE || nh < h) {
+          tri(x0,y1,nh, x1,y1,h, x1,y1,nh, 0,1,0);
+          tri(x0,y1,nh, x0,y1,h, x1,y1,h, 0,1,0);
+        }
+      }
+    }
+  }
+
+  return new Uint8Array(buf);
 }
 
 // ── SVG design rasterizer ──────────────────────────────────────────────────
