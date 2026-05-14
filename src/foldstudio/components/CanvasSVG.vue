@@ -478,6 +478,27 @@ const ghostLine = computed(() => {
                 r="7" fill="none" stroke="#e23b3b" stroke-width="1.5" />
       </g>
 
+      <!-- Geometry-issue markers: T-junction vertices get an orange ring,
+           coincident/duplicate edge pairs get a thick orange overlay. -->
+      <g v-if="state.validateGeo" class="geo-issues">
+        <template v-for="(iss, i) in state.geo.issues" :key="i">
+          <circle v-if="iss.kind === 'tjunction'"
+                  :cx="xToPx(state.model.vertices[iss.vertex][0])"
+                  :cy="yToPx(state.model.vertices[iss.vertex][1])"
+                  r="9" fill="none" stroke="#ff6b35" stroke-width="1.6"
+                  stroke-dasharray="3 2" />
+          <template v-else-if="iss.kind === 'duplicate' || iss.kind === 'overlap'">
+            <line v-for="ei in iss.edges" :key="`${i}-${ei}`"
+                  :x1="xToPx(state.model.vertices[state.model.edges[ei].v1][0])"
+                  :y1="yToPx(state.model.vertices[state.model.edges[ei].v1][1])"
+                  :x2="xToPx(state.model.vertices[state.model.edges[ei].v2][0])"
+                  :y2="yToPx(state.model.vertices[state.model.edges[ei].v2][1])"
+                  stroke="#ff6b35" stroke-width="4" opacity="0.4"
+                  stroke-linecap="round" />
+          </template>
+        </template>
+      </g>
+
       <!-- Labels -->
       <g v-if="state.labels.type === 'vertices'" class="labels">
         <text v-for="i in visibleVertexLabels" :key="i"
