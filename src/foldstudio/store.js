@@ -9,7 +9,7 @@ import {
 } from './lib/model.js';
 import { buildGrid } from './lib/grid.js';
 import { buildTemplate } from './lib/templates.js';
-import { computeFaces, validateFlatFoldability, validateTwoColorable } from './lib/rabbitear.js';
+import { computeFaces, validateFlatFoldability, validateTwoColorable, validateGeometry } from './lib/rabbitear.js';
 import {
   matRotateAround, matTranslate, matReflectLine, applyMatrix, segmentIntersection,
 } from './lib/geometry.js';
@@ -67,6 +67,9 @@ export const state = reactive({
   // Same idea for the face two-colorability check (separate toggle).
   validateTwoColor: persisted?.validateTwoColor ?? true,
   twoColor: { ok: true, coloring: [], conflicts: [] },
+  // Geometry sanity check: T-junctions + coincident / overlapping edges.
+  validateGeo: persisted?.validateGeo ?? true,
+  geo: { ok: true, issues: [] },
   // What the Select tool can pick: 'edges' | 'vertices' | 'both'.
   selectMode: persisted?.selectMode || 'both',
   // Sticky-additive flag: when on, every click toggles into the selection
@@ -114,6 +117,7 @@ watch(
     theme: state.theme,
     validateFold: state.validateFold,
     validateTwoColor: state.validateTwoColor,
+    validateGeo: state.validateGeo,
     toolOptions: JSON.parse(JSON.stringify(state.toolOptions)),
   }),
   prefs => savePrefs(prefs),
@@ -209,9 +213,10 @@ let validationTimer = null;
 export function runValidation() {
   clearTimeout(validationTimer);
   const counts = `${state.model.vertices.length}v ${state.model.edges.length}e ${state.model.faces.length}f`;
-  if (!state.validateFold && !state.validateTwoColor) {
+  if (!state.validateFold && !state.validateTwoColor && !state.validateGeo) {
     state.validation = { ok: true, issues: [] };
     state.twoColor = { ok: true, coloring: [], conflicts: [] };
+    state.geo = { ok: true, issues: [] };
     state.status = `Validation off · ${counts}`;
     return;
   }
@@ -222,18 +227,21 @@ export function runValidation() {
     state.twoColor = state.validateTwoColor
       ? validateTwoColorable(state.model)
       : { ok: true, coloring: [], conflicts: [] };
-    const flatOK = state.validation.ok;
-    const twoOK = state.twoColor.ok;
+    state.geo = state.validateGeo
+      ? validateGeometry(state.model)
+      : { ok: true, issues: [] };
     const bits = [];
-    if (state.validateFold)     bits.push(flatOK ? 'flat-foldable' : `${state.validation.issues.length} flat issue(s)`);
-    if (state.validateTwoColor) bits.push(twoOK ? '2-colorable' : `${state.twoColor.conflicts.length} colouring conflict(s)`);
+    if (state.validateFold)     bits.push(state.validation.ok ? 'flat-foldable' : `${state.validation.issues.length} flat issue(s)`);
+    if (state.validateTwoColor) bits.push(state.twoColor.ok ? '2-colorable' : `${state.twoColor.conflicts.length} colouring conflict(s)`);
+    if (state.validateGeo)      bits.push(state.geo.ok ? 'clean geometry' : `${state.geo.issues.length} geometry issue(s)`);
     state.status = `${bits.join(' · ')} · ${counts}`;
   }, 80);
 }
 
-// Rerun whenever either toggle flips.
+// Rerun whenever any toggle flips.
 watch(() => state.validateFold, () => runValidation());
 watch(() => state.validateTwoColor, () => runValidation());
+watch(() => state.validateGeo, () => runValidation());
 
 export function snapPoint(p) {
   if (!state.snap.enabled) return p;

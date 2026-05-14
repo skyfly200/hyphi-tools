@@ -67,6 +67,10 @@ const sharedFoldAngle = computed(() => {
         <input type="checkbox" v-model="state.validateTwoColor" />
         Check 2-colorability
       </label>
+      <label class="check" title="Surface T-junctions (vertex on the interior of an edge) and coincident / overlapping edges">
+        <input type="checkbox" v-model="state.validateGeo" />
+        Check geometry
+      </label>
       <template v-if="state.validateTwoColor">
         <p :class="['status', state.twoColor.ok ? 'ok' : 'bad']">
           {{ state.twoColor.ok ? `Faces 2-colorable (${state.model.faces.length} face${state.model.faces.length === 1 ? '' : 's'})` : `${state.twoColor.conflicts.length} adjacency conflict${state.twoColor.conflicts.length === 1 ? '' : 's'}` }}
@@ -75,6 +79,27 @@ const sharedFoldAngle = computed(() => {
           <li v-for="(c, idx) in state.twoColor.conflicts" :key="idx">
             <strong>f{{ c.face1 }} ↔ f{{ c.face2 }}</strong>
             <span class="msg">Adjacent faces end up the same colour. The crease pattern can't fold flat.</span>
+          </li>
+        </ul>
+      </template>
+      <template v-if="state.validateGeo">
+        <p :class="['status', state.geo.ok ? 'ok' : 'bad']">
+          {{ state.geo.ok ? 'Geometry clean' : `${state.geo.issues.length} geometry issue${state.geo.issues.length === 1 ? '' : 's'}` }}
+        </p>
+        <ul v-if="state.geo.issues.length" class="issues">
+          <li v-for="(iss, idx) in state.geo.issues" :key="idx">
+            <template v-if="iss.kind === 'tjunction'">
+              <strong>T-junction at v{{ iss.vertex }} on e{{ iss.edge }}</strong>
+              <span class="msg">A vertex sits on the interior of an edge that hasn't been split. Run Cleanup to fix.</span>
+            </template>
+            <template v-else-if="iss.kind === 'duplicate'">
+              <strong>e{{ iss.edges[0] }} ↔ e{{ iss.edges[1] }} duplicate</strong>
+              <span class="msg">Two edges share the same endpoints. Run Cleanup to merge them.</span>
+            </template>
+            <template v-else-if="iss.kind === 'overlap'">
+              <strong>e{{ iss.edges[0] }} ↔ e{{ iss.edges[1] }} overlap</strong>
+              <span class="msg">Edges lie on the same line and share a segment. Split or delete one before exporting.</span>
+            </template>
           </li>
         </ul>
       </template>
