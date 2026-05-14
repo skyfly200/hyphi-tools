@@ -317,6 +317,21 @@ const reliefPreview = computed(() => {
   return { x: v[0], y: v[1], r: state.toolOptions.relief.radius };
 });
 
+// Per-face fill colour. With 2-colorability validation on, use the
+// computed coloring (warm orange / cool purple per side, conflict =
+// red). Otherwise fall back to a subtle purple haze.
+function faceFill(i) {
+  if (!state.validateTwoColor) return 'rgba(123,92,250,0.04)';
+  const c = state.twoColor.coloring?.[i];
+  // Highlight any face involved in a colouring conflict.
+  for (const cf of state.twoColor.conflicts || []) {
+    if (cf.face1 === i || cf.face2 === i) return 'rgba(226,59,59,0.20)';
+  }
+  if (c === 0) return 'rgba(123,92,250,0.18)';
+  if (c === 1) return 'rgba(255,170,90,0.14)';
+  return 'rgba(123,92,250,0.04)';
+}
+
 const axisEdgeIdx = computed(() => {
   if (state.tool !== 'mirror') return -1;
   if (state.toolOptions.mirror.axis !== 'edge') return -1;
@@ -373,11 +388,12 @@ const ghostLine = computed(() => {
                 :cx="xToPx(n[0])" :cy="yToPx(n[1])" r="1.2" fill="var(--grid-node)" />
       </g>
 
-      <!-- Faces (subtle fill if computed) -->
+      <!-- Faces (subtle fill if computed). When the 2-colorability check
+           is on, faces are tinted with their 2-colour. -->
       <g class="faces">
         <polygon v-for="(f, i) in state.model.faces" :key="i"
                  :points="f.map(vi => `${xToPx(state.model.vertices[vi][0])},${yToPx(state.model.vertices[vi][1])}`).join(' ')"
-                 fill="rgba(123,92,250,0.04)" stroke="none" />
+                 :fill="faceFill(i)" stroke="none" />
       </g>
 
       <!-- Selection halo: drawn behind the edge strokes in a single bright

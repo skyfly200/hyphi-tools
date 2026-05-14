@@ -9,7 +9,7 @@ import {
 } from './lib/model.js';
 import { buildGrid } from './lib/grid.js';
 import { buildTemplate } from './lib/templates.js';
-import { computeFaces, validateFlatFoldability } from './lib/rabbitear.js';
+import { computeFaces, validateFlatFoldability, validateTwoColorable } from './lib/rabbitear.js';
 import {
   matRotateAround, matTranslate, matReflectLine, applyMatrix, segmentIntersection,
 } from './lib/geometry.js';
@@ -64,6 +64,9 @@ export const state = reactive({
   // When false the Maekawa / Kawasaki checks are skipped so a half-done
   // pattern doesn't surface a bunch of distracting red rings.
   validateFold: persisted?.validateFold ?? true,
+  // Same idea for the face two-colorability check (separate toggle).
+  validateTwoColor: persisted?.validateTwoColor ?? true,
+  twoColor: { ok: true, coloring: [], conflicts: [] },
   // What the Select tool can pick: 'edges' | 'vertices' | 'both'.
   selectMode: persisted?.selectMode || 'both',
   // Sticky-additive flag: when on, every click toggles into the selection
@@ -110,6 +113,7 @@ watch(
     symmetry: state.symmetry,
     theme: state.theme,
     validateFold: state.validateFold,
+    validateTwoColor: state.validateTwoColor,
     toolOptions: JSON.parse(JSON.stringify(state.toolOptions)),
   }),
   prefs => savePrefs(prefs),
@@ -204,21 +208,32 @@ export function refreshFaces() {
 let validationTimer = null;
 export function runValidation() {
   clearTimeout(validationTimer);
-  if (!state.validateFold) {
+  const counts = `${state.model.vertices.length}v ${state.model.edges.length}e ${state.model.faces.length}f`;
+  if (!state.validateFold && !state.validateTwoColor) {
     state.validation = { ok: true, issues: [] };
-    state.status = `Validation off · ${state.model.vertices.length}v ${state.model.edges.length}e ${state.model.faces.length}f`;
+    state.twoColor = { ok: true, coloring: [], conflicts: [] };
+    state.status = `Validation off · ${counts}`;
     return;
   }
   validationTimer = setTimeout(() => {
-    state.validation = validateFlatFoldability(state.model);
-    state.status = state.validation.ok
-      ? `Flat-foldable · ${state.model.vertices.length}v ${state.model.edges.length}e ${state.model.faces.length}f`
-      : `${state.validation.issues.length} issue(s) · ${state.model.vertices.length}v ${state.model.edges.length}e`;
+    state.validation = state.validateFold
+      ? validateFlatFoldability(state.model)
+      : { ok: true, issues: [] };
+    state.twoColor = state.validateTwoColor
+      ? validateTwoColorable(state.model)
+      : { ok: true, coloring: [], conflicts: [] };
+    const flatOK = state.validation.ok;
+    const twoOK = state.twoColor.ok;
+    const bits = [];
+    if (state.validateFold)     bits.push(flatOK ? 'flat-foldable' : `${state.validation.issues.length} flat issue(s)`);
+    if (state.validateTwoColor) bits.push(twoOK ? '2-colorable' : `${state.twoColor.conflicts.length} colouring conflict(s)`);
+    state.status = `${bits.join(' · ')} · ${counts}`;
   }, 80);
 }
 
-// Rerun (or clear) validation whenever the toggle flips.
+// Rerun whenever either toggle flips.
 watch(() => state.validateFold, () => runValidation());
+watch(() => state.validateTwoColor, () => runValidation());
 
 export function snapPoint(p) {
   if (!state.snap.enabled) return p;

@@ -5,7 +5,8 @@ import {
   loadSavedProject, deleteSavedProject, renameSavedProject,
 } from '../store.js';
 import {
-  modelToFOLD, foldToModel, modelToSVG, downloadJSON, downloadText,
+  modelToFOLD, foldToModel, modelToSVG, modelToCP, cpToModel,
+  downloadJSON, downloadText,
 } from '../lib/fold-io.js';
 import { setHandoff } from '../../lib/foldHandoff.js';
 import Icon from './Icon.vue';
@@ -64,6 +65,8 @@ function doExport() {
   const base = state.currentProject || 'pattern';
   if (exportFormat.value === 'svg') {
     downloadText(`${base}.svg`, modelToSVG(state.model), 'image/svg+xml');
+  } else if (exportFormat.value === 'cp') {
+    downloadText(`${base}.cp`, modelToCP(state.model), 'text/plain');
   } else {
     downloadJSON(`${base}.fold`, modelToFOLD(state.model, { ids: true }));
   }
@@ -74,8 +77,20 @@ function importFile(ev) {
   if (!f) return;
   const reader = new FileReader();
   reader.onload = () => {
-    try { loadModel(foldToModel(JSON.parse(reader.result))); }
-    catch (e) { alert('Could not parse FOLD file: ' + e.message); }
+    const text = reader.result;
+    // CP is plain text "type x1 y1 x2 y2" per line. FOLD is JSON.
+    const looksCP = /\.cp$/i.test(f.name) || /^[\s#]*\d+\s+[-+0-9.eE]+\s+/.test(text);
+    try {
+      if (looksCP) {
+        const m = cpToModel(text);
+        if (!m) throw new Error('No edges in CP file');
+        loadModel(m);
+      } else {
+        loadModel(foldToModel(JSON.parse(text)));
+      }
+    } catch (e) {
+      alert('Could not parse file: ' + e.message);
+    }
   };
   reader.readAsText(f);
   ev.target.value = '';
@@ -135,12 +150,13 @@ const fmt = ts => new Date(ts).toLocaleString();
     <div class="grp file">
       <label class="filebtn" title="Import .fold file">
         <Icon name="upload" /><span class="lbl">Import</span>
-        <input type="file" accept=".fold,application/json" @change="importFile" hidden />
+        <input type="file" accept=".fold,.cp,application/json,text/plain" @change="importFile" hidden />
       </label>
       <div class="export-pair" title="Export the current pattern">
         <button @click="doExport"><Icon name="download" /><span class="lbl">Export</span></button>
         <select v-model="exportFormat" title="Choose export format">
           <option value="fold">.fold</option>
+          <option value="cp">.cp</option>
           <option value="svg">.svg</option>
         </select>
       </div>
