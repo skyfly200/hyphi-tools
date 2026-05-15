@@ -39,6 +39,34 @@ export function reflectAcrossLine(P, A, B) {
 }
 
 // Rotate point P around center C by angle (radians).
+// Intersection of two infinite 2D lines defined by points (A1,A2), (B1,B2).
+// Returns the intersection point or null if the lines are parallel.
+export function lineIntersection(A1, A2, B1, B2) {
+  const dxA = A2[0] - A1[0], dyA = A2[1] - A1[1];
+  const dxB = B2[0] - B1[0], dyB = B2[1] - B1[1];
+  const den = dxA * dyB - dyA * dxB;
+  if (Math.abs(den) < EPS) return null;
+  const dx0 = B1[0] - A1[0], dy0 = B1[1] - A1[1];
+  const t = (dx0 * dyB - dy0 * dxB) / den;
+  return [A1[0] + dxA * t, A1[1] + dyA * t];
+}
+
+// Two perpendicular bisector directions for the angle formed by two edge
+// directions meeting at a point. The first entry bisects the angle made
+// by aligning d1 and d2 "same-way" (smaller angular gap), the second is
+// perpendicular to it. Pick branch 0 or 1.
+export function angleBisectorDirection(d1, d2, branch = 0) {
+  const a = norm(d1);
+  let bx = d2[0], by = d2[1];
+  const l = Math.hypot(bx, by) || 1;
+  bx /= l; by /= l;
+  if (a[0] * bx + a[1] * by < 0) { bx = -bx; by = -by; }
+  let sx = a[0] + bx, sy = a[1] + by;
+  if (Math.abs(sx) < EPS && Math.abs(sy) < EPS) { sx = -a[1]; sy = a[0]; }
+  const u = norm([sx, sy]);
+  return branch === 1 ? [-u[1], u[0]] : u;
+}
+
 export function rotateAround(P, C, angle) {
   const c = Math.cos(angle), s = Math.sin(angle);
   const dx = P[0] - C[0], dy = P[1] - C[1];

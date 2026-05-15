@@ -36,6 +36,14 @@ export const Icons = {
   sun: `<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4l1.4 -1.4M17 7l1.4 -1.4"/>`,
   // Corner-relief cutout — small circle with creases radiating out.
   relief: `<circle cx="12" cy="12" r="4.5" fill="none" stroke-dasharray="2 1.5"/><line x1="12" y1="2" x2="12" y2="7.5"/><line x1="12" y1="16.5" x2="12" y2="22"/><line x1="2" y1="12" x2="7.5" y2="12"/><line x1="16.5" y1="12" x2="22" y2="12"/>`,
+  // Construction: perpendicular bisector of two points.
+  bisectPerp: `<circle cx="5" cy="18" r="1.6" fill="currentColor"/><circle cx="19" cy="6" r="1.6" fill="currentColor"/><line x1="5" y1="18" x2="19" y2="6" stroke-dasharray="3 2"/><line x1="3" y1="6" x2="21" y2="18"/>`,
+  // Construction: angle bisector between two lines.
+  bisectAngle: `<line x1="4" y1="20" x2="20" y2="4"/><line x1="4" y1="20" x2="20" y2="20"/><line x1="4" y1="20" x2="20" y2="12" stroke-dasharray="3 2"/>`,
+  // Construction: line through two specified points.
+  linePts: `<circle cx="5" cy="19" r="1.6" fill="currentColor"/><circle cx="19" cy="5" r="1.6" fill="currentColor"/><line x1="2" y1="22" x2="22" y2="2"/>`,
+  // Generic chevron used for drawer triggers.
+  chevron: `<polyline points="6 9 12 15 18 9" fill="none"/>`,
   moon: `<path d="M20 14.5a8 8 0 0 1 -10.5 -10.5a8.5 8.5 0 1 0 10.5 10.5z"/>`,
 };
 

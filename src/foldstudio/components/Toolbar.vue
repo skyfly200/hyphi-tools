@@ -1,7 +1,12 @@
 <script setup>
-import { state, undo, redo, deleteSelection, assignSelection, selectAll, clearSelection, resetPaper, invertCreases } from '../store.js';
+import {
+  state, undo, redo, deleteSelection, assignSelection, selectAll, clearSelection,
+  resetPaper, invertCreases,
+  selectByAssignment, invertSelection, extendSelectionAlongRuns, selectAllOnLine,
+} from '../store.js';
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import Icon from './Icon.vue';
+import ToolDrawer from './ToolDrawer.vue';
 
 const paintMenuOpen = ref(false);
 function closePaintMenu() { paintMenuOpen.value = false; }
@@ -30,6 +35,13 @@ const transformTools = [
   { id: 'angle',  icon: 'angle',  label: 'Angle',  key: 'A' },
   { id: 'relief', icon: 'relief', label: 'Relief', key: 'C' },
 ];
+// Construction tools: live in their own drawer to keep the toolbar tidy.
+const constructTools = [
+  { id: 'perpBisect',  icon: 'bisectPerp',  label: 'Perp. bisector',   key: 'P' },
+  { id: 'angleBisect', icon: 'bisectAngle', label: 'Angle bisector',   key: 'G' },
+  { id: 'lineThrough', icon: 'linePts',     label: 'Line through pts', key: 'L' },
+];
+function pickTool(id) { state.tool = id; }
 
 const assignments = [
   { id: 'M', label: 'Mountain', color: '#e23b3b', hint: 'Mountain fold (default −180°). Click to set as paint; click with edges selected to reassign them.' },
@@ -54,6 +66,10 @@ function onKey(ev) {
   else if (k === 'a' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); selectAll(); }
   else if (k === 'a') state.tool = 'angle';
   else if (k === 'c' && !(ev.ctrlKey || ev.metaKey)) state.tool = 'relief';
+  else if (k === 'p' && !(ev.ctrlKey || ev.metaKey)) state.tool = 'perpBisect';
+  else if (k === 'g' && !(ev.ctrlKey || ev.metaKey)) state.tool = 'angleBisect';
+  else if (k === 'l' && !(ev.ctrlKey || ev.metaKey)) state.tool = 'lineThrough';
+  else if (k === 'i' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); invertSelection(); }
   else if (k === 'z' && (ev.ctrlKey || ev.metaKey) && ev.shiftKey) { ev.preventDefault(); redo(); }
   else if (k === 'z' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); undo(); }
   else if (k === 'delete' || k === 'backspace') { ev.preventDefault(); deleteSelection(); }
@@ -80,13 +96,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
 
     <div class="divider" />
 
-    <div class="group">
-      <button v-for="t in transformTools" :key="t.id"
-              :class="{ active: state.tool === t.id }"
-              @click="state.tool = t.id" :title="`${t.label} (${t.key})`">
-        <Icon :name="t.icon" /><span class="lbl">{{ t.label }}</span>
-      </button>
-    </div>
+    <ToolDrawer :tools="constructTools" :active-id="state.tool"
+                label="Construct" fallback-icon="bisectPerp"
+                @pick="pickTool" />
+    <ToolDrawer :tools="transformTools" :active-id="state.tool"
+                label="Transform" fallback-icon="mirror"
+                @pick="pickTool" />
 
     <template v-if="state.tool === 'select'">
       <div class="divider" />

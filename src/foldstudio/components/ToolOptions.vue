@@ -1,5 +1,9 @@
 <script setup>
-import { state, mirrorSelection, repeatSelection } from '../store.js';
+import {
+  state, mirrorSelection, repeatSelection,
+  selectByAssignment, invertSelection, extendSelectionAlongRuns,
+} from '../store.js';
+const PAINTS = ['M','V','B','F','U'];
 </script>
 
 <template>
@@ -11,8 +15,74 @@ import { state, mirrorSelection, repeatSelection } from '../store.js';
     </template>
 
     <template v-else-if="state.tool === 'select'">
-      <p class="hint">Pick mode (Edges / Vertices / Both) is on the toolbar. Click to select; <kbd>Shift</kbd>-click to add; <kbd>1</kbd>–<kbd>5</kbd> reassigns; <kbd>Del</kbd> removes.</p>
+      <p class="hint">Pick mode (Edges / Vertices / Both) is on the toolbar. Click to select; <kbd>Shift</kbd>-click to add; <kbd>Shift</kbd>-double-click an edge to grab every edge on that line; <kbd>1</kbd>–<kbd>5</kbd> reassigns; <kbd>Del</kbd> removes.</p>
       <p class="meta">{{ state.selection.edges.size }} edge(s) · {{ state.selection.vertices.size }} vertex/vertices selected</p>
+      <div class="smart-row">
+        <div class="row-label">By type</div>
+        <div class="smart-paints">
+          <button v-for="p in PAINTS" :key="p"
+                  :title="`Select every ${p} edge`"
+                  @click="selectByAssignment(p, $event.shiftKey)">{{ p }}</button>
+        </div>
+      </div>
+      <div class="smart-row">
+        <button class="rm" @click="invertSelection" title="Invert the current selection">Invert</button>
+        <button class="rm" @click="extendSelectionAlongRuns" title="Pull in same-type collinear edges connected through endpoints">Extend run</button>
+      </div>
+    </template>
+
+    <template v-else-if="state.tool === 'perpBisect'">
+      <p class="hint">Click two points. The crease passes through the midpoint, perpendicular to the segment between them.</p>
+      <label title="How far the bisector extends from the midpoint">Length mode
+        <select v-model="state.toolOptions.perpBisect.mode">
+          <option value="fixed">Fixed length</option>
+          <option value="edge">Until next fold / paper edge</option>
+          <option value="paper">Until paper edge</option>
+        </select>
+      </label>
+      <label v-if="state.toolOptions.perpBisect.mode === 'fixed'">Length (paper-units)
+        <input type="number" step="0.05" min="0.01" max="2"
+               v-model.number="state.toolOptions.perpBisect.length" />
+      </label>
+      <p class="meta">{{ state.constructAnchors.length }} / 2 anchors picked</p>
+    </template>
+
+    <template v-else-if="state.tool === 'angleBisect'">
+      <p class="hint">Click two edges. The crease bisects the angle at their intersection. Toggle the branch to switch acute / obtuse.</p>
+      <label title="Which of the two perpendicular bisectors to emit">Branch
+        <select v-model.number="state.toolOptions.angleBisect.branch">
+          <option :value="0">Same-side (acute)</option>
+          <option :value="1">Perpendicular (obtuse)</option>
+        </select>
+      </label>
+      <label title="How far the bisector extends from the intersection">Length mode
+        <select v-model="state.toolOptions.angleBisect.mode">
+          <option value="fixed">Fixed length</option>
+          <option value="edge">Until next fold / paper edge</option>
+          <option value="paper">Until paper edge</option>
+        </select>
+      </label>
+      <label v-if="state.toolOptions.angleBisect.mode === 'fixed'">Length (paper-units)
+        <input type="number" step="0.05" min="0.01" max="2"
+               v-model.number="state.toolOptions.angleBisect.length" />
+      </label>
+      <p class="meta">{{ state.constructAnchors.length }} / 2 edges picked</p>
+    </template>
+
+    <template v-else-if="state.tool === 'lineThrough'">
+      <p class="hint">Click two points. Fixed mode draws exactly the segment; extend modes continue past both endpoints.</p>
+      <label title="Fixed = segment exactly. Extend modes continue past P1 and P2.">Length mode
+        <select v-model="state.toolOptions.lineThrough.mode">
+          <option value="fixed">Segment only</option>
+          <option value="edge">Extend to next fold / paper edge</option>
+          <option value="paper">Extend to paper edge</option>
+        </select>
+      </label>
+      <label v-if="state.toolOptions.lineThrough.mode === 'fixed' || state.toolOptions.lineThrough.mode === 'extend-explicit'">Length (paper-units)
+        <input type="number" step="0.05" min="0.01" max="2"
+               v-model.number="state.toolOptions.lineThrough.length" />
+      </label>
+      <p class="meta">{{ state.constructAnchors.length }} / 2 anchors picked</p>
     </template>
 
     <template v-else-if="state.tool === 'mirror'">
@@ -131,6 +201,13 @@ button:hover:not(:disabled) { filter: brightness(1.15); border-color: var(--ac2)
 .hint kbd { background: var(--bg); border: 1px solid var(--bd); border-radius: 3px; padding: 0 4px; font-size: 0.7rem; }
 .meta { font: 400 0.7rem 'DM Mono'; color: var(--sub); }
 .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.smart-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.smart-row .row-label { font: 500 0.7rem 'DM Mono', monospace; color: var(--sub); }
+.smart-paints { display: grid; grid-template-columns: repeat(5, 1fr); gap: 3px; flex: 1; }
+.smart-paints button { padding: 4px 0; font: 500 0.74rem 'DM Sans', sans-serif; background: var(--bg); color: var(--t); border: 1px solid var(--bd); border-radius: 4px; cursor: pointer; }
+.smart-paints button:hover { background: var(--acd); border-color: var(--ac2); }
+.smart-row .rm { padding: 5px 9px; font: 500 0.72rem 'DM Sans', sans-serif; background: var(--bg); color: var(--t); border: 1px solid var(--bd); border-radius: 4px; cursor: pointer; }
+.smart-row .rm:hover { border-color: var(--ac2); }
 .row-between { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .row-between.minmax { font: 400 0.66rem 'DM Mono', monospace; color: var(--sub); }
 .num { background: var(--bg); color: var(--t); border: 1px solid var(--bd); border-radius: 4px; padding: 3px 5px; width: 60px; font: 500 0.74rem 'DM Sans'; text-align: center; }
