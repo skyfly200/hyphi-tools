@@ -59,6 +59,7 @@ const showHelp = ref(false);
               <dt>Rotate <kbd>R</kbd></dt><dd>Repeat selected creases rotationally or translationally (Inspector controls count, angle, center).</dd>
               <dt>Angle <kbd>A</kbd></dt><dd>Click an anchor point, the crease extends at the configured angle/length from there.</dd>
               <dt>Relief <kbd>C</kbd></dt><dd>Tap a fold junction (vertex) to cut a small boundary polygon around it — relieves tension where many folds meet.</dd>
+              <dt>Construct <kbd>P</kbd>/<kbd>G</kbd>/<kbd>L</kbd></dt><dd>From the Construct drawer: <kbd>P</kbd> perpendicular bisector of two points · <kbd>G</kbd> angle bisector of two edges · <kbd>L</kbd> line through two points.</dd>
             </dl>
           </section>
 

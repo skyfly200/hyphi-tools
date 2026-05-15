@@ -12,6 +12,7 @@ import { buildTemplate } from './lib/templates.js';
 import { computeFaces, validateFlatFoldability, validateTwoColorable, validateGeometry } from './lib/rabbitear.js';
 import {
   matRotateAround, matTranslate, matReflectLine, applyMatrix, segmentIntersection,
+  lineIntersection, angleBisectorDirection,
 } from './lib/geometry.js';
 import {
   loadPrefs, savePrefs,
@@ -55,6 +56,11 @@ if (persisted?.labels && persisted.labels.type === undefined) {
 // Backfill new tool options (e.g. corner relief) for older prefs.
 if (persisted?.toolOptions && !persisted.toolOptions.relief) {
   persisted.toolOptions.relief = { radius: 0.04 };
+}
+if (persisted?.toolOptions && !persisted.toolOptions.perpBisect) {
+  persisted.toolOptions.perpBisect = { mode: 'paper', length: 0.5 };
+  persisted.toolOptions.angleBisect = { mode: 'paper', length: 0.5, branch: 0 };
+  persisted.toolOptions.lineThrough = { mode: 'fixed', length: 0.5 };
 }
 
 export const state = reactive({
@@ -101,7 +107,14 @@ export const state = reactive({
     angle: { angle: 45, length: 0.5, mode: 'fixed' },
     // Corner-relief cutout radius in paper-units.
     relief: { radius: 0.04 },
+    // Construction tools — all use the same length-mode language as Angle.
+    perpBisect: { mode: 'paper', length: 0.5 },
+    angleBisect: { mode: 'paper', length: 0.5, branch: 0 },
+    lineThrough: { mode: 'fixed', length: 0.5 },
   },
+  // Inputs accumulated by the construction tools — list of clicks that
+  // each tool consumes before committing.
+  constructAnchors: [],
 });
 
 // Persist preferences whenever they change.
@@ -237,6 +250,9 @@ export function runValidation() {
     state.status = `${bits.join(' · ')} · ${counts}`;
   }, 80);
 }
+
+// Reset construction tool inputs whenever the active tool changes.
+watch(() => state.tool, () => { state.constructAnchors = []; });
 
 // Rerun whenever any toggle flips.
 watch(() => state.validateFold, () => runValidation());
@@ -453,6 +469,148 @@ export function drawAngleCrease(opts) {
   const { end } = angleCreaseEnd(opts);
   emitWithSymmetry(anchor, end, state.assignment);
   pushHistory();
+}
+
+// ── Construction tools ────────────────────────────────────────────────────
+// Helper: anchor + unit direction → two endpoints clipped per length mode,
+// extending both ways from the anchor.
+function extendBothWays(anchor, dir, mode, length) {
+  const deg = Math.atan2(dir[1], dir[0]) * 180 / Math.PI;
+  const forward  = angleCreaseEnd({ anchor, angle: deg,       length, mode }).end;
+  const backward = angleCreaseEnd({ anchor, angle: deg + 180, length, mode }).end;
+  return { p1: backward, p2: forward };
+}
+
+// Perpendicular bisector of two points: crease through midpoint(P1,P2)
+// perpendicular to the segment P1→P2, extended per length mode.
+export function drawPerpBisector(p1, p2, opts = {}) {
+  const dx = p2[0] - p1[0], dy = p2[1] - p1[1];
+  const L = Math.hypot(dx, dy);
+  if (L < 1e-9) { state.status = 'Pick two distinct points'; return; }
+  const mid = [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2];
+  const perp = [-dy / L, dx / L];
+  const { p1: a, p2: b } = extendBothWays(mid, perp, opts.mode || 'paper', opts.length ?? 0.5);
+  emitWithSymmetry(a, b, state.assignment);
+  pushHistory();
+}
+
+// Angle bisector of two edges: crease through their (extended) intersection,
+// bisecting the angle. `branch` 0 / 1 picks between the two perpendicular
+// bisectors.
+export function drawAngleBisector(edgeAidx, edgeBidx, opts = {}) {
+  const eA = state.model.edges[edgeAidx], eB = state.model.edges[edgeBidx];
+  if (!eA || !eB) return;
+  const A1 = state.model.vertices[eA.v1], A2 = state.model.vertices[eA.v2];
+  const B1 = state.model.vertices[eB.v1], B2 = state.model.vertices[eB.v2];
+  const I = lineIntersection(A1, A2, B1, B2);
+  if (!I) { state.status = 'Edges are parallel — no angle bisector exists'; return; }
+  const dA = [A2[0] - A1[0], A2[1] - A1[1]];
+  const dB = [B2[0] - B1[0], B2[1] - B1[1]];
+  const dir = angleBisectorDirection(dA, dB, opts.branch || 0);
+  const { p1, p2 } = extendBothWays(I, dir, opts.mode || 'paper', opts.length ?? 0.5);
+  emitWithSymmetry(p1, p2, state.assignment);
+  pushHistory();
+}
+
+// Straight crease through two specified points. In `fixed` length mode the
+// result is the segment exactly; the `edge` and `paper` modes extend the
+// line beyond P1 and P2 to the next intersection / paper boundary.
+export function drawLineThrough(p1, p2, opts = {}) {
+  const dx = p2[0] - p1[0], dy = p2[1] - p1[1];
+  const L = Math.hypot(dx, dy);
+  if (L < 1e-9) { state.status = 'Pick two distinct points'; return; }
+  if ((opts.mode || 'fixed') === 'fixed') {
+    drawCrease(p1, p2);
+    return;
+  }
+  const dir = [dx / L, dy / L];
+  // Use the midpoint as anchor so both halves extend through P1 and P2
+  // before continuing past them.
+  const mid = [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2];
+  const { p1: a, p2: b } = extendBothWays(mid, dir, opts.mode, opts.length ?? 0.5);
+  emitWithSymmetry(a, b, state.assignment);
+  pushHistory();
+}
+
+// ── Smart selection ───────────────────────────────────────────────────────
+export function selectByAssignment(letter, additive = false) {
+  if (!additive) clearSelection();
+  state.model.edges.forEach((e, i) => {
+    if (e.assignment === letter) state.selection.edges.add(i);
+  });
+}
+
+export function invertSelection() {
+  const eSel = new Set(state.selection.edges);
+  state.selection.edges.clear();
+  state.model.edges.forEach((_, i) => {
+    if (!eSel.has(i)) state.selection.edges.add(i);
+  });
+  const vSel = new Set(state.selection.vertices);
+  state.selection.vertices.clear();
+  state.model.vertices.forEach((_, i) => {
+    if (!vSel.has(i)) state.selection.vertices.add(i);
+  });
+}
+
+// Walk both endpoints of every selected edge, pulling in any edge that
+// shares an endpoint, has the same assignment, and is collinear with the
+// already-selected edge (within 1° of angle).
+export function extendSelectionAlongRuns() {
+  if (!state.selection.edges.size) return;
+  const cosTol = Math.cos(Math.PI / 180); // 1°
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const current = [...state.selection.edges];
+    for (const ei of current) {
+      const e = state.model.edges[ei];
+      if (!e) continue;
+      const A = state.model.vertices[e.v1], B = state.model.vertices[e.v2];
+      const dx = B[0] - A[0], dy = B[1] - A[1];
+      const L = Math.hypot(dx, dy) || 1;
+      const ux = dx / L, uy = dy / L;
+      for (const v of [e.v1, e.v2]) {
+        for (let fi = 0; fi < state.model.edges.length; fi++) {
+          if (state.selection.edges.has(fi) || fi === ei) continue;
+          const f = state.model.edges[fi];
+          if (f.assignment !== e.assignment) continue;
+          if (f.v1 !== v && f.v2 !== v) continue;
+          const C = state.model.vertices[f.v1], D = state.model.vertices[f.v2];
+          const fdx = D[0] - C[0], fdy = D[1] - C[1];
+          const fL = Math.hypot(fdx, fdy) || 1;
+          const dot = Math.abs((ux * fdx + uy * fdy) / fL);
+          if (dot >= cosTol) { state.selection.edges.add(fi); changed = true; }
+        }
+      }
+    }
+  }
+}
+
+// Select every edge that lies on the same infinite line as the seed edge.
+// Tolerances: 1° on angle, EPS*50 on perpendicular distance.
+export function selectAllOnLine(seedEdge, additive = false) {
+  const seed = state.model.edges[seedEdge];
+  if (!seed) return;
+  if (!additive) clearSelection();
+  const A = state.model.vertices[seed.v1], B = state.model.vertices[seed.v2];
+  const dx = B[0] - A[0], dy = B[1] - A[1];
+  const L = Math.hypot(dx, dy) || 1;
+  const ux = dx / L, uy = dy / L;
+  const sinTol = Math.sin(Math.PI / 180);
+  const distTol = 5e-3; // ~0.5% of paper
+  state.model.edges.forEach((f, i) => {
+    const C = state.model.vertices[f.v1], D = state.model.vertices[f.v2];
+    const fdx = D[0] - C[0], fdy = D[1] - C[1];
+    const fL = Math.hypot(fdx, fdy) || 1;
+    const cross = (ux * fdy - uy * fdx) / fL;
+    if (Math.abs(cross) > sinTol) return;
+    const mx = (C[0] + D[0]) / 2 - A[0];
+    const my = (C[1] + D[1]) / 2 - A[1];
+    const perp = mx * (-uy) + my * ux;
+    if (Math.abs(perp) > distTol) return;
+    state.selection.edges.add(i);
+  });
 }
 
 // Cut a small polygon hole around a fold junction. For every crease that

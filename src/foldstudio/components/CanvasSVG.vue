@@ -3,8 +3,9 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import {
   state, gridGeom, snapPoint, drawCrease, clearSelection, drawAngleCrease, angleCreaseEnd,
   applyCornerRelief,
+  drawPerpBisector, drawAngleBisector, drawLineThrough, selectAllOnLine,
 } from '../store.js';
-import { closestOnSegment } from '../lib/geometry.js';
+import { closestOnSegment, lineIntersection, angleBisectorDirection } from '../lib/geometry.js';
 import { edgeMidpoint, faceCentroid, formatId } from '../lib/ids.js';
 import { EDGE_COLOR as STROKE, EDGE_DASH } from '../../lib/foldPalette.js';
 
@@ -242,6 +243,27 @@ function onPointerDown(ev) {
     } else {
       state.status = 'Tap a fold junction (vertex) to apply relief';
     }
+  } else if (state.tool === 'perpBisect' || state.tool === 'lineThrough') {
+    // Two-click point→point construction.
+    state.constructAnchors.push({ kind: 'point', value: p });
+    if (state.constructAnchors.length === 2) {
+      const a = state.constructAnchors[0].value;
+      const b = state.constructAnchors[1].value;
+      if (state.tool === 'perpBisect') drawPerpBisector(a, b, state.toolOptions.perpBisect);
+      else                              drawLineThrough(a, b, state.toolOptions.lineThrough);
+      state.constructAnchors = [];
+    }
+  } else if (state.tool === 'angleBisect') {
+    // Two-click edge→edge construction.
+    const eIdx = pickEdgeIndex(p);
+    if (eIdx < 0) { state.status = 'Pick a crease (edge), not empty space'; return; }
+    state.constructAnchors.push({ kind: 'edge', value: eIdx });
+    if (state.constructAnchors.length === 2) {
+      const a = state.constructAnchors[0].value;
+      const b = state.constructAnchors[1].value;
+      drawAngleBisector(a, b, state.toolOptions.angleBisect);
+      state.constructAnchors = [];
+    }
   }
 }
 
@@ -352,8 +374,64 @@ const ghostLine = computed(() => {
     });
     return { a: angleAnchor.value, b: end };
   }
+  // Construction ghosts: first click stored in constructAnchors; second
+  // input is the live cursor / hovered edge.
+  if ((state.tool === 'perpBisect' || state.tool === 'lineThrough')
+      && state.constructAnchors.length === 1 && cursor.value) {
+    const a = state.constructAnchors[0].value;
+    const b = cursor.value;
+    if (state.tool === 'perpBisect') {
+      const dx = b[0] - a[0], dy = b[1] - a[1];
+      const L = Math.hypot(dx, dy) || 1;
+      const mid = [(a[0]+b[0])/2, (a[1]+b[1])/2];
+      const perp = [-dy/L, dx/L];
+      const opts = state.toolOptions.perpBisect;
+      const deg = Math.atan2(perp[1], perp[0]) * 180 / Math.PI;
+      const f = angleCreaseEnd({ anchor: mid, angle: deg, length: opts.length, mode: opts.mode }).end;
+      const r = angleCreaseEnd({ anchor: mid, angle: deg + 180, length: opts.length, mode: opts.mode }).end;
+      return { a: r, b: f };
+    } else {
+      // lineThrough: in fixed mode just the segment; otherwise extend.
+      const opts = state.toolOptions.lineThrough;
+      if (opts.mode === 'fixed') return { a, b };
+      const dx = b[0]-a[0], dy = b[1]-a[1];
+      const L = Math.hypot(dx, dy) || 1;
+      const mid = [(a[0]+b[0])/2, (a[1]+b[1])/2];
+      const deg = Math.atan2(dy/L, dx/L) * 180 / Math.PI;
+      const f = angleCreaseEnd({ anchor: mid, angle: deg, length: opts.length, mode: opts.mode }).end;
+      const r = angleCreaseEnd({ anchor: mid, angle: deg + 180, length: opts.length, mode: opts.mode }).end;
+      return { a: r, b: f };
+    }
+  }
+  if (state.tool === 'angleBisect' && state.constructAnchors.length === 1) {
+    const eA = state.model.edges[state.constructAnchors[0].value];
+    if (!eA) return null;
+    const hoverIdx = cursor.value ? pickEdgeIndex(cursor.value) : -1;
+    if (hoverIdx < 0 || hoverIdx === state.constructAnchors[0].value) return null;
+    const eB = state.model.edges[hoverIdx];
+    const A1 = state.model.vertices[eA.v1], A2 = state.model.vertices[eA.v2];
+    const B1 = state.model.vertices[eB.v1], B2 = state.model.vertices[eB.v2];
+    const I = lineIntersection(A1, A2, B1, B2);
+    if (!I) return null;
+    const dA = [A2[0]-A1[0], A2[1]-A1[1]];
+    const dB = [B2[0]-B1[0], B2[1]-B1[1]];
+    const opts = state.toolOptions.angleBisect;
+    const dir = angleBisectorDirection(dA, dB, opts.branch || 0);
+    const deg = Math.atan2(dir[1], dir[0]) * 180 / Math.PI;
+    const f = angleCreaseEnd({ anchor: I, angle: deg, length: opts.length, mode: opts.mode }).end;
+    const r = angleCreaseEnd({ anchor: I, angle: deg + 180, length: opts.length, mode: opts.mode }).end;
+    return { a: r, b: f };
+  }
   return null;
 });
+
+// Shift-double-click on an edge in Select mode → select-all-on-line.
+function onDblClick(ev) {
+  if (state.tool !== 'select' || !ev.shiftKey) return;
+  const p = eventToModel(ev);
+  const eIdx = pickEdgeIndex(p);
+  if (eIdx >= 0) selectAllOnLine(eIdx, ev.shiftKey);
+}
 </script>
 
 <template>
@@ -367,6 +445,7 @@ const ghostLine = computed(() => {
          @pointercancel="(ev) => { cancelBoxSelect(); releasePointer(ev); }"
          @pointerleave="(ev) => { releasePointer(ev); cursor = null }"
          @wheel.prevent="onWheel"
+         @dblclick="onDblClick"
          style="touch-action: none">
 
       <!-- Workspace background fills the visible SVG regardless of zoom. -->

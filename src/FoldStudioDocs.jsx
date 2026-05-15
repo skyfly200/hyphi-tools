@@ -126,6 +126,24 @@ export default function FoldStudioDocs() {
           <li><strong>Translational</strong> — N copies shifted by <code>(dx, dy)</code> per step.</li>
         </ul>
 
+        <h3>Construct drawer (<kbd>P</kbd> / <kbd>G</kbd> / <kbd>L</kbd>)</h3>
+        <p>Three Huzita–Hatori-style construction primitives, grouped in their own toolbar drawer so they don't clutter the main row:</p>
+        <ul>
+          <li><strong>Perpendicular bisector</strong> (<kbd>P</kbd>) — click two points; the crease passes through their midpoint perpendicular to the segment.</li>
+          <li><strong>Angle bisector</strong> (<kbd>G</kbd>) — click two edges; the crease passes through their (extended) intersection bisecting the angle. ToolOptions toggles between the two perpendicular bisectors.</li>
+          <li><strong>Line through two points</strong> (<kbd>L</kbd>) — click two anchors; in <em>fixed</em> mode you get just the segment, in extend modes the crease continues past both points to the next fold or the paper edge.</li>
+        </ul>
+        <p>Each tool has its own length-mode dropdown (Fixed / Until next fold / Until paper edge) in the Tool options drawer. Construction respects global rotational symmetry.</p>
+
+        <h3>Smart selection (Select tool)</h3>
+        <p>While the Select tool is active, the Tool options drawer offers:</p>
+        <ul>
+          <li><strong>By type</strong> — five small swatches (M / V / B / F / U). Click to select every edge of that assignment; <kbd>Shift</kbd>-click to add.</li>
+          <li><strong>Invert</strong> — toggle every edge (and every vertex if Pick mode includes them) in or out of the selection. <kbd>Ctrl/⌘-I</kbd>.</li>
+          <li><strong>Extend run</strong> — walks both endpoints of every selected edge, adding any neighbour that shares the assignment and is collinear (within 1°). One click on a segment + Extend run selects the whole straight crease across vertices.</li>
+          <li><strong>Shift-double-click an edge</strong> on the canvas → grab every edge that lies on the same infinite line as the seed.</li>
+        </ul>
+
         <h3>Relief <kbd>C</kbd></h3>
         <p>Cut a small boundary polygon around a fold junction to relieve paper tension at the meeting point of many creases. Tap a vertex with two or more incident creases; the tool drops the inner ends of those creases, places polygon vertices along each crease direction at the configured radius, reconnects each crease to its polygon vertex, and links the polygon vertices with <strong>B</strong>-assignment edges as the cutout perimeter.</p>
         <p>The radius slider (Tool options drawer) is in paper-units, capped at 0.15. The action refuses to apply if the radius is larger than any incident crease's length so it can't invert a segment.</p>
