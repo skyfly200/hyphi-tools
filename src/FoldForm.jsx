@@ -207,153 +207,250 @@ function pointInPoly(x, y, poly) {
   return inside;
 }
 
-const STL_PANEL = 0, STL_HINGE = 1, STL_HOLE = 2;
+// Width (mm) of the gap cut by an interior B edge. Tunable.
+const INTERIOR_B_SLIT_MM = 0.4;
+
+// Intersection of two lines through (p1, d1) and (p2, d2). Returns null
+// when the lines are parallel.
+function lineLineIntersection(p1, d1, p2, d2) {
+  const den = d1[0] * d2[1] - d1[1] * d2[0];
+  if (Math.abs(den) < 1e-9) return null;
+  const dx = p2[0] - p1[0], dy = p2[1] - p1[1];
+  const t = (dx * d2[1] - dy * d2[0]) / den;
+  return [p1[0] + d1[0] * t, p1[1] + d1[1] * t];
+}
+
+// True for vertices on the unit-square paper boundary.
+function onPaperEdge([x, y], S) {
+  const e = 1e-6;
+  return Math.abs(x) < e || Math.abs(x - S) < e || Math.abs(y) < e || Math.abs(y - S) < e;
+}
+
+// Inset a CCW polygon by per-edge distances. Each new vertex is the
+// intersection of the two inset lines meeting at that vertex.
+function insetCCWPolygon(faceVerts, dists) {
+  const N = faceVerts.length;
+  if (N < 3) return faceVerts.map(p => [...p]);
+  // Inward normal of edge i (face is CCW, so interior is on the left).
+  const inwardNorms = new Array(N);
+  const edgeDirs   = new Array(N);
+  for (let i = 0; i < N; i++) {
+    const a = faceVerts[i], b = faceVerts[(i + 1) % N];
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const L = Math.hypot(dx, dy) || 1;
+    edgeDirs[i] = [dx / L, dy / L];
+    inwardNorms[i] = [-dy / L, dx / L];
+  }
+  const out = new Array(N);
+  for (let i = 0; i < N; i++) {
+    const prev = (i - 1 + N) % N;
+    const dP = dists[prev], dI = dists[i];
+    const nP = inwardNorms[prev], nI = inwardNorms[i];
+    const v = faceVerts[i];
+    if (dP < 1e-9 && dI < 1e-9) { out[i] = [...v]; continue; }
+    const p1 = [v[0] + nP[0] * dP, v[1] + nP[1] * dP];
+    const p2 = [v[0] + nI[0] * dI, v[1] + nI[1] * dI];
+    const inter = lineLineIntersection(p1, edgeDirs[prev], p2, edgeDirs[i]);
+    out[i] = inter || p1;
+  }
+  return out;
+}
 
 function buildModelSTL(pattern, { paperMM: S, panelH, hingeH, hingeW, edgeHingeW = {}, removedFaces = {}, faces = [] }) {
-  const N = 300;
-  const step = S / N;
+  // Convert pattern coords (paper space 0..1) to mm.
+  const V = pattern.vertices.map(([x, y]) => [x * S, y * S]);
 
-  // 1. Classify cells. Default = panel.
-  const cell = new Uint8Array(N * N);
-
-  // Hinge cells: centre within widthMm/2 of any non-boundary fold line.
+  // Edge index by sorted vertex-pair key.
+  const edgeByPair = new Map();
   for (let ei = 0; ei < pattern.edges.length; ei++) {
     const e = pattern.edges[ei];
-    if (e.type === 'B') continue;
-    const widthMm = Number.isFinite(edgeHingeW[ei]) ? edgeHingeW[ei] : hingeW;
-    const half = widthMm / 2;
-    const [x1, y1] = [pattern.vertices[e.v1][0] * S, pattern.vertices[e.v1][1] * S];
-    const [x2, y2] = [pattern.vertices[e.v2][0] * S, pattern.vertices[e.v2][1] * S];
-    const len = Math.hypot(x2-x1, y2-y1);
-    if (len < 1e-6) continue;
-    const dx = (x2-x1)/len, dy = (y2-y1)/len;
-    const pad = half + step;
-    const c0 = Math.max(0, Math.floor((Math.min(x1,x2) - pad) / step));
-    const c1 = Math.min(N-1, Math.floor((Math.max(x1,x2) + pad) / step));
-    const r0 = Math.max(0, Math.floor((Math.min(y1,y2) - pad) / step));
-    const r1 = Math.min(N-1, Math.floor((Math.max(y1,y2) + pad) / step));
-    for (let row = r0; row <= r1; row++) {
-      for (let col = c0; col <= c1; col++) {
-        const cx = (col+0.5)*step, cy = (row+0.5)*step;
-        const t = Math.max(0, Math.min(len, (cx-x1)*dx + (cy-y1)*dy));
-        const dist = Math.hypot(cx-x1 - t*dx, cy-y1 - t*dy);
-        if (dist < half) cell[row*N+col] = STL_HINGE;
+    edgeByPair.set(e.v1 < e.v2 ? `${e.v1}-${e.v2}` : `${e.v2}-${e.v1}`, ei);
+  }
+
+  // Triangle accumulator. Each entry: [ax,ay,az,bx,by,bz,cx,cy,cz, nx,ny,nz].
+  const tris = [];
+  const wallOut = (ax,ay,bx,by, az,bz,cz,dz, nx,ny) => {
+    // Vertical wall quad with corners (ax,ay,az)-(bx,by,bz)-(bx,by,cz)-(ax,ay,dz).
+    // Emitted as two triangles CCW from outside (normal = (nx, ny, 0)).
+    tris.push([ax,ay,az, bx,by,bz, bx,by,cz, nx,ny,0]);
+    tris.push([ax,ay,az, bx,by,cz, ax,ay,dz, nx,ny,0]);
+  };
+  // Vertical wall from segment AB at heights z0..z1, normal pointing outward
+  // (nx,ny) is the unit outward perpendicular relative to walking A→B.
+  const emitWall = (a, b, z0, z1, nOutX, nOutY) => {
+    tris.push([a[0], a[1], z0, b[0], b[1], z0, b[0], b[1], z1, nOutX, nOutY, 0]);
+    tris.push([a[0], a[1], z0, b[0], b[1], z1, a[0], a[1], z1, nOutX, nOutY, 0]);
+  };
+  const emitTriUp   = (a, b, c, z) => tris.push([a[0], a[1], z, b[0], b[1], z, c[0], c[1], z, 0, 0,  1]);
+  const emitTriDown = (a, b, c, z) => tris.push([a[0], a[1], z, b[0], b[1], z, c[0], c[1], z, 0, 0, -1]);
+
+  // Fan-triangulate a CCW polygon (assumed convex). Emits at z, normal +Z.
+  function triUp(poly, z) {
+    for (let i = 1; i < poly.length - 1; i++) emitTriUp(poly[0], poly[i], poly[i + 1], z);
+  }
+
+  // Find the face on the other side of a given v1→v2 edge (or -1).
+  function neighbourFace(fi, v1, v2) {
+    for (let g = 0; g < faces.length; g++) {
+      if (g === fi) continue;
+      const gf = faces[g];
+      for (let k = 0; k < gf.length; k++) {
+        const w1 = gf[k], w2 = gf[(k + 1) % gf.length];
+        if ((w1 === v1 && w2 === v2) || (w1 === v2 && w2 === v1)) return g;
       }
+    }
+    return -1;
+  }
+
+  // Per-face cache. Inset distances are aware of hole-neighbours so the
+  // panel touches a hole's edge flush, but a user-drawn interior B (no
+  // hole face on the other side) retracts by half the slit width.
+  const faceData = faces.map((face, fi) => {
+    if (removedFaces[fi] === 'hole') return null;
+    const verts = face.map(vi => V[vi]);
+    const dists = new Array(face.length);
+    for (let i = 0; i < face.length; i++) {
+      const v1 = face[i], v2 = face[(i + 1) % face.length];
+      const ei = edgeByPair.get(v1 < v2 ? `${v1}-${v2}` : `${v2}-${v1}`);
+      const eType = ei !== undefined ? pattern.edges[ei].type : 'U';
+      if (eType !== 'B') {
+        dists[i] = (Number.isFinite(edgeHingeW[ei]) ? edgeHingeW[ei] : hingeW) / 2;
+        continue;
+      }
+      const a = V[v1], b = V[v2];
+      const onSameSide =
+        (Math.abs(a[0]) < 1e-6 && Math.abs(b[0]) < 1e-6) ||
+        (Math.abs(a[0] - S) < 1e-6 && Math.abs(b[0] - S) < 1e-6) ||
+        (Math.abs(a[1]) < 1e-6 && Math.abs(b[1]) < 1e-6) ||
+        (Math.abs(a[1] - S) < 1e-6 && Math.abs(b[1] - S) < 1e-6);
+      if (onSameSide) { dists[i] = 0; continue; }
+      const nb = neighbourFace(fi, v1, v2);
+      // Hole-perimeter B → flush (panel reaches hole edge).
+      // Otherwise → half-slit retract for a real cut.
+      dists[i] = (nb >= 0 && removedFaces[nb] === 'hole') ? 0 : INTERIOR_B_SLIT_MM / 2;
+    }
+    const inset = insetCCWPolygon(verts, dists);
+    return { verts, dists, inset };
+  });
+
+  // --- Per-face emission ---
+  for (let fi = 0; fi < faces.length; fi++) {
+    const fd = faceData[fi];
+    if (!fd) continue; // hole face — no top, no panel
+    const { verts, dists, inset } = fd;
+    const N = verts.length;
+    const mode = removedFaces[fi];
+
+    if (mode === 'thin') {
+      // Whole face at hingeH. Just triangulate the original face polygon
+      // (so it covers the face boundary exactly, not the inset).
+      triUp(verts, hingeH);
+      // Walls along face perimeter where the edge is B / hole-adjacent get
+      // emitted further down via the edge-walking pass.
+    } else {
+      // Panel cap on the inset polygon
+      triUp(inset, panelH);
+      // Panel side walls along inset perimeter (hingeH → panelH), facing out
+      for (let i = 0; i < N; i++) {
+        const a = inset[i], b = inset[(i + 1) % N];
+        const dx = b[0] - a[0], dy = b[1] - a[1];
+        const L = Math.hypot(dx, dy) || 1;
+        const nOutX = dy / L, nOutY = -dx / L; // CCW outward
+        emitWall(a, b, hingeH, panelH, nOutX, nOutY);
+      }
+    }
+
+    // Hinge ring + slab walls along each face edge.
+    const faceIdxs = faces[fi];
+    for (let i = 0; i < N; i++) {
+      const j = (i + 1) % N;
+      const a = verts[i],  b = verts[j];
+      const ai = inset[i], bi = inset[j];
+
+      const dx = b[0] - a[0], dy = b[1] - a[1];
+      const L = Math.hypot(dx, dy) || 1;
+      const nOutX = dy / L, nOutY = -dx / L; // outward (face is CCW)
+
+      const v1Idx = faceIdxs[i], v2Idx = faceIdxs[j];
+      const ei = edgeByPair.get(v1Idx < v2Idx ? `${v1Idx}-${v2Idx}` : `${v2Idx}-${v1Idx}`);
+      const eType = ei !== undefined ? pattern.edges[ei].type : 'U';
+      const nb = neighbourFace(fi, v1Idx, v2Idx);
+      const neighbourIsHole = nb >= 0 && removedFaces[nb] === 'hole';
+
+      if (eType === 'B' || neighbourIsHole) {
+        // Slab edge (no hinge across): emit slab wall z=0..z=hingeH on the
+        // inset side. Boundary-B has d≈0 so the wall sits on the face edge.
+        emitWall(ai, bi, 0, hingeH, nOutX, nOutY);
+      } else if (mode !== 'thin') {
+        // Fold edge: emit the hinge ring quad between (a,b) and (ai,bi).
+        // The quad lies flat at z=hingeH. It can be a trapezoid (parallel
+        // edges) or general; triangulate as two triangles.
+        emitTriUp(a, b, bi, hingeH);
+        emitTriUp(a, bi, ai, hingeH);
+      }
+      // For thin mode the whole face is already covered at hingeH, no ring.
     }
   }
 
-  // Removed faces. 'thin' fills the face polygon at hinge thickness;
-  // 'hole' marks cells as no-material so the bottom plate has a real
-  // through-hole. (For 'hole' the perimeter edges have already been
-  // flipped to B in the export pattern, so the hinge strip around them
-  // isn't double-drawn.)
-  for (const key of Object.keys(removedFaces)) {
-    const mode = removedFaces[key];
-    const face = faces[+key];
-    if (!face) continue;
-    const poly = face.map(vi => [pattern.vertices[vi][0] * S, pattern.vertices[vi][1] * S]);
-    let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
-    for (const [x, y] of poly) {
-      if (x < xMin) xMin = x; if (x > xMax) xMax = x;
-      if (y < yMin) yMin = y; if (y > yMax) yMax = y;
+  // --- Bottom plate (cell-based) ---
+  const N_BOT = 360;
+  const step = S / N_BOT;
+  // Pre-compute hole polygons + interior-B half-strips for fast cell tests.
+  const holePolys = [];
+  for (let fi = 0; fi < faces.length; fi++) {
+    if (removedFaces[fi] !== 'hole') continue;
+    holePolys.push(faces[fi].map(vi => V[vi]));
+  }
+  // Interior-B edges: vertices on different paper sides OR not on boundary
+  const cuts = [];
+  for (let ei = 0; ei < pattern.edges.length; ei++) {
+    const e = pattern.edges[ei];
+    if (e.type !== 'B') continue;
+    const a = V[e.v1], b = V[e.v2];
+    const onSameSide =
+      (Math.abs(a[0]) < 1e-6 && Math.abs(b[0]) < 1e-6) ||
+      (Math.abs(a[0] - S) < 1e-6 && Math.abs(b[0] - S) < 1e-6) ||
+      (Math.abs(a[1]) < 1e-6 && Math.abs(b[1]) < 1e-6) ||
+      (Math.abs(a[1] - S) < 1e-6 && Math.abs(b[1] - S) < 1e-6);
+    if (onSameSide) continue;
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const L = Math.hypot(dx, dy) || 1;
+    cuts.push({ a, b, ux: dx / L, uy: dy / L, len: L, half: INTERIOR_B_SLIT_MM / 2 });
+  }
+  function cellSkipped(cx, cy) {
+    for (const poly of holePolys) if (pointInPoly(cx, cy, poly)) return true;
+    for (const c of cuts) {
+      const t = Math.max(0, Math.min(c.len, (cx - c.a[0]) * c.ux + (cy - c.a[1]) * c.uy));
+      const px = c.a[0] + c.ux * t, py = c.a[1] + c.uy * t;
+      if (Math.hypot(cx - px, cy - py) < c.half) return true;
     }
-    const c0 = Math.max(0, Math.floor(xMin / step));
-    const c1 = Math.min(N-1, Math.floor(xMax / step));
-    const r0 = Math.max(0, Math.floor(yMin / step));
-    const r1 = Math.min(N-1, Math.floor(yMax / step));
-    const target = mode === 'hole' ? STL_HOLE : STL_HINGE;
-    for (let row = r0; row <= r1; row++) {
-      for (let col = c0; col <= c1; col++) {
-        const cx = (col+0.5)*step, cy = (row+0.5)*step;
-        if (pointInPoly(cx, cy, poly)) cell[row*N+col] = target;
-      }
+    return false;
+  }
+  for (let r = 0; r < N_BOT; r++) {
+    for (let col = 0; col < N_BOT; col++) {
+      const cx = (col + 0.5) * step, cy = (r + 0.5) * step;
+      if (cellSkipped(cx, cy)) continue;
+      const x0 = col * step, x1 = x0 + step;
+      const y0 = r * step,   y1 = y0 + step;
+      emitTriDown([x0, y0], [x1, y1], [x1, y0], 0);
+      emitTriDown([x0, y0], [x0, y1], [x1, y1], 0);
     }
   }
 
-  // 2. Mesh helpers.
-  const cellTop = c => c === STL_HOLE ? 0 : c === STL_HINGE ? hingeH : panelH;
-  const cellAt  = (row, col) => (row < 0 || row >= N || col < 0 || col >= N) ? STL_HOLE : cell[row*N+col];
-
-  // 3. Count triangles.
-  let nTris = 0;
-  for (let row = 0; row < N; row++) {
-    for (let col = 0; col < N; col++) {
-      const c = cell[row*N+col];
-      if (c === STL_HOLE) continue;
-      const h = cellTop(c);
-      nTris += 4; // top + bottom (2 each)
-      for (const [dr, dc] of [[0,-1],[0,1],[-1,0],[1,0]]) {
-        const nc = cellAt(row+dr, col+dc);
-        const nh = nc === STL_HOLE ? 0 : cellTop(nc);
-        if (nc === STL_HOLE || nh < h) nTris += 2;
-      }
-    }
-  }
-
+  // --- Encode to binary STL ---
+  const nTris = tris.length;
   const buf = new ArrayBuffer(80 + 4 + nTris * 50);
-  const dv  = new DataView(buf);
+  const dv = new DataView(buf);
   dv.setUint32(80, nTris, true);
   let p = 84;
-  const wv = (x, y, z) => { dv.setFloat32(p,x,true); p+=4; dv.setFloat32(p,y,true); p+=4; dv.setFloat32(p,z,true); p+=4; };
-  const wn = (x, y, z) => { dv.setFloat32(p,x,true); p+=4; dv.setFloat32(p,y,true); p+=4; dv.setFloat32(p,z,true); p+=4; };
-  const tri = (ax,ay,az, bx,by,bz, cx,cy,cz, nx,ny,nz) => {
-    wn(nx,ny,nz); wv(ax,ay,az); wv(bx,by,bz); wv(cx,cy,cz);
+  for (const t of tris) {
+    // t = [ax,ay,az, bx,by,bz, cx,cy,cz, nx,ny,nz]
+    dv.setFloat32(p, t[9],  true); p += 4;
+    dv.setFloat32(p, t[10], true); p += 4;
+    dv.setFloat32(p, t[11], true); p += 4;
+    for (let k = 0; k < 9; k++) { dv.setFloat32(p, t[k], true); p += 4; }
     dv.setUint16(p, 0, true); p += 2;
-  };
-
-  for (let row = 0; row < N; row++) {
-    for (let col = 0; col < N; col++) {
-      const c = cell[row*N+col];
-      if (c === STL_HOLE) continue;
-      const h = cellTop(c);
-      const x0 = col*step, x1 = (col+1)*step;
-      const y0 = row*step, y1 = (row+1)*step;
-      // Top (+Z)
-      tri(x0,y0,h, x1,y0,h, x1,y1,h, 0,0,1);
-      tri(x0,y0,h, x1,y1,h, x0,y1,h, 0,0,1);
-      // Bottom (-Z)
-      tri(x0,y0,0, x1,y1,0, x1,y0,0, 0,0,-1);
-      tri(x0,y0,0, x0,y1,0, x1,y1,0, 0,0,-1);
-      // Walls — only where neighbour is shorter or absent.
-      // Left (x=x0, -X)
-      {
-        const nc = cellAt(row, col-1);
-        const nh = nc === STL_HOLE ? 0 : cellTop(nc);
-        if (nc === STL_HOLE || nh < h) {
-          tri(x0,y0,nh, x0,y0,h, x0,y1,h, -1,0,0);
-          tri(x0,y0,nh, x0,y1,h, x0,y1,nh, -1,0,0);
-        }
-      }
-      // Right (x=x1, +X)
-      {
-        const nc = cellAt(row, col+1);
-        const nh = nc === STL_HOLE ? 0 : cellTop(nc);
-        if (nc === STL_HOLE || nh < h) {
-          tri(x1,y0,nh, x1,y1,h, x1,y0,h, 1,0,0);
-          tri(x1,y0,nh, x1,y1,nh, x1,y1,h, 1,0,0);
-        }
-      }
-      // Front (y=y0, -Y)
-      {
-        const nc = cellAt(row-1, col);
-        const nh = nc === STL_HOLE ? 0 : cellTop(nc);
-        if (nc === STL_HOLE || nh < h) {
-          tri(x0,y0,nh, x1,y0,nh, x1,y0,h, 0,-1,0);
-          tri(x0,y0,nh, x1,y0,h, x0,y0,h, 0,-1,0);
-        }
-      }
-      // Back (y=y1, +Y)
-      {
-        const nc = cellAt(row+1, col);
-        const nh = nc === STL_HOLE ? 0 : cellTop(nc);
-        if (nc === STL_HOLE || nh < h) {
-          tri(x0,y1,nh, x1,y1,h, x1,y1,nh, 0,1,0);
-          tri(x0,y1,nh, x0,y1,h, x1,y1,h, 0,1,0);
-        }
-      }
-    }
   }
-
   return new Uint8Array(buf);
 }
 
