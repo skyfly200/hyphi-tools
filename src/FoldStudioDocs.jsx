@@ -135,13 +135,12 @@ export default function FoldStudioDocs() {
         </ul>
         <p>Each tool has its own length-mode dropdown (Fixed / Until next fold / Until paper edge) in the Tool options drawer. Construction respects global rotational symmetry.</p>
 
-        <h3>Smart selection (Select tool)</h3>
-        <p>While the Select tool is active, the Tool options drawer offers:</p>
+        <h3>Smart selection</h3>
         <ul>
-          <li><strong>By type</strong> — five small swatches (M / V / B / F / U). Click to select every edge of that assignment; <kbd>Shift</kbd>-click to add.</li>
-          <li><strong>Invert</strong> — toggle every edge (and every vertex if Pick mode includes them) in or out of the selection. <kbd>Ctrl/⌘-I</kbd>.</li>
-          <li><strong>Extend run</strong> — walks both endpoints of every selected edge, adding any neighbour that shares the assignment and is collinear (within 1°). One click on a segment + Extend run selects the whole straight crease across vertices.</li>
+          <li><strong>All ▾</strong> in the toolbar — main click selects every edge + vertex; the chevron opens a popover with "All M", "All V", "All B", "All F", "All U". <kbd>Shift</kbd>-click a type to add to the existing selection.</li>
+          <li><strong>Extend run</strong> (in the Tool options drawer) — walks both endpoints of every selected edge, adding any neighbour that shares the assignment and is collinear (within 1°). One click on a segment + Extend run selects the whole straight crease across vertices.</li>
           <li><strong>Shift-double-click an edge</strong> on the canvas → grab every edge that lies on the same infinite line as the seed.</li>
+          <li><strong>Invert selection</strong> — <kbd>Ctrl/⌘-I</kbd>.</li>
         </ul>
 
         <h3>Relief <kbd>C</kbd></h3>

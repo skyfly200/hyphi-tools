@@ -10,6 +10,8 @@ import ToolDrawer from './ToolDrawer.vue';
 
 const paintMenuOpen = ref(false);
 function closePaintMenu() { paintMenuOpen.value = false; }
+const allMenuOpen = ref(false);
+function closeAllMenu() { allMenuOpen.value = false; }
 
 // Tiny click-outside directive — closes the paint dropdown when the user
 // taps anywhere else. Scoped to this component.
@@ -171,7 +173,19 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
     <div class="group">
       <button @click="undo" title="Undo last change (Ctrl/Cmd-Z)"><Icon name="undo" /></button>
       <button @click="redo" title="Redo (Ctrl/Cmd-Shift-Z)"><Icon name="redo" /></button>
-      <button @click="selectAll" title="Select every edge (Ctrl/Cmd-A)">All</button>
+      <div class="all-pair" v-click-outside="closeAllMenu">
+        <button class="all-main" @click="selectAll" title="Select every edge + vertex (Ctrl/Cmd-A)">All</button>
+        <button class="all-caret" @click="allMenuOpen = !allMenuOpen"
+                title="Select by crease type">▾</button>
+        <div v-if="allMenuOpen" class="all-pop">
+          <button v-for="p in assignments" :key="p.id"
+                  @click="selectByAssignment(p.id, $event.shiftKey); allMenuOpen = false"
+                  :title="`Select every ${p.label} edge${p.id === 'M' ? '' : ''} (shift-click to add)`">
+            <span class="swatch" :style="{ background: p.color }" />
+            All {{ p.label }} ({{ p.id }})
+          </button>
+        </div>
+      </div>
       <button @click="clearSelection" title="Clear current selection (Esc)">None</button>
       <button @click="deleteSelection"
               title="Delete selected edges and vertices (Del / Backspace)"
@@ -231,6 +245,14 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 .paint-popover button.active { border-color: var(--ac2); }
 .paint-popover .paint-id { font-family: 'DM Mono', monospace; font-size: 0.72rem; color: var(--sub); }
 .paint-popover .paint-label { font-size: 0.78rem; color: var(--t); }
+
+.all-pair { position: relative; display: inline-flex; }
+.all-pair .all-main { border-top-right-radius: 0; border-bottom-right-radius: 0; padding-right: 8px; }
+.all-pair .all-caret { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: none; padding: 6px 6px; font-size: 0.7rem; color: var(--sub); min-width: 22px; }
+.all-pop { position: absolute; z-index: 30; left: 0; top: calc(100% + 6px); background: var(--s); border: 1px solid var(--bd); border-radius: 8px; padding: 4px; display: flex; flex-direction: column; gap: 2px; box-shadow: 0 6px 20px rgba(0,0,0,0.45); min-width: 180px; }
+.all-pop button { display: grid; grid-template-columns: 14px 1fr; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 6px; background: var(--bg); color: var(--t); font: 500 0.78rem 'DM Sans', sans-serif; cursor: pointer; min-height: 34px; border: 1px solid transparent; }
+.all-pop button:hover { background: var(--acd); border-color: var(--ac2); }
+.all-pop .swatch { width: 12px; height: 12px; border-radius: 3px; }
 
 @media (max-width: 900px) {
   .mobile-only { display: flex; }
