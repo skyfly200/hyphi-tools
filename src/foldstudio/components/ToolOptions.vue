@@ -1,9 +1,8 @@
 <script setup>
 import {
   state, mirrorSelection, repeatSelection,
-  selectByAssignment, invertSelection, extendSelectionAlongRuns,
+  extendSelectionAlongRuns,
 } from '../store.js';
-const PAINTS = ['M','V','B','F','U'];
 </script>
 
 <template>
@@ -15,18 +14,9 @@ const PAINTS = ['M','V','B','F','U'];
     </template>
 
     <template v-else-if="state.tool === 'select'">
-      <p class="hint">Pick mode (Edges / Vertices / Both) is on the toolbar. Click to select; <kbd>Shift</kbd>-click to add; <kbd>Shift</kbd>-double-click an edge to grab every edge on that line; <kbd>1</kbd>–<kbd>5</kbd> reassigns; <kbd>Del</kbd> removes.</p>
+      <p class="hint">Pick mode (Edges / Vertices / Both) is on the toolbar. Click to select; <kbd>Shift</kbd>-click to add; <kbd>Shift</kbd>-double-click an edge to grab every edge on that line; <kbd>1</kbd>–<kbd>5</kbd> reassigns; <kbd>Del</kbd> removes. <strong>All ▾</strong> in the toolbar selects every edge or by type; <kbd>Ctrl/⌘-I</kbd> inverts the selection.</p>
       <p class="meta">{{ state.selection.edges.size }} edge(s) · {{ state.selection.vertices.size }} vertex/vertices selected</p>
       <div class="smart-row">
-        <div class="row-label">By type</div>
-        <div class="smart-paints">
-          <button v-for="p in PAINTS" :key="p"
-                  :title="`Select every ${p} edge`"
-                  @click="selectByAssignment(p, $event.shiftKey)">{{ p }}</button>
-        </div>
-      </div>
-      <div class="smart-row">
-        <button class="rm" @click="invertSelection" title="Invert the current selection">Invert</button>
         <button class="rm" @click="extendSelectionAlongRuns" title="Pull in same-type collinear edges connected through endpoints">Extend run</button>
       </div>
     </template>
@@ -202,10 +192,6 @@ button:hover:not(:disabled) { filter: brightness(1.15); border-color: var(--ac2)
 .meta { font: 400 0.7rem 'DM Mono'; color: var(--sub); }
 .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .smart-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.smart-row .row-label { font: 500 0.7rem 'DM Mono', monospace; color: var(--sub); }
-.smart-paints { display: grid; grid-template-columns: repeat(5, 1fr); gap: 3px; flex: 1; }
-.smart-paints button { padding: 4px 0; font: 500 0.74rem 'DM Sans', sans-serif; background: var(--bg); color: var(--t); border: 1px solid var(--bd); border-radius: 4px; cursor: pointer; }
-.smart-paints button:hover { background: var(--acd); border-color: var(--ac2); }
 .smart-row .rm { padding: 5px 9px; font: 500 0.72rem 'DM Sans', sans-serif; background: var(--bg); color: var(--t); border: 1px solid var(--bd); border-radius: 4px; cursor: pointer; }
 .smart-row .rm:hover { border-color: var(--ac2); }
 .row-between { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
