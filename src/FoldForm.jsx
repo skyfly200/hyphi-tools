@@ -611,8 +611,8 @@ export default function FoldForm() {
   const [designSVG,   setDesignSVG]   = useState(null);
   const [designName,  setDesignName]  = useState('');
   const [paperMM,     setPaperMM]     = useState(150);
-  const [panelH,      setPanelH]      = useState(2.0);
-  const [hingeH,      setHingeH]      = useState(0.4);
+  const [panelH,      setPanelH]      = useState(0.3);
+  const [hingeH,      setHingeH]      = useState(0.1);
   const [hingeW,      setHingeW]      = useState(1.5);
 
   // Keep hinge thickness <= paper thickness
@@ -809,7 +809,29 @@ export default function FoldForm() {
           }),
         };
       })();
-      const modelStl = buildModelSTL(exportPattern, { paperMM, panelH, hingeH, hingeW, edgeHingeW, removedFaces, faces });
+      // Auto-detect "relief cuts": any face whose perimeter is entirely B
+      // in the exportPattern should be treated as a hole, even if the user
+      // didn't mark it explicitly. This catches FoldStudio's corner-relief
+      // polygons (which already arrive with all-B boundaries) so they
+      // become real through-cuts in the STL.
+      const effectiveRemoved = { ...removedFaces };
+      {
+        const typeByPair = new Map();
+        for (const e of exportPattern.edges) {
+          typeByPair.set(`${Math.min(e.v1,e.v2)}-${Math.max(e.v1,e.v2)}`, e.type);
+        }
+        for (let fi = 0; fi < faces.length; fi++) {
+          if (effectiveRemoved[fi]) continue;
+          const f = faces[fi];
+          let allB = f.length > 0;
+          for (let i = 0; i < f.length; i++) {
+            const a = f[i], b = f[(i + 1) % f.length];
+            if (typeByPair.get(`${Math.min(a,b)}-${Math.max(a,b)}`) !== 'B') { allB = false; break; }
+          }
+          if (allB) effectiveRemoved[fi] = 'hole';
+        }
+      }
+      const modelStl = buildModelSTL(exportPattern, { paperMM, panelH, hingeH, hingeW, edgeHingeW, removedFaces: effectiveRemoved, faces });
       const files = [{ name: 'foldform_model.stl', data: modelStl }];
 
       if (designSVG) {
@@ -977,11 +999,11 @@ export default function FoldForm() {
               <input type="range" min={0.1} max={2} step={0.05} value={panelH} onChange={e => setPanelH(+e.target.value)} />
               <input type="number" className="num-in" min={0.05} step={0.05} value={panelH} onChange={e => setPanelH(+e.target.value || 0.1)} /></div>
             <div className="rng"><label>Hinge thickness</label>
-              <input type="range" min={0.1} max={panelH} step={0.05} value={hingeH} onChange={e => setHingeH(+e.target.value)} />
-              <input type="number" className="num-in" min={0.05} max={panelH} step={0.05} value={hingeH} onChange={e => setHingeH(Math.min(+e.target.value || 0.05, panelH))} /></div>
+              <input type="range" min={0.05} max={panelH} step={0.01} value={hingeH} onChange={e => setHingeH(+e.target.value)} />
+              <input type="number" className="num-in" min={0.05} max={panelH} step={0.01} value={hingeH} onChange={e => setHingeH(Math.min(+e.target.value || 0.05, panelH))} /></div>
             <div className="rng"><label>Hinge width</label>
-              <input type="range" min={0.3} max={6} step={0.1} value={hingeW} onChange={e => setHingeW(+e.target.value)} />
-              <input type="number" className="num-in" min={0.1} step={0.1} value={hingeW} onChange={e => setHingeW(+e.target.value || 0.1)} /></div>
+              <input type="range" min={0.08} max={6} step={0.02} value={hingeW} onChange={e => setHingeW(+e.target.value)} />
+              <input type="number" className="num-in" min={0.08} step={0.02} value={hingeW} onChange={e => setHingeW(+e.target.value || 0.08)} /></div>
             <div className="notice">
               Print flat in PETG or flexible PLA. Hinge zones flex along every fold line; panels stay rigid.
             </div>
