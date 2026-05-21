@@ -388,10 +388,14 @@ export default function FoldPress() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const fold = takeHandoff();
-    if (!fold) return;
-    const parsed = parseFOLD(JSON.stringify(fold));
-    if (parsed) { setPattern(parsed); setFileName('From another tool'); setMsg(''); }
+    const ho = takeHandoff();
+    if (!ho) return;
+    const parsed = parseFOLD(JSON.stringify(ho.fold));
+    if (parsed) {
+      setPattern(parsed);
+      setFileName(ho.name || 'From another tool');
+      setMsg('');
+    }
   }, []);
 
   function handoffToTool(path) {
@@ -402,7 +406,7 @@ export default function FoldPress() {
       vertices_coords: pattern.vertices.map(v => [v[0], v[1]]),
       edges_vertices: pattern.edges.map(e => [e.v1, e.v2]),
       edges_assignment: pattern.edges.map(e => e.type || 'U'),
-    });
+    }, { name: fileName ? fileName.replace(/\.[^.]+$/, '') : '' });
     navigate(path);
   }
 
