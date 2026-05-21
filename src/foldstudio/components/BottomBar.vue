@@ -121,7 +121,7 @@ function openInOrigamiSimulator() {
 }
 
 function openInTool(path) {
-  setHandoff(modelToFOLD(state.model, { ids: false }));
+  setHandoff(modelToFOLD(state.model, { ids: false }), { name: state.currentProject || '' });
   window.location.assign(path);
 }
 
