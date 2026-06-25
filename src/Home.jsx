@@ -34,6 +34,14 @@ const TOOLS = [
     icon: '✦',
   },
   {
+    href: '/polyforge',
+    internal: true,
+    name: 'PolyForge',
+    tagline: 'Polyhedral LED fixture generator',
+    desc: 'Parametrically design polyhedron PCB fixtures for LED art. Pick a solid, set design rules, lay out LEDs and connectors, then export DXF for KiCad.',
+    icon: '⬢',
+  },
+  {
     href: 'https://l.hyphi.art',
     internal: false,
     name: 'Link Shortener',
