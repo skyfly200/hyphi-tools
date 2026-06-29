@@ -41,11 +41,28 @@ const faceIndices = computed(() => Array.from({ length: faceCount.value }, (_, i
     <section>
       <h4>Panel</h4>
       <label>Shape
-        <select v-model="state.params.panelShape">
+        <select v-model="state.params.panel.shape">
           <option value="face">Full face polygon</option>
           <option value="circle">Inscribed circle</option>
           <option value="hexagon">Inscribed hexagon</option>
         </select>
+      </label>
+      <label>Inset (mm)
+        <input type="number" min="0" max="50" step="0.5"
+               :value="state.params.panel.insetMm"
+               @input="state.params.panel.insetMm = Math.max(0, Number($event.target.value) || 0)" />
+      </label>
+      <label v-if="state.params.panel.shape === 'face'">
+        Corner radius (mm)
+        <input type="number" min="0" max="50" step="0.5"
+               :value="state.params.panel.cornerRadiusMm"
+               @input="state.params.panel.cornerRadiusMm = Math.max(0, Number($event.target.value) || 0)" />
+      </label>
+      <label v-else>
+        Scale (× inscribed radius)
+        <input type="number" min="0.1" max="1" step="0.01"
+               :value="state.params.panel.scale"
+               @input="state.params.panel.scale = Math.min(1, Math.max(0.1, Number($event.target.value) || 0.1))" />
       </label>
     </section>
 
@@ -64,7 +81,7 @@ const faceIndices = computed(() => Array.from({ length: faceCount.value }, (_, i
     </section>
 
     <section>
-      <h4>Connector</h4>
+      <h4>Connector <span class="hint">· back layer</span></h4>
       <label>Type
         <select v-model="state.params.connectorId">
           <option v-for="c in connectors" :key="c.id" :value="c.id">{{ c.label }}</option>
@@ -186,6 +203,7 @@ const faceIndices = computed(() => Array.from({ length: faceCount.value }, (_, i
       <label class="inline"><input type="checkbox" v-model="state.prefs.showConnector" /> Connector keepout</label>
       <label class="inline"><input type="checkbox" v-model="state.prefs.showFaceLabels" /> Face labels</label>
       <label class="inline"><input type="checkbox" v-model="state.prefs.showMountingHoles" /> Mounting holes</label>
+      <label class="inline"><input type="checkbox" v-model="state.prefs.showPanel" /> Panel outline</label>
     </section>
   </aside>
 </template>
@@ -204,4 +222,5 @@ details summary { cursor: pointer; padding: 4px 0; }
 .err { color: var(--ac); font: 500 0.72rem 'DM Mono', monospace; padding-top: 4px; }
 .subsec { margin: 4px 0 0; padding: 8px 10px 10px; border: 1px solid var(--bd); border-radius: 6px; display: flex; flex-direction: column; gap: 8px; }
 .subsec legend { font: 500 0.7rem 'DM Mono', monospace; color: var(--ac2); padding: 0 6px; }
+h4 .hint { font: 400 0.65rem 'DM Mono', monospace; color: var(--sub); }
 </style>

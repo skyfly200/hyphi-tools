@@ -12,7 +12,7 @@
 // All coordinates are in millimeters with KiCad's Y-down convention so
 // the SVG drops in at the correct orientation.
 
-import { mountingHolePositions, ledPositions, centroid2D } from './layout.js';
+import { mountingHolePositions, ledPositions, centroid2D, panelOutline } from './layout.js';
 
 function svgWrap(name, viewBox, body) {
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -36,15 +36,48 @@ function bboxForNet(net, edgeLengthMm) {
 
 function fmt(v) { return Number(v).toFixed(3); }
 
-// outline.svg — every unfolded face as a closed polyline. The KiCad
-// import treats each closed loop as a board outline.
-function outlineLayer(net, edgeLengthMm) {
+// outline.svg — panel-clipped boundary of every face. Rounded
+// corners and inscribed circles/hexagons all render as native SVG
+// primitives KiCad's Import Graphics handles.
+function outlineLayer(net, panel, edgeLengthMm) {
   const parts = [];
   for (const face of net.faces) {
     if (!face) continue;
-    const pts = face.polygon2D.map(([x, y]) =>
-      `${fmt(x * edgeLengthMm)},${fmt(-y * edgeLengthMm)}`).join(' ');
-    parts.push(`    <polygon points="${pts}" fill="none" stroke="black" stroke-width="0.05" />`);
+    const shape = panelOutline(face.polygon2D, panel || { shape: 'face' }, edgeLengthMm);
+    if (shape.kind === 'circle') {
+      parts.push(`    <circle cx="${fmt(shape.cx * edgeLengthMm)}" cy="${fmt(-shape.cy * edgeLengthMm)}" r="${fmt(shape.r * edgeLengthMm)}" fill="none" stroke="black" stroke-width="0.05" />`);
+      continue;
+    }
+    const pts = shape.points.map(([x, y]) => [x * edgeLengthMm, -y * edgeLengthMm]);
+    const rPx = (shape.cornerRadius || 0) * edgeLengthMm;
+    if (rPx <= 0.01) {
+      const ptsStr = pts.map(([x, y]) => `${fmt(x)},${fmt(y)}`).join(' ');
+      parts.push(`    <polygon points="${ptsStr}" fill="none" stroke="black" stroke-width="0.05" />`);
+    } else {
+      // Rounded polygon: build an SVG path with arc commands.
+      const n = pts.length;
+      const segs = [];
+      for (let i = 0; i < n; i++) {
+        const prev = pts[(i - 1 + n) % n], curr = pts[i], next = pts[(i + 1) % n];
+        const e1 = [prev[0] - curr[0], prev[1] - curr[1]];
+        const e2 = [next[0] - curr[0], next[1] - curr[1]];
+        const l1 = Math.hypot(e1[0], e1[1]) || 1;
+        const l2 = Math.hypot(e2[0], e2[1]) || 1;
+        const r = Math.min(rPx, l1 / 2, l2 / 2);
+        const start = [curr[0] + (e1[0] / l1) * r, curr[1] + (e1[1] / l1) * r];
+        const end   = [curr[0] + (e2[0] / l2) * r, curr[1] + (e2[1] / l2) * r];
+        segs.push({ start, end, r });
+      }
+      let d = `M ${fmt(segs[0].start[0])} ${fmt(segs[0].start[1])}`;
+      for (let i = 0; i < n; i++) {
+        const cur = segs[i];
+        const nxt = segs[(i + 1) % n];
+        d += ` A ${fmt(cur.r)} ${fmt(cur.r)} 0 0 0 ${fmt(cur.end[0])} ${fmt(cur.end[1])}`;
+        d += ` L ${fmt(nxt.start[0])} ${fmt(nxt.start[1])}`;
+      }
+      d += ' Z';
+      parts.push(`    <path d="${d}" fill="none" stroke="black" stroke-width="0.05" />`);
+    }
   }
   return parts.join('\n');
 }
@@ -116,17 +149,19 @@ export function buildSVGLayers({
   net, edgeLengthMm,
   led, ledsPerFace,
   connector, connectorFaceIdx, wireCount, solderPad,
-  mountingHole,
+  mountingHole, panel,
 }) {
   const viewBox = bboxForNet(net, edgeLengthMm);
   const out = {};
-  out['outline.svg'] = svgWrap('Edge.Cuts', viewBox, outlineLayer(net, edgeLengthMm));
+  out['outline.svg'] = svgWrap('Edge.Cuts', viewBox, outlineLayer(net, panel, edgeLengthMm));
   const folds = foldsLayer(net, edgeLengthMm);
   if (folds) out['folds.svg'] = svgWrap('Dwgs.User', viewBox, folds);
   const leds = ledsLayer(net, led, ledsPerFace, edgeLengthMm);
   if (leds) out['leds.svg'] = svgWrap('F.Fab.LEDs', viewBox, leds);
   const conn = connLayer(net, connector, connectorFaceIdx, wireCount, solderPad, edgeLengthMm);
-  if (conn) out['connector.svg'] = svgWrap('F.Fab.Connector', viewBox, conn);
+  // Connector + pads live on the BACK of the PCB → B.Fab layer.
+  // KiCad's Import Graphics drops the file on the back-side layer.
+  if (conn) out['connector_back.svg'] = svgWrap('B.Fab.Connector', viewBox, conn);
   const holes = holesLayer(net, mountingHole, edgeLengthMm);
   if (holes) out['holes.svg'] = svgWrap('NPTH', viewBox, holes);
   return out;

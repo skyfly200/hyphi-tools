@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { state, geometry, currentLED, currentConnector, requiredWireCount } from '../store.js';
-import { mountingHolePositions, ledPositions as ledPositionsLib } from '../lib/layout.js';
+import { mountingHolePositions, ledPositions as ledPositionsLib, panelOutline } from '../lib/layout.js';
 
 const containerRef = ref(null);
 const width = ref(800);
@@ -27,6 +27,7 @@ watch(
     dr: state.params.designRules,
     sp: state.params.solderPad,
     mh: state.params.mountingHole,
+    pn: state.params.panel,
   }),
   () => {
     refreshTick.value++;
@@ -85,6 +86,48 @@ function ledPositions(face) {
   const s = state.params.edgeLengthMm;
   const pts = ledPositionsLib(face.polygon2D, currentLED.value, state.params.ledsPerFace, s);
   return pts.map(([x, y]) => [x * s, -y * s]);
+}
+
+// SVG path for the rendered panel outline of a single face. Handles
+// the three panel shapes, including rounded corners on the face shape
+// via per-segment arc trimming.
+function panelPathFor(face) {
+  const s = state.params.edgeLengthMm;
+  const shape = panelOutline(face.polygon2D, state.params.panel, s);
+  if (shape.kind === 'circle') {
+    return { d: '', cx: shape.cx * s, cy: -shape.cy * s, r: shape.r * s, isCircle: true };
+  }
+  const pts = shape.points.map(([x, y]) => [x * s, -y * s]);
+  if (!pts.length) return { d: '', isCircle: false };
+  const rPx = (shape.cornerRadius || 0) * s;
+  if (rPx <= 0.01) {
+    let d = `M ${pts[0][0]} ${pts[0][1]}`;
+    for (let i = 1; i < pts.length; i++) d += ` L ${pts[i][0]} ${pts[i][1]}`;
+    return { d: d + ' Z', isCircle: false };
+  }
+  // Rounded corners: for each vertex, replace the sharp meeting of
+  // the incoming and outgoing edge with an arc inset by `r` along
+  // each edge. Capped by half the shorter incident edge so the radius
+  // can't blow past the geometry.
+  let d = '';
+  const n = pts.length;
+  for (let i = 0; i < n; i++) {
+    const prev = pts[(i - 1 + n) % n];
+    const curr = pts[i];
+    const next = pts[(i + 1) % n];
+    const e1 = [prev[0] - curr[0], prev[1] - curr[1]];
+    const e2 = [next[0] - curr[0], next[1] - curr[1]];
+    const l1 = Math.hypot(e1[0], e1[1]) || 1;
+    const l2 = Math.hypot(e2[0], e2[1]) || 1;
+    const r = Math.min(rPx, l1 / 2, l2 / 2);
+    const start = [curr[0] + (e1[0] / l1) * r, curr[1] + (e1[1] / l1) * r];
+    const end   = [curr[0] + (e2[0] / l2) * r, curr[1] + (e2[1] / l2) * r];
+    if (i === 0) d += `M ${start[0]} ${start[1]}`;
+    else d += ` L ${start[0]} ${start[1]}`;
+    // sweep 0 for inward corners on a CCW polygon.
+    d += ` A ${r} ${r} 0 0 1 ${end[0]} ${end[1]}`;
+  }
+  return { d: d + ' Z', isCircle: false };
 }
 
 function onFaceClick(fi) {
@@ -170,6 +213,19 @@ function connPos() {
         </template>
       </g>
 
+      <!-- Panel outline overlay — the shape that actually gets cut out -->
+      <g v-if="state.prefs.showPanel" class="panels">
+        <template v-for="(face, fi) in geometry.net.faces" :key="`panel-${fi}`">
+          <template v-if="face">
+            <circle v-if="panelPathFor(face).isCircle"
+                    :cx="panelPathFor(face).cx"
+                    :cy="panelPathFor(face).cy"
+                    :r="panelPathFor(face).r" />
+            <path v-else :d="panelPathFor(face).d" />
+          </template>
+        </template>
+      </g>
+
       <!-- Fold lines -->
       <g v-if="state.prefs.showFoldLines" class="folds">
         <line v-for="(e, i) in geometry.net.foldEdges" :key="`fold-${i}`"
@@ -216,6 +272,12 @@ function connPos() {
         </template>
       </g>
 
+      <!-- "back" label below the connector to flag it lives on B.Cu -->
+      <text v-if="state.prefs.showConnector && connBox && connPos()"
+            class="conn-label"
+            :x="connPos()[0]"
+            :y="connPos()[1] + connBox.h / 2 + 3">(back)</text>
+
       <!-- Mounting holes -->
       <g v-if="state.params.mountingHole.enabled && state.prefs.showMountingHoles" class="holes">
         <template v-for="(face, fi) in geometry.net.faces" :key="`mh-${fi}`">
@@ -261,10 +323,14 @@ svg { width: 100%; height: 100%; display: block; }
 .face.hover { fill: var(--acd); }
 .face.selected { stroke: var(--ac2); stroke-width: 1.2; }
 .face.root { stroke: var(--ac); stroke-width: 1.4; }
+.panels path, .panels circle { fill: none; stroke: var(--ac); stroke-width: 0.5; opacity: 0.8; pointer-events: none; transition: d 0.18s ease, r 0.18s ease, cx 0.18s ease, cy 0.18s ease; }
 .folds line { stroke: var(--fold); stroke-width: 0.5; stroke-dasharray: 2 1.5; opacity: 0.85; pointer-events: none; transition: x1 0.18s ease, y1 0.18s ease, x2 0.18s ease, y2 0.18s ease; }
 .leds rect { fill: rgba(123,92,250,0.18); stroke: var(--led); stroke-width: 0.25; pointer-events: none; transition: x 0.18s ease, y 0.18s ease, width 0.18s ease, height 0.18s ease; }
-.conn rect { fill: rgba(63,191,127,0.18); stroke: var(--conn); stroke-width: 0.4; pointer-events: none; transition: x 0.18s ease, y 0.18s ease, width 0.18s ease, height 0.18s ease; }
-.pads rect, .pads circle { fill: var(--conn); stroke: var(--conn); stroke-width: 0.1; pointer-events: none; transition: x 0.18s ease, y 0.18s ease, cx 0.18s ease, cy 0.18s ease, r 0.18s ease, width 0.18s ease, height 0.18s ease; }
+/* Connector + pads live on the BACK side of the PCB — dashed stroke
+   and lower opacity to read as "hidden / on the other layer". */
+.conn rect { fill: rgba(63,191,127,0.10); stroke: var(--conn); stroke-width: 0.4; stroke-dasharray: 1.2 0.8; opacity: 0.75; pointer-events: none; transition: x 0.18s ease, y 0.18s ease, width 0.18s ease, height 0.18s ease; }
+.pads rect, .pads circle { fill: var(--conn); stroke: var(--conn); stroke-width: 0.1; opacity: 0.55; pointer-events: none; transition: x 0.18s ease, y 0.18s ease, cx 0.18s ease, cy 0.18s ease, r 0.18s ease, width 0.18s ease, height 0.18s ease; }
+.conn-label { font: 500 3px 'DM Mono', monospace; fill: var(--conn); pointer-events: none; opacity: 0.85; text-anchor: middle; }
 .holes circle { fill: var(--canvas-bg); stroke: var(--t); stroke-width: 0.2; pointer-events: none; opacity: 0.85; transition: cx 0.18s ease, cy 0.18s ease, r 0.18s ease; }
 .labels text { font: 500 4px 'DM Mono', monospace; fill: var(--sub); pointer-events: none; }
 </style>

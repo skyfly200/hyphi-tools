@@ -54,6 +54,7 @@ function doExportDXF() {
     wireCount: requiredWireCount.value,
     solderPad: state.params.solderPad,
     mountingHole: state.params.mountingHole,
+    panel: state.params.panel,
     scale,
   });
   downloadBlob(suggestedFilename('dxf'), 'application/dxf', dxf);
@@ -70,6 +71,7 @@ function doExportKiCad() {
     wireCount: requiredWireCount.value,
     solderPad: state.params.solderPad,
     mountingHole: state.params.mountingHole,
+    panel: state.params.panel,
   });
   downloadBlob(suggestedFilename('kicad_pcb'), 'application/octet-stream', text);
 }
@@ -85,6 +87,7 @@ function doExportSVGZip() {
     wireCount: requiredWireCount.value,
     solderPad: state.params.solderPad,
     mountingHole: state.params.mountingHole,
+    panel: state.params.panel,
   });
   const zip = buildZip(files);
   downloadBlob(suggestedFilename('svg.zip'), 'application/zip', zip);

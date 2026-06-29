@@ -16,7 +16,15 @@ const DEFAULT_PARAMS = {
   connectorId: 'PAD_ONLY',
   connectorFaceIdx: 0,      // face that hosts the wire entry connector
   connectorPlacement: 'edge',
-  panelShape: 'face',       // 'face' | 'circle' | 'hexagon'
+  // Panel shape clips each face's exported outline. 'face' keeps the
+  // raw face polygon (with optional rounded corners); 'circle' and
+  // 'hexagon' inscribe a smaller shape inside the face.
+  panel: {
+    shape: 'face',          // 'face' | 'circle' | 'hexagon'
+    cornerRadiusMm: 0,      // 'face' only: round the polygon corners
+    insetMm: 0,             // pull the boundary inward by this much
+    scale: 0.95,            // 'circle' / 'hexagon': fraction of face's inscribed radius
+  },
   // Solder-pad parameters used only when connectorId === 'PAD_ONLY'.
   // Pads sit in a row at the configured pitch; the strip length scales
   // automatically with the LED's wireCount.
@@ -50,6 +58,7 @@ const DEFAULT_PREFS = {
   showConnector: true,
   showFaceLabels: true,
   showMountingHoles: true,
+  showPanel: true,
   theme: 'dark',
 };
 
@@ -160,6 +169,10 @@ export function applyPatchObject(patch) {
   params.designRules = { ...DEFAULT_PARAMS.designRules, ...(patch.designRules || {}) };
   params.solderPad = { ...DEFAULT_PARAMS.solderPad, ...(patch.solderPad || {}) };
   params.mountingHole = { ...DEFAULT_PARAMS.mountingHole, ...(patch.mountingHole || {}) };
+  // Migrate the older flat panelShape string into the new panel block.
+  params.panel = { ...DEFAULT_PARAMS.panel, ...(patch.panel || {}) };
+  if (patch.panelShape && !patch.panel) params.panel.shape = patch.panelShape;
+  delete params.panelShape;
   if (!POLYHEDRA[params.polyhedronId]) params.polyhedronId = 'tetra';
   if (!LEDS[params.ledId]) params.ledId = 'WS2812B';
   if (!CONNECTORS[params.connectorId]) params.connectorId = 'PAD_ONLY';
