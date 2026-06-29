@@ -196,15 +196,6 @@ const faceIndices = computed(() => Array.from({ length: faceCount.value }, (_, i
       </details>
     </section>
 
-    <section>
-      <h4>Display</h4>
-      <label class="inline"><input type="checkbox" v-model="state.prefs.showFoldLines" /> Fold lines</label>
-      <label class="inline"><input type="checkbox" v-model="state.prefs.showLEDs" /> LED footprints</label>
-      <label class="inline"><input type="checkbox" v-model="state.prefs.showConnector" /> Connector keepout</label>
-      <label class="inline"><input type="checkbox" v-model="state.prefs.showFaceLabels" /> Face labels</label>
-      <label class="inline"><input type="checkbox" v-model="state.prefs.showMountingHoles" /> Mounting holes</label>
-      <label class="inline"><input type="checkbox" v-model="state.prefs.showPanel" /> Panel outline</label>
-    </section>
   </aside>
 </template>
 

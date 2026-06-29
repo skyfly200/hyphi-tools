@@ -193,35 +193,69 @@ function connPos() {
 <template>
   <div ref="containerRef" class="canvas-host" :class="{ flashing }">
     <div class="refresh-toast" :class="{ visible: flashing }">refreshed</div>
+
+    <!-- Layers pane: floating panel for toggling overlays without
+         leaving the canvas. Collapsible so it doesn't eat screen space.
+         The panel itself is always visible (it IS the face); only the
+         supplementary overlays can be hidden. -->
+    <div class="layers" :class="{ open: state.prefs.layersOpen }">
+      <button class="layers-head" type="button"
+              @click="state.prefs.layersOpen = !state.prefs.layersOpen">
+        <span class="icon">{{ state.prefs.layersOpen ? '▾' : '▸' }}</span>
+        Layers
+      </button>
+      <div v-if="state.prefs.layersOpen" class="layers-body">
+        <label><input type="checkbox" v-model="state.prefs.showFaceGuide" /> <span>Face boundary</span></label>
+        <label><input type="checkbox" v-model="state.prefs.showFoldLines" /> <span>Fold lines</span></label>
+        <label><input type="checkbox" v-model="state.prefs.showLEDs" /> <span>LED footprints</span></label>
+        <label><input type="checkbox" v-model="state.prefs.showConnector" /> <span>Connector (back)</span></label>
+        <label><input type="checkbox" v-model="state.prefs.showMountingHoles" /> <span>Mounting holes</span></label>
+        <label><input type="checkbox" v-model="state.prefs.showFaceLabels" /> <span>Face labels</span></label>
+      </div>
+    </div>
     <svg :width="width" :height="height"
          :viewBox="`${viewBox.vx} ${viewBox.vy} ${viewBox.vw} ${viewBox.vh}`"
          preserveAspectRatio="xMidYMid meet">
-      <!-- Faces -->
-      <g class="faces">
-        <template v-for="(face, fi) in geometry.net.faces" :key="`f-${fi}`">
-          <path v-if="face"
-                :d="pathForFace(face.polygon2D)"
-                :class="{
-                  face: true,
-                  hover: state.hoverFace === fi,
-                  selected: state.selectedFace === fi,
-                  root: state.rootFace === fi,
-                }"
-                @click="onFaceClick(fi)"
-                @mouseenter="onFaceEnter(fi)"
-                @mouseleave="onFaceLeave" />
+      <!-- Geometric face polygon — faint guide so the user can still
+           see the unfolding boundary even when the panel shape is
+           an inscribed circle or hexagon. Off by default for full-face
+           panels (it's identical to the panel and just looks like a
+           double stroke). -->
+      <g v-if="state.prefs.showFaceGuide" class="face-guides">
+        <template v-for="(face, fi) in geometry.net.faces" :key="`fg-${fi}`">
+          <path v-if="face" :d="pathForFace(face.polygon2D)" />
         </template>
       </g>
 
-      <!-- Panel outline overlay — the shape that actually gets cut out -->
-      <g v-if="state.prefs.showPanel" class="panels">
-        <template v-for="(face, fi) in geometry.net.faces" :key="`panel-${fi}`">
+      <!-- Panels — the actual board outline. This is what the face
+           IS, both visually and for hit-testing. -->
+      <g class="faces">
+        <template v-for="(face, fi) in geometry.net.faces" :key="`f-${fi}`">
           <template v-if="face">
             <circle v-if="panelPathFor(face).isCircle"
+                    :class="{
+                      face: true,
+                      hover: state.hoverFace === fi,
+                      selected: state.selectedFace === fi,
+                      root: state.rootFace === fi,
+                    }"
                     :cx="panelPathFor(face).cx"
                     :cy="panelPathFor(face).cy"
-                    :r="panelPathFor(face).r" />
-            <path v-else :d="panelPathFor(face).d" />
+                    :r="panelPathFor(face).r"
+                    @click="onFaceClick(fi)"
+                    @mouseenter="onFaceEnter(fi)"
+                    @mouseleave="onFaceLeave" />
+            <path v-else
+                  :class="{
+                    face: true,
+                    hover: state.hoverFace === fi,
+                    selected: state.selectedFace === fi,
+                    root: state.rootFace === fi,
+                  }"
+                  :d="panelPathFor(face).d"
+                  @click="onFaceClick(fi)"
+                  @mouseenter="onFaceEnter(fi)"
+                  @mouseleave="onFaceLeave" />
           </template>
         </template>
       </g>
@@ -318,12 +352,50 @@ function connPos() {
   box-shadow: 0 2px 8px rgba(0,0,0,0.25);
 }
 .refresh-toast.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* Layers panel — floats over the canvas in the top-right corner. */
+.layers {
+  position: absolute; top: 12px; right: 12px; z-index: 6;
+  background: var(--s); border: 1px solid var(--bd); border-radius: 8px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+  min-width: 168px;
+  user-select: none;
+}
+.layers-head {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%;
+  background: transparent; color: var(--t);
+  border: none; border-bottom: 1px solid transparent;
+  padding: 7px 10px;
+  font: 500 0.74rem 'DM Sans', sans-serif;
+  cursor: pointer; text-align: left;
+}
+.layers.open .layers-head { border-bottom-color: var(--bd); }
+.layers-head:hover { color: var(--ac2); }
+.layers-head .icon { color: var(--sub); width: 10px; display: inline-block; }
+.layers-body { display: flex; flex-direction: column; padding: 6px 8px 8px; gap: 4px; }
+.layers-body label {
+  display: flex; align-items: center; gap: 7px;
+  padding: 4px 4px;
+  font: 400 0.74rem 'DM Sans', sans-serif;
+  color: var(--t);
+  cursor: pointer; border-radius: 4px;
+}
+.layers-body label:hover { background: var(--acd); }
+.layers-body input { accent-color: var(--ac2); }
+@media (max-width: 700px) {
+  .layers { top: 8px; right: 8px; min-width: 0; }
+  .layers-head { padding: 6px 8px; }
+}
 svg { width: 100%; height: 100%; display: block; }
 .face { fill: var(--paper); stroke: var(--paper-stroke); stroke-width: 0.6; cursor: pointer; transition: fill 0.18s ease, stroke 0.18s ease, stroke-width 0.18s ease; }
 .face.hover { fill: var(--acd); }
 .face.selected { stroke: var(--ac2); stroke-width: 1.2; }
 .face.root { stroke: var(--ac); stroke-width: 1.4; }
-.panels path, .panels circle { fill: none; stroke: var(--ac); stroke-width: 0.5; opacity: 0.8; pointer-events: none; transition: d 0.18s ease, r 0.18s ease, cx 0.18s ease, cy 0.18s ease; }
+/* Face guide = original unfolded polygon, shown as a faint dashed
+   outline beneath the panel so you can see where the underlying
+   geometry sits relative to an inset / inscribed-shape panel. */
+.face-guides path { fill: none; stroke: var(--sub); stroke-width: 0.3; stroke-dasharray: 1.5 1.2; opacity: 0.55; pointer-events: none; }
 .folds line { stroke: var(--fold); stroke-width: 0.5; stroke-dasharray: 2 1.5; opacity: 0.85; pointer-events: none; transition: x1 0.18s ease, y1 0.18s ease, x2 0.18s ease, y2 0.18s ease; }
 .leds rect { fill: rgba(123,92,250,0.18); stroke: var(--led); stroke-width: 0.25; pointer-events: none; transition: x 0.18s ease, y 0.18s ease, width 0.18s ease, height 0.18s ease; }
 /* Connector + pads live on the BACK side of the PCB — dashed stroke

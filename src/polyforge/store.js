@@ -58,7 +58,11 @@ const DEFAULT_PREFS = {
   showConnector: true,
   showFaceLabels: true,
   showMountingHoles: true,
-  showPanel: true,
+  // Faint outline showing the original (unfolded) face polygon
+  // even when the panel shape clips inward. Useful when you want to
+  // see how the panel sits inside the face boundary.
+  showFaceGuide: false,
+  layersOpen: true,
   theme: 'dark',
 };
 
