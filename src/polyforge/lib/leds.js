@@ -30,6 +30,14 @@ export const LEDS = {
     pads: 4,
     signals: ['VCC', 'DIN', 'GND', 'DOUT'],
   },
+  SK6805_EC15: {
+    id: 'SK6805_EC15',
+    label: 'SK6805-EC15 (1.5×1.5)',
+    body: { w: 1.5, h: 1.5 },
+    keepout: 0.25,
+    pads: 4,
+    signals: ['VDD', 'DIN', 'VSS', 'DOUT'],
+  },
   APA102_5050: {
     id: 'APA102_5050',
     label: 'APA102 (5050)',
