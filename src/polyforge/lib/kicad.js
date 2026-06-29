@@ -18,12 +18,54 @@
 // which matches our SVG flip. Net coords come in unit-edge-length;
 // we multiply by edgeLengthMm to get millimeters.
 
-import { mountingHolePositions, ledPositions, centroid2D } from './layout.js';
+import {
+  mountingHolePositions, ledPositions, centroid2D, panelOutline,
+  bridgesForNet, bridgeTraceCount, computeBridgeWidthMm,
+  chainOrderFromConnector, planRouting,
+} from './layout.js';
 
 const LINE_W = 0.05; // mm, KiCad's typical Edge.Cuts hairline
 
 function s(...parts) { return '(' + parts.join(' ') + ')'; }
 function n(num)      { return Number(num).toFixed(4); }
+
+// For each polygon corner, compute the rounded-corner geometry KiCad
+// needs: { start, mid, end } in mm space, where start is the arc's
+// entry point along the incoming edge, end is the exit along the
+// outgoing edge, and mid is the midpoint of the arc on the bisector.
+function roundedCornerSegments(pts, r) {
+  const out = [];
+  const m = pts.length;
+  for (let i = 0; i < m; i++) {
+    const prev = pts[(i - 1 + m) % m];
+    const curr = pts[i];
+    const next = pts[(i + 1) % m];
+    const e1 = [prev[0] - curr[0], prev[1] - curr[1]];
+    const e2 = [next[0] - curr[0], next[1] - curr[1]];
+    const l1 = Math.hypot(e1[0], e1[1]) || 1;
+    const l2 = Math.hypot(e2[0], e2[1]) || 1;
+    const rr = Math.min(r, l1 / 2, l2 / 2);
+    const start = [curr[0] + (e1[0] / l1) * rr, curr[1] + (e1[1] / l1) * rr];
+    const end   = [curr[0] + (e2[0] / l2) * rr, curr[1] + (e2[1] / l2) * rr];
+    const bx = e1[0] / l1 + e2[0] / l2;
+    const by = e1[1] / l1 + e2[1] / l2;
+    const bl = Math.hypot(bx, by) || 1;
+    const dot = (e1[0] / l1) * (e2[0] / l2) + (e1[1] / l1) * (e2[1] / l2);
+    const halfAngle = Math.acos(Math.max(-1, Math.min(1, dot))) / 2;
+    const centerDist = rr / Math.sin(halfAngle);
+    const cx = curr[0] + (bx / bl) * centerDist;
+    const cy = curr[1] + (by / bl) * centerDist;
+    const sweepStart = Math.atan2(start[1] - cy, start[0] - cx);
+    let sweepEnd = Math.atan2(end[1] - cy, end[0] - cx);
+    let delta = sweepEnd - sweepStart;
+    if (delta > Math.PI)  delta -= 2 * Math.PI;
+    if (delta < -Math.PI) delta += 2 * Math.PI;
+    const tMid = sweepStart + delta / 2;
+    const mid = [cx + Math.cos(tMid) * rr, cy + Math.sin(tMid) * rr];
+    out.push({ start, mid, end });
+  }
+  return out;
+}
 
 // LED pad layout — pads sit at the corners of the body, labelled to
 // match the LED's `signals` array. Order: pin 1 at bottom-left of the
@@ -83,6 +125,10 @@ function mountingHoleFootprint(cxMm, cyMm, diaMm, refName) {
   ].join('\n  ');
 }
 
+// Solder-pad strip lives on the BACK copper layer so the LED side
+// stays clean — wires terminate on the hidden side of the flex PCB.
+// KiCad mirrors the footprint visually when placed on B.Cu; we still
+// write the local pad X coordinates as-is and KiCad handles the flip.
 function padOnlyFootprint(sp, wireCount, cxMm, cyMm, refName, signals, nets) {
   const onePadW = sp.shape === 'circle' ? sp.padDiaMm : sp.padWMm;
   const onePadH = sp.shape === 'circle' ? sp.padDiaMm : sp.padHMm;
@@ -99,18 +145,18 @@ function padOnlyFootprint(sp, wireCount, cxMm, cyMm, refName, signals, nets) {
     return s('pad', `"${i + 1}"`, 'smd', shape,
       s('at', n(x), '0'),
       `(size ${size})`,
-      s('layers', '"F.Cu"', '"F.Paste"', '"F.Mask"')
+      s('layers', '"B.Cu"', '"B.Paste"', '"B.Mask"')
     ).slice(0, -1) + netStr + ')';
   }).join('\n    ');
 
   return [
     s('footprint', '"PolyForge:SolderPads"',
-      s('layer', '"F.Cu"'),
+      s('layer', '"B.Cu"'),
       s('at', n(cxMm), n(cyMm)),
       s('attr', 'smd')
     ).slice(0, -1),
-    `    (fp_text reference "${refName}" (at 0 ${n(-onePadH - 1.2)}) (layer "F.SilkS") (effects (font (size 1 1) (thickness 0.15))))`,
-    `    (fp_text value "Solder pads ${wireCount}P" (at 0 ${n(onePadH + 1.2)}) (layer "F.Fab") (effects (font (size 0.8 0.8) (thickness 0.12))))`,
+    `    (fp_text reference "${refName}" (at 0 ${n(-onePadH - 1.2)}) (layer "B.SilkS") (effects (font (size 1 1) (thickness 0.15)) (justify mirror)))`,
+    `    (fp_text value "Solder pads ${wireCount}P (back)" (at 0 ${n(onePadH + 1.2)}) (layer "B.Fab") (effects (font (size 0.8 0.8) (thickness 0.12)) (justify mirror)))`,
     `    ${padBlocks}`,
     '  )',
   ].join('\n  ');
@@ -151,6 +197,9 @@ export function buildKiCadPCB({
   wireCount,
   solderPad,
   mountingHole,
+  panel,
+  designRules,
+  routing,
 }) {
   const lines = [];
 
@@ -184,16 +233,48 @@ export function buildKiCadPCB({
     lines.push(`  (net ${idx} "${name}")`);
   }
 
-  // Edge.Cuts: outline of every unfolded face. KiCad treats every
-  // closed segment loop on Edge.Cuts as a board outline; emitting each
-  // face as its own loop lets the user pick the assembly strategy
-  // (single rigid board, V-cuts, milled separations).
+  // Edge.Cuts: panel-clipped outline of every face. With panel.shape
+  // === 'face' and zero corner radius this matches the raw polygon —
+  // identical to the previous behavior.
   for (const face of net.faces) {
     if (!face) continue;
-    const pts = face.polygon2D.map(([x, y]) => [x * edgeLengthMm, -y * edgeLengthMm]);
+    const shape = panelOutline(face.polygon2D, panel || { shape: 'face' }, edgeLengthMm);
+    if (shape.kind === 'circle') {
+      const cx = shape.cx * edgeLengthMm, cy = -shape.cy * edgeLengthMm;
+      const r = shape.r * edgeLengthMm;
+      lines.push(`  (gr_circle (center ${n(cx)} ${n(cy)}) (end ${n(cx + r)} ${n(cy)}) (layer "Edge.Cuts") (width ${LINE_W}) (fill none))`);
+    } else if (shape.cornerRadius > 0) {
+      // Rounded polygon: emit straight segments and gr_arc fillets.
+      const pts = shape.points.map(([x, y]) => [x * edgeLengthMm, -y * edgeLengthMm]);
+      const rPx = shape.cornerRadius * edgeLengthMm;
+      const corners = roundedCornerSegments(pts, rPx);
+      for (let i = 0; i < corners.length; i++) {
+        const c = corners[i];
+        const next = corners[(i + 1) % corners.length];
+        // straight from this corner's `end` to next corner's `start`
+        lines.push(`  (gr_line (start ${n(c.end[0])} ${n(c.end[1])}) (end ${n(next.start[0])} ${n(next.start[1])}) (layer "Edge.Cuts") (width ${LINE_W}))`);
+        // fillet arc from `start` to `end` around `center` at `next` corner
+        const nc = next;
+        lines.push(`  (gr_arc (start ${n(nc.start[0])} ${n(nc.start[1])}) (mid ${n(nc.mid[0])} ${n(nc.mid[1])}) (end ${n(nc.end[0])} ${n(nc.end[1])}) (layer "Edge.Cuts") (width ${LINE_W}))`);
+      }
+    } else {
+      const pts = shape.points.map(([x, y]) => [x * edgeLengthMm, -y * edgeLengthMm]);
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[i], b = pts[(i + 1) % pts.length];
+        lines.push(`  (gr_line (start ${n(a[0])} ${n(a[1])}) (end ${n(b[0])} ${n(b[1])}) (layer "Edge.Cuts") (width ${LINE_W}))`);
+      }
+    }
+  }
+
+  // Bridges along each fold edge — auto-sized for the routing they
+  // carry. Width derives from design rules + LED wire count, so the
+  // bridge is exactly as wide as the traces need.
+  const bridgeWidthMm = computeBridgeWidthMm(bridgeTraceCount(wireCount), designRules || {});
+  for (const b of bridgesForNet(net.foldEdges, panel, bridgeWidthMm, edgeLengthMm)) {
+    const pts = b.points.map(([x, y]) => [x * edgeLengthMm, -y * edgeLengthMm]);
     for (let i = 0; i < pts.length; i++) {
-      const a = pts[i], b = pts[(i + 1) % pts.length];
-      lines.push(`  (gr_line (start ${n(a[0])} ${n(a[1])}) (end ${n(b[0])} ${n(b[1])}) (layer "Edge.Cuts") (width ${LINE_W}))`);
+      const a = pts[i], c = pts[(i + 1) % pts.length];
+      lines.push(`  (gr_line (start ${n(a[0])} ${n(a[1])}) (end ${n(c[0])} ${n(c[1])}) (layer "Edge.Cuts") (width ${LINE_W}))`);
     }
   }
 
@@ -205,10 +286,13 @@ export function buildKiCadPCB({
     lines.push(`  (gr_line (start ${n(a[0])} ${n(a[1])}) (end ${n(b[0])} ${n(b[1])}) (layer "Dwgs.User") (width 0.1))`);
   }
 
-  // LED footprints
+  // LED footprints, numbered in CHAIN order from the connector face
+  // so D1 is the first LED in the data line and D(N) is the last.
   if (led && ledsPerFace > 0) {
     let ledNum = 1;
-    for (const face of net.faces) {
+    const order = chainOrderFromConnector(net, connectorFaceIdx ?? 0);
+    for (const fi of order) {
+      const face = net.faces[fi];
       if (!face) continue;
       const positions = ledPositions(face.polygon2D, led, ledsPerFace, edgeLengthMm);
       for (const [x, y] of positions) {
@@ -230,13 +314,14 @@ export function buildKiCadPCB({
       } else {
         // Named connector: keepout-style footprint without specific pads
         // (KiCad already has these in libraries; we just mark the spot).
-        lines.push(`  (footprint "PolyForge:Conn_${connector.id}" (layer "F.Cu") (at ${n(cx)} ${n(cy)}) (attr smd)`);
-        lines.push(`    (fp_text reference "J1" (at 0 ${n(-connector.body.h / 2 - 1.5)}) (layer "F.SilkS") (effects (font (size 1 1) (thickness 0.15))))`);
-        lines.push(`    (fp_text value "${connector.label}" (at 0 ${n(connector.body.h / 2 + 1.5)}) (layer "F.Fab") (effects (font (size 0.8 0.8) (thickness 0.12))))`);
-        lines.push(`    (fp_line (start ${n(-connector.body.w/2)} ${n(-connector.body.h/2)}) (end ${n(connector.body.w/2)} ${n(-connector.body.h/2)}) (layer "F.SilkS") (width 0.12))`);
-        lines.push(`    (fp_line (start ${n(connector.body.w/2)} ${n(-connector.body.h/2)}) (end ${n(connector.body.w/2)} ${n(connector.body.h/2)}) (layer "F.SilkS") (width 0.12))`);
-        lines.push(`    (fp_line (start ${n(connector.body.w/2)} ${n(connector.body.h/2)}) (end ${n(-connector.body.w/2)} ${n(connector.body.h/2)}) (layer "F.SilkS") (width 0.12))`);
-        lines.push(`    (fp_line (start ${n(-connector.body.w/2)} ${n(connector.body.h/2)}) (end ${n(-connector.body.w/2)} ${n(-connector.body.h/2)}) (layer "F.SilkS") (width 0.12))`);
+        // Placed on the BACK so wire entry is on the hidden side.
+        lines.push(`  (footprint "PolyForge:Conn_${connector.id}" (layer "B.Cu") (at ${n(cx)} ${n(cy)}) (attr smd)`);
+        lines.push(`    (fp_text reference "J1" (at 0 ${n(-connector.body.h / 2 - 1.5)}) (layer "B.SilkS") (effects (font (size 1 1) (thickness 0.15)) (justify mirror)))`);
+        lines.push(`    (fp_text value "${connector.label} (back)" (at 0 ${n(connector.body.h / 2 + 1.5)}) (layer "B.Fab") (effects (font (size 0.8 0.8) (thickness 0.12)) (justify mirror)))`);
+        lines.push(`    (fp_line (start ${n(-connector.body.w/2)} ${n(-connector.body.h/2)}) (end ${n(connector.body.w/2)} ${n(-connector.body.h/2)}) (layer "B.SilkS") (width 0.12))`);
+        lines.push(`    (fp_line (start ${n(connector.body.w/2)} ${n(-connector.body.h/2)}) (end ${n(connector.body.w/2)} ${n(connector.body.h/2)}) (layer "B.SilkS") (width 0.12))`);
+        lines.push(`    (fp_line (start ${n(connector.body.w/2)} ${n(connector.body.h/2)}) (end ${n(-connector.body.w/2)} ${n(connector.body.h/2)}) (layer "B.SilkS") (width 0.12))`);
+        lines.push(`    (fp_line (start ${n(-connector.body.w/2)} ${n(connector.body.h/2)}) (end ${n(-connector.body.w/2)} ${n(-connector.body.h/2)}) (layer "B.SilkS") (width 0.12))`);
         lines.push('  )');
       }
     }
@@ -251,6 +336,28 @@ export function buildKiCadPCB({
       for (const [x, y] of positions) {
         const cx = x * edgeLengthMm, cy = -y * edgeLengthMm;
         lines.push('  ' + mountingHoleFootprint(cx, cy, mountingHole.diameterMm, `MH${mhNum++}`));
+      }
+    }
+  }
+
+  // Routed copper traces. Each polyline becomes a sequence of
+  // (segment ...) entries on F.Cu with the design-rules trace width.
+  // Net id comes from the same table the pads use, so the ratsnest
+  // collapses to nothing when these traces are present.
+  if (routing?.enabled) {
+    const plan = planRouting({
+      net, connectorFaceIdx, led, ledsPerFace,
+      connector, panel, wireCount, designRules: designRules || {},
+      edgeLengthMm,
+    });
+    const tw = designRules?.traceWidthMm ?? 0.25;
+    for (const t of plan.traces) {
+      const netIdx = nets[t.signal] ?? 0;
+      const pts = t.points;
+      for (let i = 1; i < pts.length; i++) {
+        const [x1, y1] = pts[i - 1];
+        const [x2, y2] = pts[i];
+        lines.push(`  (segment (start ${n(x1)} ${n(y1)}) (end ${n(x2)} ${n(y2)}) (width ${n(tw)}) (layer "F.Cu") (net ${netIdx}))`);
       }
     }
   }

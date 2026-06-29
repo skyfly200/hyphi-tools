@@ -1,4 +1,8 @@
-import { mountingHolePositions } from './layout.js';
+import {
+  mountingHolePositions, panelOutline,
+  bridgesForNet, bridgeTraceCount, computeBridgeWidthMm,
+  planRouting,
+} from './layout.js';
 
 // Minimal DXF writer for PolyForge.
 //
@@ -65,6 +69,56 @@ function rect(cx, cy, w, h, layer) {
 //        to millimeters. The caller has already applied edgeLen to the
 //        net coordinates passed in; scale stays 1 unless the caller
 //        wants a uniform stretch.
+// Tessellate a panel polygon outline (with optional per-corner radii)
+// into a flat point list. cornerRadius is in normalized units so it
+// gets scaled into the final mm coordinates here.
+function polygonOutlineToPoints(shape, scale) {
+  const pts = shape.points;
+  const rUnits = shape.cornerRadius || 0;
+  if (rUnits <= 0) return pts.map(([x, y]) => [x * scale, y * scale]);
+
+  const out = [];
+  const n = pts.length;
+  const segs = 8; // arc segments per rounded corner
+  for (let i = 0; i < n; i++) {
+    const prev = pts[(i - 1 + n) % n];
+    const curr = pts[i];
+    const next = pts[(i + 1) % n];
+    const e1 = [prev[0] - curr[0], prev[1] - curr[1]];
+    const e2 = [next[0] - curr[0], next[1] - curr[1]];
+    const l1 = Math.hypot(e1[0], e1[1]) || 1;
+    const l2 = Math.hypot(e2[0], e2[1]) || 1;
+    const r = Math.min(rUnits, l1 / 2, l2 / 2);
+    const start = [curr[0] + (e1[0] / l1) * r, curr[1] + (e1[1] / l1) * r];
+    const end   = [curr[0] + (e2[0] / l2) * r, curr[1] + (e2[1] / l2) * r];
+    // Approximate the arc by walking a circular sweep between the two
+    // straight-edge endpoints; center is offset perpendicular to each.
+    const a1 = Math.atan2(start[1] - curr[1], start[0] - curr[0]);
+    const a2 = Math.atan2(end[1] - curr[1], end[0] - curr[0]);
+    // Circle center: the bisector point at distance r * sec(half-angle)
+    // from curr — simpler is to step along the incoming bisector.
+    const bx = e1[0] / l1 + e2[0] / l2;
+    const by = e1[1] / l1 + e2[1] / l2;
+    const bl = Math.hypot(bx, by) || 1;
+    const dot = (e1[0] / l1) * (e2[0] / l2) + (e1[1] / l1) * (e2[1] / l2);
+    const halfAngle = Math.acos(Math.max(-1, Math.min(1, dot))) / 2;
+    const centerDist = r / Math.sin(halfAngle);
+    const cx = curr[0] + (bx / bl) * centerDist;
+    const cy = curr[1] + (by / bl) * centerDist;
+    const sweepStart = Math.atan2(start[1] - cy, start[0] - cx);
+    let sweepEnd   = Math.atan2(end[1] - cy, end[0] - cx);
+    // Walk the short way around — same direction as the polygon winding.
+    let delta = sweepEnd - sweepStart;
+    if (delta > Math.PI)  delta -= 2 * Math.PI;
+    if (delta < -Math.PI) delta += 2 * Math.PI;
+    for (let k = 0; k <= segs; k++) {
+      const t = sweepStart + (delta * k) / segs;
+      out.push([(cx + Math.cos(t) * r) * scale, (cy + Math.sin(t) * r) * scale]);
+    }
+  }
+  return out;
+}
+
 function circle(cx, cy, r, layer) {
   let s = '';
   s += tag(0, 'CIRCLE');
@@ -76,16 +130,49 @@ function circle(cx, cy, r, layer) {
   return s;
 }
 
-export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorFaceIdx, wireCount = 3, solderPad = null, mountingHole = null, scale = 1 }) {
+export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorFaceIdx, wireCount = 3, solderPad = null, mountingHole = null, panel = null, designRules = null, routing = null, scale = 1 }) {
   let body = '';
 
-  // Outline: emit each unfolded face as its own closed polyline. This
-  // way the importer sees them as separate regions even if a future
-  // version glues adjacent faces together.
+  // Outline: each face's panel-clipped boundary. The "OUTLINE" layer
+  // is the actual cut path — circle, rounded-rect, or polygon. With
+  // panel.shape === 'face' and zero corner radius, this matches the
+  // raw face polygon, preserving the original behavior.
   for (const face of net.faces) {
     if (!face) continue;
-    const pts = face.polygon2D.map(([x, y]) => [x * scale, y * scale]);
+    const shape = panelOutline(face.polygon2D, panel || { shape: 'face' }, scale);
+    if (shape.kind === 'circle') {
+      body += circle(shape.cx * scale, shape.cy * scale, shape.r * scale, 'OUTLINE');
+    } else {
+      // Corner-rounded polygons: emit as a flat polyline at higher
+      // segmentation rather than spec-compliant DXF arcs (keeps the
+      // writer minimal; CAM tools resample anyway).
+      const pts = polygonOutlineToPoints(shape, scale);
+      body += polyline(pts, 'OUTLINE', true);
+    }
+  }
+
+  // Bridges along each fold edge — auto-sized for the routing they
+  // carry. Width is derived from design rules + LED wire count so
+  // the bridge is exactly as wide as the traces need.
+  const bridgeWidthMm = computeBridgeWidthMm(bridgeTraceCount(wireCount), designRules || {});
+  for (const b of bridgesForNet(net.foldEdges, panel, bridgeWidthMm, scale)) {
+    const pts = b.points.map(([x, y]) => [x * scale, y * scale]);
     body += polyline(pts, 'OUTLINE', true);
+  }
+
+  // Optional routed traces on a TRACE layer for CAM to pick up.
+  if (routing?.enabled) {
+    const plan = planRouting({
+      net, connectorFaceIdx, led: ledFootprint, ledsPerFace,
+      connector, panel, wireCount, designRules: designRules || {},
+      edgeLengthMm: scale,
+    });
+    for (const t of plan.traces) {
+      const pts = t.points;
+      for (let i = 1; i < pts.length; i++) {
+        body += line(pts[i - 1], pts[i], `TRACE_${t.signal}`);
+      }
+    }
   }
 
   // Fold lines (the shared edges in the spanning tree). These should
@@ -143,15 +230,15 @@ export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorF
         for (let i = 0; i < wireCount; i++) {
           const px = x0 + solderPad.pitchMm * i;
           if (solderPad.shape === 'circle') {
-            body += circle(px, c[1], solderPad.padDiaMm / 2, 'CONN');
+            body += circle(px, c[1], solderPad.padDiaMm / 2, 'CONN_B');
           } else {
-            body += rect(px, c[1], solderPad.padWMm, solderPad.padHMm, 'CONN');
+            body += rect(px, c[1], solderPad.padWMm, solderPad.padHMm, 'CONN_B');
           }
         }
       } else {
         const w = (connector.body.w + connector.keepout * 2);
         const h = (connector.body.h + connector.keepout * 2);
-        body += rect(c[0], c[1], w, h, 'CONN');
+        body += rect(c[0], c[1], w, h, 'CONN_B');
       }
     }
   }
