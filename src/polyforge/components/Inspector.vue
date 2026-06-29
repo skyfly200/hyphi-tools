@@ -55,6 +55,8 @@ function doExportDXF() {
     solderPad: state.params.solderPad,
     mountingHole: state.params.mountingHole,
     panel: state.params.panel,
+    designRules: state.params.designRules,
+    routing: state.params.routing,
     scale,
   });
   downloadBlob(suggestedFilename('dxf'), 'application/dxf', dxf);
@@ -72,6 +74,8 @@ function doExportKiCad() {
     solderPad: state.params.solderPad,
     mountingHole: state.params.mountingHole,
     panel: state.params.panel,
+    designRules: state.params.designRules,
+    routing: state.params.routing,
   });
   downloadBlob(suggestedFilename('kicad_pcb'), 'application/octet-stream', text);
 }
@@ -88,6 +92,8 @@ function doExportSVGZip() {
     solderPad: state.params.solderPad,
     mountingHole: state.params.mountingHole,
     panel: state.params.panel,
+    designRules: state.params.designRules,
+    routing: state.params.routing,
   });
   const zip = buildZip(files);
   downloadBlob(suggestedFilename('svg.zip'), 'application/zip', zip);

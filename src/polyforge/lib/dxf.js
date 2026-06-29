@@ -1,4 +1,8 @@
-import { mountingHolePositions, panelOutline, bridgesForNet } from './layout.js';
+import {
+  mountingHolePositions, panelOutline,
+  bridgesForNet, bridgeTraceCount, computeBridgeWidthMm,
+  planRouting,
+} from './layout.js';
 
 // Minimal DXF writer for PolyForge.
 //
@@ -126,7 +130,7 @@ function circle(cx, cy, r, layer) {
   return s;
 }
 
-export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorFaceIdx, wireCount = 3, solderPad = null, mountingHole = null, panel = null, scale = 1 }) {
+export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorFaceIdx, wireCount = 3, solderPad = null, mountingHole = null, panel = null, designRules = null, routing = null, scale = 1 }) {
   let body = '';
 
   // Outline: each face's panel-clipped boundary. The "OUTLINE" layer
@@ -147,13 +151,28 @@ export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorF
     }
   }
 
-  // Bridges along each fold edge — extra closed loops on OUTLINE so
-  // the net is a single continuous flex piece even when the panels
-  // are inscribed inside the face. CAM tools typically take the
-  // union of overlapping outline loops.
-  for (const b of bridgesForNet(net.foldEdges, panel, scale)) {
+  // Bridges along each fold edge — auto-sized for the routing they
+  // carry. Width is derived from design rules + LED wire count so
+  // the bridge is exactly as wide as the traces need.
+  const bridgeWidthMm = computeBridgeWidthMm(bridgeTraceCount(wireCount), designRules || {});
+  for (const b of bridgesForNet(net.foldEdges, panel, bridgeWidthMm, scale)) {
     const pts = b.points.map(([x, y]) => [x * scale, y * scale]);
     body += polyline(pts, 'OUTLINE', true);
+  }
+
+  // Optional routed traces on a TRACE layer for CAM to pick up.
+  if (routing?.enabled) {
+    const plan = planRouting({
+      net, connectorFaceIdx, led: ledFootprint, ledsPerFace,
+      connector, panel, wireCount, designRules: designRules || {},
+      edgeLengthMm: scale,
+    });
+    for (const t of plan.traces) {
+      const pts = t.points;
+      for (let i = 1; i < pts.length; i++) {
+        body += line(pts[i - 1], pts[i], `TRACE_${t.signal}`);
+      }
+    }
   }
 
   // Fold lines (the shared edges in the spanning tree). These should

@@ -18,7 +18,11 @@
 // which matches our SVG flip. Net coords come in unit-edge-length;
 // we multiply by edgeLengthMm to get millimeters.
 
-import { mountingHolePositions, ledPositions, centroid2D, panelOutline, bridgesForNet, chainOrderFromConnector } from './layout.js';
+import {
+  mountingHolePositions, ledPositions, centroid2D, panelOutline,
+  bridgesForNet, bridgeTraceCount, computeBridgeWidthMm,
+  chainOrderFromConnector, planRouting,
+} from './layout.js';
 
 const LINE_W = 0.05; // mm, KiCad's typical Edge.Cuts hairline
 
@@ -194,6 +198,8 @@ export function buildKiCadPCB({
   solderPad,
   mountingHole,
   panel,
+  designRules,
+  routing,
 }) {
   const lines = [];
 
@@ -260,11 +266,11 @@ export function buildKiCadPCB({
     }
   }
 
-  // Bridges along each fold edge — extra closed loops on Edge.Cuts
-  // so the net is one continuous flex piece. KiCad treats overlapping
-  // loops on Edge.Cuts as a single board outline at fab time when
-  // sent to a flex-capable house.
-  for (const b of bridgesForNet(net.foldEdges, panel, edgeLengthMm)) {
+  // Bridges along each fold edge — auto-sized for the routing they
+  // carry. Width derives from design rules + LED wire count, so the
+  // bridge is exactly as wide as the traces need.
+  const bridgeWidthMm = computeBridgeWidthMm(bridgeTraceCount(wireCount), designRules || {});
+  for (const b of bridgesForNet(net.foldEdges, panel, bridgeWidthMm, edgeLengthMm)) {
     const pts = b.points.map(([x, y]) => [x * edgeLengthMm, -y * edgeLengthMm]);
     for (let i = 0; i < pts.length; i++) {
       const a = pts[i], c = pts[(i + 1) % pts.length];
@@ -330,6 +336,28 @@ export function buildKiCadPCB({
       for (const [x, y] of positions) {
         const cx = x * edgeLengthMm, cy = -y * edgeLengthMm;
         lines.push('  ' + mountingHoleFootprint(cx, cy, mountingHole.diameterMm, `MH${mhNum++}`));
+      }
+    }
+  }
+
+  // Routed copper traces. Each polyline becomes a sequence of
+  // (segment ...) entries on F.Cu with the design-rules trace width.
+  // Net id comes from the same table the pads use, so the ratsnest
+  // collapses to nothing when these traces are present.
+  if (routing?.enabled) {
+    const plan = planRouting({
+      net, connectorFaceIdx, led, ledsPerFace,
+      connector, panel, wireCount, designRules: designRules || {},
+      edgeLengthMm,
+    });
+    const tw = designRules?.traceWidthMm ?? 0.25;
+    for (const t of plan.traces) {
+      const netIdx = nets[t.signal] ?? 0;
+      const pts = t.points;
+      for (let i = 1; i < pts.length; i++) {
+        const [x1, y1] = pts[i - 1];
+        const [x2, y2] = pts[i];
+        lines.push(`  (segment (start ${n(x1)} ${n(y1)}) (end ${n(x2)} ${n(y2)}) (width ${n(tw)}) (layer "F.Cu") (net ${netIdx}))`);
       }
     }
   }

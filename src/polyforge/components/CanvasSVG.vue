@@ -6,7 +6,10 @@ import {
   ledPositions as ledPositionsLib,
   panelOutline,
   bridgesForNet,
+  bridgeTraceCount,
+  computeBridgeWidthMm,
   chainOrderFromConnector,
+  planRouting,
 } from '../lib/layout.js';
 
 const containerRef = ref(null);
@@ -35,6 +38,7 @@ watch(
     mh: state.params.mountingHole,
     pn: state.params.panel,
     cf: state.params.connectorFaceIdx,
+    rt: state.params.routing,
   }),
   () => {
     refreshTick.value++;
@@ -189,14 +193,45 @@ function holePositionsPx(face) {
   return pts.map(([x, y]) => [x * s, -y * s]);
 }
 
+// Auto-derived bridge width based on trace count + design rules.
+const bridgeWidthMm = computed(() => {
+  const tc = bridgeTraceCount(requiredWireCount.value);
+  return computeBridgeWidthMm(tc, state.params.designRules);
+});
+
 // Bridge polygons in canvas pixel space.
 const bridgePolys = computed(() => {
   const s = state.params.edgeLengthMm;
-  const list = bridgesForNet(geometry.value.net.foldEdges, state.params.panel, s);
+  const list = bridgesForNet(
+    geometry.value.net.foldEdges,
+    state.params.panel,
+    bridgeWidthMm.value,
+    s,
+  );
   return list.map(b => ({
     points: b.points.map(([x, y]) => `${x * s},${-y * s}`).join(' '),
     midX: b.midpoint[0] * s,
     midY: -b.midpoint[1] * s,
+  }));
+});
+
+// Routed copper traces (in mm space). One polyline per signal.
+const routedTraces = computed(() => {
+  if (!state.params.routing?.enabled) return [];
+  const plan = planRouting({
+    net: geometry.value.net,
+    connectorFaceIdx: state.params.connectorFaceIdx,
+    led: currentLED.value,
+    ledsPerFace: state.params.ledsPerFace,
+    connector: currentConnector.value,
+    panel: state.params.panel,
+    wireCount: requiredWireCount.value,
+    designRules: state.params.designRules,
+    edgeLengthMm: state.params.edgeLengthMm,
+  });
+  return plan.traces.map(t => ({
+    ...t,
+    d: t.points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p[0]} ${p[1]}`).join(' '),
   }));
 });
 
@@ -240,6 +275,7 @@ function connPos() {
       <div v-if="state.prefs.layersOpen" class="layers-body">
         <label><input type="checkbox" v-model="state.prefs.showFaceGuide" /> <span>Face boundary</span></label>
         <label><input type="checkbox" v-model="state.prefs.showBridges" /> <span>Bridges</span></label>
+        <label><input type="checkbox" v-model="state.prefs.showTraces" /> <span>Copper traces</span></label>
         <label><input type="checkbox" v-model="state.prefs.showFoldLines" /> <span>Fold lines</span></label>
         <label><input type="checkbox" v-model="state.prefs.showLEDs" /> <span>LED footprints</span></label>
         <label><input type="checkbox" v-model="state.prefs.showConnector" /> <span>Connector (back)</span></label>
@@ -322,6 +358,13 @@ function connPos() {
                   rx="0.3" />
           </template>
         </template>
+      </g>
+
+      <!-- Routed copper traces — only meaningful when routing is on -->
+      <g v-if="state.prefs.showTraces && state.params.routing.enabled" class="traces">
+        <path v-for="(t, i) in routedTraces" :key="`trace-${i}`"
+              :d="t.d" :stroke="t.color" fill="none"
+              :stroke-width="state.params.designRules.traceWidthMm" />
       </g>
 
       <!-- LED chain-position labels (D1, D2, ...) — order follows the
@@ -451,6 +494,10 @@ svg { width: 100%; height: 100%; display: block; }
    single continuous flex sheet. Thin border picks up the panel
    stroke color. */
 .bridges polygon { fill: var(--paper); stroke: var(--paper-stroke); stroke-width: 0.4; pointer-events: none; }
+/* Routed copper traces: stroke color comes from the trace's signal,
+   width is the per-trace designRules.traceWidthMm so the preview
+   matches what KiCad will fabricate. */
+.traces path { fill: none; stroke-linecap: round; stroke-linejoin: round; opacity: 0.85; pointer-events: none; }
 .chain-labels text { font: 500 2.8px 'DM Mono', monospace; fill: var(--led); pointer-events: none; opacity: 0.9; }
 .folds line { stroke: var(--fold); stroke-width: 0.5; stroke-dasharray: 2 1.5; opacity: 0.85; pointer-events: none; transition: x1 0.18s ease, y1 0.18s ease, x2 0.18s ease, y2 0.18s ease; }
 .leds rect { fill: rgba(123,92,250,0.18); stroke: var(--led); stroke-width: 0.25; pointer-events: none; transition: x 0.18s ease, y 0.18s ease, width 0.18s ease, height 0.18s ease; }

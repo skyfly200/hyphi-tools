@@ -25,14 +25,18 @@ const DEFAULT_PARAMS = {
     insetMm: 0,             // pull the boundary inward by this much
     scale: 0.95,            // 'circle' / 'hexagon': fraction of face's inscribed radius
     // Flex bridges between adjacent panels along each fold edge.
-    // Without these, an inset/inscribed panel layout falls apart
-    // into separate islands. The bridge straddles the fold line so
-    // the unfolded sheet stays one continuous piece.
+    // Width is auto-derived from the design rules + signal count so
+    // the bridge is only as wide as the traces need it to be.
     bridge: {
       enabled: true,
-      widthMm: 6,           // perpendicular to the fold edge
       marginMm: 2,          // inset from each endpoint of the fold edge
     },
+  },
+  // Copper routing through the bridges.
+  routing: {
+    enabled: true,
+    // signalsPerFace is informational — for chained 3-wire LEDs each
+    // bridge carries VCC + GND + DIN-forward + DOUT-back.
   },
   // Solder-pad parameters used only when connectorId === 'PAD_ONLY'.
   // Pads sit in a row at the configured pitch; the strip length scales
@@ -73,6 +77,7 @@ const DEFAULT_PREFS = {
   showFaceGuide: false,
   showBridges: true,
   showChainLabels: false,
+  showTraces: true,
   layersOpen: true,
   theme: 'dark',
 };
@@ -186,6 +191,11 @@ export function applyPatchObject(patch) {
   params.mountingHole = { ...DEFAULT_PARAMS.mountingHole, ...(patch.mountingHole || {}) };
   // Migrate the older flat panelShape string into the new panel block.
   params.panel = { ...DEFAULT_PARAMS.panel, ...(patch.panel || {}) };
+  params.panel.bridge = { ...DEFAULT_PARAMS.panel.bridge, ...(patch.panel?.bridge || {}) };
+  // Older patches saved a manual bridge width — strip it so the
+  // auto-derived width takes effect on import.
+  delete params.panel.bridge.widthMm;
+  params.routing = { ...DEFAULT_PARAMS.routing, ...(patch.routing || {}) };
   if (patch.panelShape && !patch.panel) params.panel.shape = patch.panelShape;
   delete params.panelShape;
   if (!POLYHEDRA[params.polyhedronId]) params.polyhedronId = 'tetra';

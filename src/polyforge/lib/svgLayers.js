@@ -12,7 +12,11 @@
 // All coordinates are in millimeters with KiCad's Y-down convention so
 // the SVG drops in at the correct orientation.
 
-import { mountingHolePositions, ledPositions, centroid2D, panelOutline, bridgesForNet } from './layout.js';
+import {
+  mountingHolePositions, ledPositions, centroid2D, panelOutline,
+  bridgesForNet, bridgeTraceCount, computeBridgeWidthMm,
+  planRouting,
+} from './layout.js';
 
 function svgWrap(name, viewBox, body) {
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -39,11 +43,12 @@ function fmt(v) { return Number(v).toFixed(3); }
 // outline.svg — panel-clipped boundary of every face. Rounded
 // corners and inscribed circles/hexagons all render as native SVG
 // primitives KiCad's Import Graphics handles.
-function outlineLayer(net, panel, edgeLengthMm) {
+function outlineLayer(net, panel, designRules, wireCount, edgeLengthMm) {
   const parts = [];
   // Bridges first so they sit underneath the panel outlines in the
   // SVG stack — visually no different, but keeps the file logical.
-  for (const b of bridgesForNet(net.foldEdges, panel, edgeLengthMm)) {
+  const bridgeWidthMm = computeBridgeWidthMm(bridgeTraceCount(wireCount), designRules || {});
+  for (const b of bridgesForNet(net.foldEdges, panel, bridgeWidthMm, edgeLengthMm)) {
     const pts = b.points.map(([x, y]) =>
       `${fmt(x * edgeLengthMm)},${fmt(-y * edgeLengthMm)}`).join(' ');
     parts.push(`    <polygon points="${pts}" fill="none" stroke="black" stroke-width="0.05" />`);
@@ -156,11 +161,26 @@ export function buildSVGLayers({
   net, edgeLengthMm,
   led, ledsPerFace,
   connector, connectorFaceIdx, wireCount, solderPad,
-  mountingHole, panel,
+  mountingHole, panel, designRules, routing,
 }) {
   const viewBox = bboxForNet(net, edgeLengthMm);
   const out = {};
-  out['outline.svg'] = svgWrap('Edge.Cuts', viewBox, outlineLayer(net, panel, edgeLengthMm));
+  out['outline.svg'] = svgWrap('Edge.Cuts', viewBox,
+    outlineLayer(net, panel, designRules, wireCount, edgeLengthMm));
+
+  if (routing?.enabled) {
+    const plan = planRouting({
+      net, connectorFaceIdx, led, ledsPerFace,
+      connector, panel, wireCount, designRules: designRules || {},
+      edgeLengthMm,
+    });
+    const tw = designRules?.traceWidthMm ?? 0.25;
+    const traceParts = plan.traces.map(t => {
+      const d = t.points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${fmt(p[0])} ${fmt(p[1])}`).join(' ');
+      return `    <path d="${d}" fill="none" stroke="${t.color}" stroke-width="${fmt(tw)}" stroke-linecap="round" stroke-linejoin="round" data-signal="${t.signal}" />`;
+    }).join('\n');
+    if (traceParts) out['traces_front.svg'] = svgWrap('F.Cu.Traces', viewBox, traceParts);
+  }
   const folds = foldsLayer(net, edgeLengthMm);
   if (folds) out['folds.svg'] = svgWrap('Dwgs.User', viewBox, folds);
   const leds = ledsLayer(net, led, ledsPerFace, edgeLengthMm);
