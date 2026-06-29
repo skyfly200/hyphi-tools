@@ -1,7 +1,13 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { state, geometry, currentLED, currentConnector, requiredWireCount } from '../store.js';
-import { mountingHolePositions, ledPositions as ledPositionsLib, panelOutline } from '../lib/layout.js';
+import {
+  mountingHolePositions,
+  ledPositions as ledPositionsLib,
+  panelOutline,
+  bridgesForNet,
+  chainOrderFromConnector,
+} from '../lib/layout.js';
 
 const containerRef = ref(null);
 const width = ref(800);
@@ -28,6 +34,7 @@ watch(
     sp: state.params.solderPad,
     mh: state.params.mountingHole,
     pn: state.params.panel,
+    cf: state.params.connectorFaceIdx,
   }),
   () => {
     refreshTick.value++;
@@ -182,6 +189,32 @@ function holePositionsPx(face) {
   return pts.map(([x, y]) => [x * s, -y * s]);
 }
 
+// Bridge polygons in canvas pixel space.
+const bridgePolys = computed(() => {
+  const s = state.params.edgeLengthMm;
+  const list = bridgesForNet(geometry.value.net.foldEdges, state.params.panel, s);
+  return list.map(b => ({
+    points: b.points.map(([x, y]) => `${x * s},${-y * s}`).join(' '),
+    midX: b.midpoint[0] * s,
+    midY: -b.midpoint[1] * s,
+  }));
+});
+
+// Chain order: face index → chain position (0 = closest to connector).
+const chainIndexByFace = computed(() => {
+  const order = chainOrderFromConnector(geometry.value.net, state.params.connectorFaceIdx);
+  const m = new Map();
+  order.forEach((fi, i) => m.set(fi, i));
+  return m;
+});
+
+function chainLabelFor(fi, ledIndexWithinFace = 0) {
+  const lpf = state.params.ledsPerFace;
+  const ci = chainIndexByFace.value.get(fi);
+  if (ci == null) return '';
+  return `D${ci * lpf + ledIndexWithinFace + 1}`;
+}
+
 function connPos() {
   const idx = state.params.connectorFaceIdx;
   const face = geometry.value.net.faces[idx];
@@ -206,16 +239,26 @@ function connPos() {
       </button>
       <div v-if="state.prefs.layersOpen" class="layers-body">
         <label><input type="checkbox" v-model="state.prefs.showFaceGuide" /> <span>Face boundary</span></label>
+        <label><input type="checkbox" v-model="state.prefs.showBridges" /> <span>Bridges</span></label>
         <label><input type="checkbox" v-model="state.prefs.showFoldLines" /> <span>Fold lines</span></label>
         <label><input type="checkbox" v-model="state.prefs.showLEDs" /> <span>LED footprints</span></label>
         <label><input type="checkbox" v-model="state.prefs.showConnector" /> <span>Connector (back)</span></label>
         <label><input type="checkbox" v-model="state.prefs.showMountingHoles" /> <span>Mounting holes</span></label>
         <label><input type="checkbox" v-model="state.prefs.showFaceLabels" /> <span>Face labels</span></label>
+        <label><input type="checkbox" v-model="state.prefs.showChainLabels" /> <span>Chain order (D1, D2…)</span></label>
       </div>
     </div>
     <svg :width="width" :height="height"
          :viewBox="`${viewBox.vx} ${viewBox.vy} ${viewBox.vw} ${viewBox.vh}`"
          preserveAspectRatio="xMidYMid meet">
+      <!-- Bridges: flex strips connecting adjacent panels along the
+           fold edges. Rendered first so they read as continuous board
+           material underneath the panels. -->
+      <g v-if="state.prefs.showBridges" class="bridges">
+        <polygon v-for="(b, i) in bridgePolys" :key="`br-${i}`"
+                 :points="b.points" />
+      </g>
+
       <!-- Geometric face polygon — faint guide so the user can still
            see the unfolding boundary even when the panel shape is
            an inscribed circle or hexagon. Off by default for full-face
@@ -281,6 +324,20 @@ function connPos() {
         </template>
       </g>
 
+      <!-- LED chain-position labels (D1, D2, ...) — order follows the
+           data chain starting from the connector face. -->
+      <g v-if="state.prefs.showChainLabels && ledBox" class="chain-labels">
+        <template v-for="(face, fi) in geometry.net.faces" :key="`chain-${fi}`">
+          <template v-if="face">
+            <text v-for="([x, y], i) in ledPositions(face)" :key="`chain-${fi}-${i}`"
+                  :x="x" :y="y + ledBox.h / 2 + 2"
+                  text-anchor="middle" dominant-baseline="hanging">
+              {{ chainLabelFor(fi, i) }}
+            </text>
+          </template>
+        </template>
+      </g>
+
       <!-- Connector keepout -->
       <g v-if="state.prefs.showConnector && connBox" class="conn">
         <rect v-if="connPos()"
@@ -305,12 +362,6 @@ function connPos() {
                 rx="0.15" />
         </template>
       </g>
-
-      <!-- "back" label below the connector to flag it lives on B.Cu -->
-      <text v-if="state.prefs.showConnector && connBox && connPos()"
-            class="conn-label"
-            :x="connPos()[0]"
-            :y="connPos()[1] + connBox.h / 2 + 3">(back)</text>
 
       <!-- Mounting holes -->
       <g v-if="state.params.mountingHole.enabled && state.prefs.showMountingHoles" class="holes">
@@ -396,13 +447,17 @@ svg { width: 100%; height: 100%; display: block; }
    outline beneath the panel so you can see where the underlying
    geometry sits relative to an inset / inscribed-shape panel. */
 .face-guides path { fill: none; stroke: var(--sub); stroke-width: 0.3; stroke-dasharray: 1.5 1.2; opacity: 0.55; pointer-events: none; }
+/* Bridges share the panel fill so the assembled net reads as a
+   single continuous flex sheet. Thin border picks up the panel
+   stroke color. */
+.bridges polygon { fill: var(--paper); stroke: var(--paper-stroke); stroke-width: 0.4; pointer-events: none; }
+.chain-labels text { font: 500 2.8px 'DM Mono', monospace; fill: var(--led); pointer-events: none; opacity: 0.9; }
 .folds line { stroke: var(--fold); stroke-width: 0.5; stroke-dasharray: 2 1.5; opacity: 0.85; pointer-events: none; transition: x1 0.18s ease, y1 0.18s ease, x2 0.18s ease, y2 0.18s ease; }
 .leds rect { fill: rgba(123,92,250,0.18); stroke: var(--led); stroke-width: 0.25; pointer-events: none; transition: x 0.18s ease, y 0.18s ease, width 0.18s ease, height 0.18s ease; }
 /* Connector + pads live on the BACK side of the PCB — dashed stroke
    and lower opacity to read as "hidden / on the other layer". */
 .conn rect { fill: rgba(63,191,127,0.10); stroke: var(--conn); stroke-width: 0.4; stroke-dasharray: 1.2 0.8; opacity: 0.75; pointer-events: none; transition: x 0.18s ease, y 0.18s ease, width 0.18s ease, height 0.18s ease; }
 .pads rect, .pads circle { fill: var(--conn); stroke: var(--conn); stroke-width: 0.1; opacity: 0.55; pointer-events: none; transition: x 0.18s ease, y 0.18s ease, cx 0.18s ease, cy 0.18s ease, r 0.18s ease, width 0.18s ease, height 0.18s ease; }
-.conn-label { font: 500 3px 'DM Mono', monospace; fill: var(--conn); pointer-events: none; opacity: 0.85; text-anchor: middle; }
 .holes circle { fill: var(--canvas-bg); stroke: var(--t); stroke-width: 0.2; pointer-events: none; opacity: 0.85; transition: cx 0.18s ease, cy 0.18s ease, r 0.18s ease; }
 .labels text { font: 500 4px 'DM Mono', monospace; fill: var(--sub); pointer-events: none; }
 </style>

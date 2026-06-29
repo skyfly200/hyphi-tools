@@ -1,4 +1,4 @@
-import { mountingHolePositions, panelOutline } from './layout.js';
+import { mountingHolePositions, panelOutline, bridgesForNet } from './layout.js';
 
 // Minimal DXF writer for PolyForge.
 //
@@ -145,6 +145,15 @@ export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorF
       const pts = polygonOutlineToPoints(shape, scale);
       body += polyline(pts, 'OUTLINE', true);
     }
+  }
+
+  // Bridges along each fold edge — extra closed loops on OUTLINE so
+  // the net is a single continuous flex piece even when the panels
+  // are inscribed inside the face. CAM tools typically take the
+  // union of overlapping outline loops.
+  for (const b of bridgesForNet(net.foldEdges, panel, scale)) {
+    const pts = b.points.map(([x, y]) => [x * scale, y * scale]);
+    body += polyline(pts, 'OUTLINE', true);
   }
 
   // Fold lines (the shared edges in the spanning tree). These should

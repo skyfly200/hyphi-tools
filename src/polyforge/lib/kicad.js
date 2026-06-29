@@ -18,7 +18,7 @@
 // which matches our SVG flip. Net coords come in unit-edge-length;
 // we multiply by edgeLengthMm to get millimeters.
 
-import { mountingHolePositions, ledPositions, centroid2D, panelOutline } from './layout.js';
+import { mountingHolePositions, ledPositions, centroid2D, panelOutline, bridgesForNet, chainOrderFromConnector } from './layout.js';
 
 const LINE_W = 0.05; // mm, KiCad's typical Edge.Cuts hairline
 
@@ -260,6 +260,18 @@ export function buildKiCadPCB({
     }
   }
 
+  // Bridges along each fold edge — extra closed loops on Edge.Cuts
+  // so the net is one continuous flex piece. KiCad treats overlapping
+  // loops on Edge.Cuts as a single board outline at fab time when
+  // sent to a flex-capable house.
+  for (const b of bridgesForNet(net.foldEdges, panel, edgeLengthMm)) {
+    const pts = b.points.map(([x, y]) => [x * edgeLengthMm, -y * edgeLengthMm]);
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], c = pts[(i + 1) % pts.length];
+      lines.push(`  (gr_line (start ${n(a[0])} ${n(a[1])}) (end ${n(c[0])} ${n(c[1])}) (layer "Edge.Cuts") (width ${LINE_W}))`);
+    }
+  }
+
   // Fold lines on Dwgs.User — not cut, but visible in pcbnew so the
   // user knows where the rigid board meets a hinge.
   for (const e of net.foldEdges) {
@@ -268,10 +280,13 @@ export function buildKiCadPCB({
     lines.push(`  (gr_line (start ${n(a[0])} ${n(a[1])}) (end ${n(b[0])} ${n(b[1])}) (layer "Dwgs.User") (width 0.1))`);
   }
 
-  // LED footprints
+  // LED footprints, numbered in CHAIN order from the connector face
+  // so D1 is the first LED in the data line and D(N) is the last.
   if (led && ledsPerFace > 0) {
     let ledNum = 1;
-    for (const face of net.faces) {
+    const order = chainOrderFromConnector(net, connectorFaceIdx ?? 0);
+    for (const fi of order) {
+      const face = net.faces[fi];
       if (!face) continue;
       const positions = ledPositions(face.polygon2D, led, ledsPerFace, edgeLengthMm);
       for (const [x, y] of positions) {

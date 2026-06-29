@@ -64,6 +64,26 @@ const faceIndices = computed(() => Array.from({ length: faceCount.value }, (_, i
                :value="state.params.panel.scale"
                @input="state.params.panel.scale = Math.min(1, Math.max(0.1, Number($event.target.value) || 0.1))" />
       </label>
+
+      <fieldset class="subsec">
+        <legend>Bridges (flex hinges)</legend>
+        <label class="inline">
+          <input type="checkbox" v-model="state.params.panel.bridge.enabled" />
+          Connect adjacent panels
+        </label>
+        <template v-if="state.params.panel.bridge.enabled">
+          <label>Width (mm)
+            <input type="number" min="0.5" max="50" step="0.5"
+                   :value="state.params.panel.bridge.widthMm"
+                   @input="state.params.panel.bridge.widthMm = Math.max(0.5, Number($event.target.value) || 0.5)" />
+          </label>
+          <label>End margin (mm)
+            <input type="number" min="0" max="50" step="0.5"
+                   :value="state.params.panel.bridge.marginMm"
+                   @input="state.params.panel.bridge.marginMm = Math.max(0, Number($event.target.value) || 0)" />
+          </label>
+        </template>
+      </fieldset>
     </section>
 
     <section>

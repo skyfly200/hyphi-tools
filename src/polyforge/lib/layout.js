@@ -92,6 +92,81 @@ function insetPolygon(poly, c, inset) {
   });
 }
 
+// Flex bridges connecting adjacent panels along each fold edge.
+// Each bridge is a 4-point closed rectangle in normalized units,
+// centered on the fold edge, length = (edgeLen - 2*marginMm),
+// width = bridgeWidthMm, oriented so the long axis lies along the
+// fold edge direction.
+//
+// foldEdges come from the unfolder: { a0, a1, faceA, faceB, ... }
+// where a0/a1 are the 2D endpoints of the shared edge in the
+// unfolded plane.
+export function bridgesForNet(foldEdges, panel, edgeLengthMm) {
+  const cfg = panel?.bridge;
+  if (!cfg || !cfg.enabled) return [];
+  const wUnits = (cfg.widthMm || 0) / Math.max(edgeLengthMm, 0.001);
+  const mUnits = (cfg.marginMm || 0) / Math.max(edgeLengthMm, 0.001);
+  const out = [];
+  for (const e of foldEdges) {
+    const [x0, y0] = e.a0;
+    const [x1, y1] = e.a1;
+    const dx = x1 - x0, dy = y1 - y0;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len <= 2 * mUnits) continue; // too short — skip
+    const ux = dx / len, uy = dy / len;       // along the edge
+    const nx = -uy, ny = ux;                  // perpendicular
+    const half = wUnits / 2;
+    const sx = x0 + ux * mUnits, sy = y0 + uy * mUnits;
+    const ex = x1 - ux * mUnits, ey = y1 - uy * mUnits;
+    const corners = [
+      [sx + nx * half, sy + ny * half],
+      [ex + nx * half, ey + ny * half],
+      [ex - nx * half, ey - ny * half],
+      [sx - nx * half, sy - ny * half],
+    ];
+    out.push({
+      points: corners,
+      faceA: e.faceA, faceB: e.faceB,
+      midpoint: [(sx + ex) / 2, (sy + ey) / 2],
+      length: len - 2 * mUnits,
+      width: wUnits,
+    });
+  }
+  return out;
+}
+
+// Chain order: BFS from the connector face through the unfolded
+// fold-edge graph. Returns face indices in visit order so the LED at
+// position 0 is the one closest to the connector (data-in), and the
+// last face is the chain terminator (DOUT dangles or wraps back).
+export function chainOrderFromConnector(net, connectorFaceIdx) {
+  const adj = new Map();
+  for (const e of net.foldEdges) {
+    if (!adj.has(e.faceA)) adj.set(e.faceA, []);
+    if (!adj.has(e.faceB)) adj.set(e.faceB, []);
+    adj.get(e.faceA).push(e.faceB);
+    adj.get(e.faceB).push(e.faceA);
+  }
+  const seen = new Set();
+  const order = [];
+  const queue = [connectorFaceIdx];
+  while (queue.length) {
+    const fi = queue.shift();
+    if (seen.has(fi)) continue;
+    if (!net.faces[fi]) continue;
+    seen.add(fi);
+    order.push(fi);
+    const neighbors = adj.get(fi) || [];
+    for (const n of neighbors) if (!seen.has(n)) queue.push(n);
+  }
+  // Pick up any faces unreachable from the connector face (shouldn't
+  // happen for connected polyhedra but defensive).
+  for (let i = 0; i < net.faces.length; i++) {
+    if (net.faces[i] && !seen.has(i)) order.push(i);
+  }
+  return order;
+}
+
 // LED positions per face, in normalized units. Single LED → centroid;
 // multiple LEDs → ring around the centroid sized by LED body so they
 // don't overlap.

@@ -24,6 +24,15 @@ const DEFAULT_PARAMS = {
     cornerRadiusMm: 0,      // 'face' only: round the polygon corners
     insetMm: 0,             // pull the boundary inward by this much
     scale: 0.95,            // 'circle' / 'hexagon': fraction of face's inscribed radius
+    // Flex bridges between adjacent panels along each fold edge.
+    // Without these, an inset/inscribed panel layout falls apart
+    // into separate islands. The bridge straddles the fold line so
+    // the unfolded sheet stays one continuous piece.
+    bridge: {
+      enabled: true,
+      widthMm: 6,           // perpendicular to the fold edge
+      marginMm: 2,          // inset from each endpoint of the fold edge
+    },
   },
   // Solder-pad parameters used only when connectorId === 'PAD_ONLY'.
   // Pads sit in a row at the configured pitch; the strip length scales
@@ -62,6 +71,8 @@ const DEFAULT_PREFS = {
   // even when the panel shape clips inward. Useful when you want to
   // see how the panel sits inside the face boundary.
   showFaceGuide: false,
+  showBridges: true,
+  showChainLabels: false,
   layersOpen: true,
   theme: 'dark',
 };

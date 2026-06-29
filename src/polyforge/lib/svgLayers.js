@@ -12,7 +12,7 @@
 // All coordinates are in millimeters with KiCad's Y-down convention so
 // the SVG drops in at the correct orientation.
 
-import { mountingHolePositions, ledPositions, centroid2D, panelOutline } from './layout.js';
+import { mountingHolePositions, ledPositions, centroid2D, panelOutline, bridgesForNet } from './layout.js';
 
 function svgWrap(name, viewBox, body) {
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -41,6 +41,13 @@ function fmt(v) { return Number(v).toFixed(3); }
 // primitives KiCad's Import Graphics handles.
 function outlineLayer(net, panel, edgeLengthMm) {
   const parts = [];
+  // Bridges first so they sit underneath the panel outlines in the
+  // SVG stack — visually no different, but keeps the file logical.
+  for (const b of bridgesForNet(net.foldEdges, panel, edgeLengthMm)) {
+    const pts = b.points.map(([x, y]) =>
+      `${fmt(x * edgeLengthMm)},${fmt(-y * edgeLengthMm)}`).join(' ');
+    parts.push(`    <polygon points="${pts}" fill="none" stroke="black" stroke-width="0.05" />`);
+  }
   for (const face of net.faces) {
     if (!face) continue;
     const shape = panelOutline(face.polygon2D, panel || { shape: 'face' }, edgeLengthMm);
