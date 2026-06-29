@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "fallback": "https://hyphi.art",
+  "links": {
+    "tools": "https://hyphi.art",
+    "ig":    "https://instagram.com/hyphi",
+    "yt":    "https://youtube.com/@hyphi"
+  }
+}

@@ -2,7 +2,32 @@
   command = "npm run build"
   publish = "dist"
 
+[functions]
+  node_bundler   = "esbuild"
+  # Both functions need links.json bundled in.
+  included_files = ["links.json"]
+
+# ─── l.hyphi.art ─── shortener subdomain ────────────────────────────
+# Every request on l.hyphi.art (whatever the path) goes through the
+# redirect function. The function reads the slug from the URL path.
+# Conditions key on the request's Host header.
 [[redirects]]
-  from = "/*"
-  to = "/index.html"
+  from   = "/*"
+  to     = "/.netlify/functions/redirect"
+  status = 200
+  force  = true
+  conditions = { Host = ["l.hyphi.art"] }
+
+# ─── hyphi.art ─── React SPA + admin API ────────────────────────────
+# Stats API at hyphi.art/api/links/stats. Namespaced under /api/links
+# so future tools can park their own APIs alongside.
+[[redirects]]
+  from   = "/api/links/stats"
+  to     = "/.netlify/functions/stats"
+  status = 200
+
+# SPA fallback for everything else (existing behavior).
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
   status = 200
