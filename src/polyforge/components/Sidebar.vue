@@ -81,6 +81,44 @@ const faceIndices = computed(() => Array.from({ length: faceCount.value }, (_, i
           <option v-for="p in placements" :key="p.id" :value="p.id">{{ p.label }}</option>
         </select>
       </label>
+
+      <!-- Solder-pad sub-section: only meaningful for PAD_ONLY -->
+      <fieldset v-if="state.params.connectorId === 'PAD_ONLY'" class="subsec">
+        <legend>Solder pads · {{ requiredWireCount }} wire{{ requiredWireCount === 1 ? '' : 's' }}</legend>
+        <label>Pad shape
+          <select v-model="state.params.solderPad.shape">
+            <option value="rect">Rectangle</option>
+            <option value="circle">Circle</option>
+          </select>
+        </label>
+        <template v-if="state.params.solderPad.shape === 'rect'">
+          <label>Pad width (mm)
+            <input type="number" min="0.2" max="20" step="0.1"
+                   :value="state.params.solderPad.padWMm"
+                   @input="state.params.solderPad.padWMm = Math.max(0.2, Number($event.target.value) || 0.2)" />
+          </label>
+          <label>Pad height (mm)
+            <input type="number" min="0.2" max="20" step="0.1"
+                   :value="state.params.solderPad.padHMm"
+                   @input="state.params.solderPad.padHMm = Math.max(0.2, Number($event.target.value) || 0.2)" />
+          </label>
+        </template>
+        <label v-else>Pad diameter (mm)
+          <input type="number" min="0.2" max="20" step="0.1"
+                 :value="state.params.solderPad.padDiaMm"
+                 @input="state.params.solderPad.padDiaMm = Math.max(0.2, Number($event.target.value) || 0.2)" />
+        </label>
+        <label>Pad pitch (mm)
+          <input type="number" min="0.5" max="20" step="0.1"
+                 :value="state.params.solderPad.pitchMm"
+                 @input="state.params.solderPad.pitchMm = Math.max(0.5, Number($event.target.value) || 0.5)" />
+        </label>
+        <label>Strip keepout (mm)
+          <input type="number" min="0" max="10" step="0.1"
+                 :value="state.params.solderPad.keepoutMm"
+                 @input="state.params.solderPad.keepoutMm = Math.max(0, Number($event.target.value) || 0)" />
+        </label>
+      </fieldset>
     </section>
 
     <section>
@@ -136,4 +174,6 @@ textarea { font-family: 'DM Mono', monospace; font-size: 0.76rem; resize: vertic
 details { font: 400 0.74rem 'DM Sans'; color: var(--sub); }
 details summary { cursor: pointer; padding: 4px 0; }
 .err { color: var(--ac); font: 500 0.72rem 'DM Mono', monospace; padding-top: 4px; }
+.subsec { margin: 4px 0 0; padding: 8px 10px 10px; border: 1px solid var(--bd); border-radius: 6px; display: flex; flex-direction: column; gap: 8px; }
+.subsec legend { font: 500 0.7rem 'DM Mono', monospace; color: var(--ac2); padding: 0 6px; }
 </style>

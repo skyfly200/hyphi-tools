@@ -63,7 +63,18 @@ function rect(cx, cy, w, h, layer) {
 //        to millimeters. The caller has already applied edgeLen to the
 //        net coordinates passed in; scale stays 1 unless the caller
 //        wants a uniform stretch.
-export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorFaceIdx, wireCount = 3, scale = 1 }) {
+function circle(cx, cy, r, layer) {
+  let s = '';
+  s += tag(0, 'CIRCLE');
+  s += tag(8, layer);
+  s += tag(10, cx.toFixed(4));
+  s += tag(20, cy.toFixed(4));
+  s += tag(30, '0.0');
+  s += tag(40, r.toFixed(4));
+  return s;
+}
+
+export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorFaceIdx, wireCount = 3, solderPad = null, scale = 1 }) {
   let body = '';
 
   // Outline: emit each unfolded face as its own closed polyline. This
@@ -108,17 +119,38 @@ export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorF
     }
   }
 
-  // One connector keepout on the requested face's centroid.
+  // Connector on the requested face's centroid: named parts get a
+  // single keepout rectangle; PAD_ONLY gets individual pads (circle or
+  // rect) plus the surrounding keepout strip.
   if (connector && connectorFaceIdx != null) {
     const face = net.faces[connectorFaceIdx];
     if (face) {
       const c = centroid(face.polygon2D).map(v => v * scale);
-      const baseW = connector.id === 'PAD_ONLY'
-        ? connector.pitch * (wireCount + 1)
-        : connector.body.w;
-      const w = (baseW + connector.keepout * 2);
-      const h = (connector.body.h + connector.keepout * 2);
-      body += rect(c[0], c[1], w, h, 'CONN');
+      if (connector.id === 'PAD_ONLY' && solderPad) {
+        const onePadW = solderPad.shape === 'circle' ? solderPad.padDiaMm : solderPad.padWMm;
+        const onePadH = solderPad.shape === 'circle' ? solderPad.padDiaMm : solderPad.padHMm;
+        const stripW = solderPad.pitchMm * (wireCount - 1);
+        // Surrounding keepout strip.
+        body += rect(c[0], c[1],
+          stripW + onePadW + solderPad.keepoutMm * 2,
+          onePadH + solderPad.keepoutMm * 2,
+          'CONN');
+        // Per-pad geometry, also on the CONN layer so KiCad can pick
+        // them up as PCB pad outlines.
+        const x0 = c[0] - stripW / 2;
+        for (let i = 0; i < wireCount; i++) {
+          const px = x0 + solderPad.pitchMm * i;
+          if (solderPad.shape === 'circle') {
+            body += circle(px, c[1], solderPad.padDiaMm / 2, 'CONN');
+          } else {
+            body += rect(px, c[1], solderPad.padWMm, solderPad.padHMm, 'CONN');
+          }
+        }
+      } else {
+        const w = (connector.body.w + connector.keepout * 2);
+        const h = (connector.body.h + connector.keepout * 2);
+        body += rect(c[0], c[1], w, h, 'CONN');
+      }
     }
   }
 

@@ -49,6 +49,7 @@ function doExportDXF() {
     connector: state.prefs.showConnector ? currentConnector.value : null,
     connectorFaceIdx: state.params.connectorFaceIdx,
     wireCount: requiredWireCount.value,
+    solderPad: state.params.solderPad,
     scale,
   });
   downloadBlob(suggestedFilename('dxf'), 'application/dxf', dxf);

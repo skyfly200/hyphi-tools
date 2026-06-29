@@ -17,6 +17,17 @@ const DEFAULT_PARAMS = {
   connectorFaceIdx: 0,      // face that hosts the wire entry connector
   connectorPlacement: 'edge',
   panelShape: 'face',       // 'face' | 'circle' | 'hexagon'
+  // Solder-pad parameters used only when connectorId === 'PAD_ONLY'.
+  // Pads sit in a row at the configured pitch; the strip length scales
+  // automatically with the LED's wireCount.
+  solderPad: {
+    shape: 'rect',          // 'rect' | 'circle'
+    padWMm: 1.6,            // rect: pad width (along the row); circle: ignored
+    padHMm: 2.2,            // rect: pad height (across the row); circle: ignored
+    padDiaMm: 1.6,          // circle: pad diameter
+    pitchMm: 2.54,          // center-to-center spacing between pads
+    keepoutMm: 0.4,         // clearance around the whole strip
+  },
   // Design rules JSON — what KiCad / fab needs to know. Driven by the
   // sidebar form, but the user can paste a JSON object directly.
   designRules: {
@@ -140,6 +151,7 @@ export function applyPatchObject(patch) {
   // fields still resolve sanely.
   const params = { ...DEFAULT_PARAMS, ...patch };
   params.designRules = { ...DEFAULT_PARAMS.designRules, ...(patch.designRules || {}) };
+  params.solderPad = { ...DEFAULT_PARAMS.solderPad, ...(patch.solderPad || {}) };
   if (!POLYHEDRA[params.polyhedronId]) params.polyhedronId = 'tetra';
   if (!LEDS[params.ledId]) params.ledId = 'WS2812B';
   if (!CONNECTORS[params.connectorId]) params.connectorId = 'PAD_ONLY';

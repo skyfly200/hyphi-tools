@@ -24,6 +24,7 @@ watch(
     s: state.params.panelShape,
     r: state.rootFace,
     dr: state.params.designRules,
+    sp: state.params.solderPad,
   }),
   () => {
     refreshTick.value++;
@@ -103,14 +104,38 @@ const ledBox = computed(() => {
   return { w: l.body.w + l.keepout * 2, h: l.body.h + l.keepout * 2 };
 });
 
+const isPadOnly = computed(() => currentConnector.value?.id === 'PAD_ONLY');
+
+// For named connectors (JST, Molex, etc) the keepout rectangle uses
+// the catalog body + keepout. PAD_ONLY uses the user's pad params:
+// strip length = pitch * (n - 1) + onePadW, plus user-specified keepout
+// around the whole strip. h = padH/diameter + keepout * 2.
 const connBox = computed(() => {
   const c = currentConnector.value;
   if (!c) return null;
-  // PAD_ONLY scales lengthwise with the LED's required wire count so a
-  // 4-wire LED gets a wider pad strip than a 3-wire one.
-  let w = c.body.w;
-  if (c.id === 'PAD_ONLY') w = c.pitch * (requiredWireCount.value + 1);
-  return { w: w + c.keepout * 2, h: c.body.h + c.keepout * 2 };
+  if (c.id === 'PAD_ONLY') {
+    const sp = state.params.solderPad;
+    const n = requiredWireCount.value;
+    const onePadW = sp.shape === 'circle' ? sp.padDiaMm : sp.padWMm;
+    const onePadH = sp.shape === 'circle' ? sp.padDiaMm : sp.padHMm;
+    return {
+      w: sp.pitchMm * (n - 1) + onePadW + sp.keepoutMm * 2,
+      h: onePadH + sp.keepoutMm * 2,
+    };
+  }
+  return { w: c.body.w + c.keepout * 2, h: c.body.h + c.keepout * 2 };
+});
+
+// Per-pad positions for PAD_ONLY rendering.
+const padPositions = computed(() => {
+  if (!isPadOnly.value) return [];
+  const pos = connPos();
+  if (!pos) return [];
+  const sp = state.params.solderPad;
+  const n = requiredWireCount.value;
+  const stripW = sp.pitchMm * (n - 1);
+  const x0 = pos[0] - stripW / 2;
+  return Array.from({ length: n }, (_, i) => [x0 + sp.pitchMm * i, pos[1]]);
 });
 
 function connPos() {
@@ -173,6 +198,23 @@ function connPos() {
               :width="connBox.w" :height="connBox.h" rx="0.6" />
       </g>
 
+      <!-- Individual solder pads (only when PAD_ONLY is selected) -->
+      <g v-if="state.prefs.showConnector && isPadOnly" class="pads">
+        <template v-if="state.params.solderPad.shape === 'circle'">
+          <circle v-for="([x, y], i) in padPositions" :key="`pad-${i}`"
+                  :cx="x" :cy="y"
+                  :r="state.params.solderPad.padDiaMm / 2" />
+        </template>
+        <template v-else>
+          <rect v-for="([x, y], i) in padPositions" :key="`pad-${i}`"
+                :x="x - state.params.solderPad.padWMm / 2"
+                :y="y - state.params.solderPad.padHMm / 2"
+                :width="state.params.solderPad.padWMm"
+                :height="state.params.solderPad.padHMm"
+                rx="0.15" />
+        </template>
+      </g>
+
       <!-- Face labels -->
       <g v-if="state.prefs.showFaceLabels" class="labels">
         <template v-for="(face, fi) in geometry.net.faces" :key="`lbl-${fi}`">
@@ -210,5 +252,6 @@ svg { width: 100%; height: 100%; display: block; }
 .folds line { stroke: var(--fold); stroke-width: 0.5; stroke-dasharray: 2 1.5; opacity: 0.85; pointer-events: none; transition: x1 0.18s ease, y1 0.18s ease, x2 0.18s ease, y2 0.18s ease; }
 .leds rect { fill: rgba(123,92,250,0.18); stroke: var(--led); stroke-width: 0.25; pointer-events: none; transition: x 0.18s ease, y 0.18s ease, width 0.18s ease, height 0.18s ease; }
 .conn rect { fill: rgba(63,191,127,0.18); stroke: var(--conn); stroke-width: 0.4; pointer-events: none; transition: x 0.18s ease, y 0.18s ease, width 0.18s ease, height 0.18s ease; }
+.pads rect, .pads circle { fill: var(--conn); stroke: var(--conn); stroke-width: 0.1; pointer-events: none; transition: x 0.18s ease, y 0.18s ease, cx 0.18s ease, cy 0.18s ease, r 0.18s ease, width 0.18s ease, height 0.18s ease; }
 .labels text { font: 500 4px 'DM Mono', monospace; fill: var(--sub); pointer-events: none; }
 </style>
