@@ -1,3 +1,5 @@
+import { mountingHolePositions } from './layout.js';
+
 // Minimal DXF writer for PolyForge.
 //
 // We emit an R12-flavored ASCII DXF with just the bits KiCad and most
@@ -74,7 +76,7 @@ function circle(cx, cy, r, layer) {
   return s;
 }
 
-export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorFaceIdx, wireCount = 3, solderPad = null, scale = 1 }) {
+export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorFaceIdx, wireCount = 3, solderPad = null, mountingHole = null, scale = 1 }) {
   let body = '';
 
   // Outline: emit each unfolded face as its own closed polyline. This
@@ -150,6 +152,18 @@ export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorF
         const w = (connector.body.w + connector.keepout * 2);
         const h = (connector.body.h + connector.keepout * 2);
         body += rect(c[0], c[1], w, h, 'CONN');
+      }
+    }
+  }
+
+  // Mounting holes on a dedicated HOLE layer so CAM can route them
+  // separately from the LED keepouts.
+  if (mountingHole && mountingHole.enabled) {
+    for (const face of net.faces) {
+      if (!face) continue;
+      const pts = mountingHolePositions(face.polygon2D, mountingHole, scale);
+      for (const [x, y] of pts) {
+        body += circle(x * scale, y * scale, mountingHole.diameterMm / 2, 'HOLE');
       }
     }
   }

@@ -1,0 +1,133 @@
+// Build per-layer SVG strings for PolyForge net export.
+//
+// Each returned file is a standalone <svg> with a single Inkscape-style
+// layer group. The full bundle is intended to be unzipped and imported
+// into KiCad (or another CAM tool) one layer at a time — KiCad maps:
+//   outline.svg  → Edge.Cuts
+//   folds.svg    → Dwgs.User
+//   leds.svg     → F.Fab (placement reference)
+//   conn.svg     → F.Fab (placement reference)
+//   holes.svg    → drill / NPTH guidance
+//
+// All coordinates are in millimeters with KiCad's Y-down convention so
+// the SVG drops in at the correct orientation.
+
+import { mountingHolePositions, ledPositions, centroid2D } from './layout.js';
+
+function svgWrap(name, viewBox, body) {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+     viewBox="${viewBox}" width="${viewBox.split(' ')[2]}mm" height="${viewBox.split(' ')[3]}mm">
+  <g inkscape:groupmode="layer" inkscape:label="${name}" id="${name}">
+${body}
+  </g>
+</svg>
+`;
+}
+
+function bboxForNet(net, edgeLengthMm) {
+  const b = net.bbox;
+  const w = Math.max(1, b.width * edgeLengthMm);
+  const h = Math.max(1, b.height * edgeLengthMm);
+  const pad = Math.max(w, h) * 0.05 + 5;
+  return `${(-w / 2 - pad).toFixed(3)} ${(-h / 2 - pad).toFixed(3)} ${(w + pad * 2).toFixed(3)} ${(h + pad * 2).toFixed(3)}`;
+}
+
+function fmt(v) { return Number(v).toFixed(3); }
+
+// outline.svg — every unfolded face as a closed polyline. The KiCad
+// import treats each closed loop as a board outline.
+function outlineLayer(net, edgeLengthMm) {
+  const parts = [];
+  for (const face of net.faces) {
+    if (!face) continue;
+    const pts = face.polygon2D.map(([x, y]) =>
+      `${fmt(x * edgeLengthMm)},${fmt(-y * edgeLengthMm)}`).join(' ');
+    parts.push(`    <polygon points="${pts}" fill="none" stroke="black" stroke-width="0.05" />`);
+  }
+  return parts.join('\n');
+}
+
+function foldsLayer(net, edgeLengthMm) {
+  return net.foldEdges.map(e => {
+    const x1 = fmt(e.a0[0] * edgeLengthMm), y1 = fmt(-e.a0[1] * edgeLengthMm);
+    const x2 = fmt(e.a1[0] * edgeLengthMm), y2 = fmt(-e.a1[1] * edgeLengthMm);
+    return `    <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="orange" stroke-width="0.1" stroke-dasharray="0.6 0.4" />`;
+  }).join('\n');
+}
+
+function ledsLayer(net, led, ledsPerFace, edgeLengthMm) {
+  if (!led || ledsPerFace <= 0) return '';
+  const w = led.body.w, h = led.body.h;
+  const parts = [];
+  for (const face of net.faces) {
+    if (!face) continue;
+    const pts = ledPositions(face.polygon2D, led, ledsPerFace, edgeLengthMm);
+    for (const [ux, uy] of pts) {
+      const cx = ux * edgeLengthMm, cy = -uy * edgeLengthMm;
+      parts.push(`    <rect x="${fmt(cx - w/2)}" y="${fmt(cy - h/2)}" width="${fmt(w)}" height="${fmt(h)}" fill="none" stroke="purple" stroke-width="0.1" />`);
+    }
+  }
+  return parts.join('\n');
+}
+
+function connLayer(net, connector, connectorFaceIdx, wireCount, solderPad, edgeLengthMm) {
+  if (!connector || connectorFaceIdx == null) return '';
+  const face = net.faces[connectorFaceIdx];
+  if (!face) return '';
+  const c = centroid2D(face.polygon2D);
+  const cx = c[0] * edgeLengthMm, cy = -c[1] * edgeLengthMm;
+  const parts = [];
+  if (connector.id === 'PAD_ONLY' && solderPad) {
+    const stripW = solderPad.pitchMm * (wireCount - 1);
+    const x0 = cx - stripW / 2;
+    for (let i = 0; i < wireCount; i++) {
+      const px = x0 + solderPad.pitchMm * i;
+      if (solderPad.shape === 'circle') {
+        parts.push(`    <circle cx="${fmt(px)}" cy="${fmt(cy)}" r="${fmt(solderPad.padDiaMm/2)}" fill="green" />`);
+      } else {
+        parts.push(`    <rect x="${fmt(px - solderPad.padWMm/2)}" y="${fmt(cy - solderPad.padHMm/2)}" width="${fmt(solderPad.padWMm)}" height="${fmt(solderPad.padHMm)}" fill="green" />`);
+      }
+    }
+  } else {
+    parts.push(`    <rect x="${fmt(cx - connector.body.w/2)}" y="${fmt(cy - connector.body.h/2)}" width="${fmt(connector.body.w)}" height="${fmt(connector.body.h)}" fill="none" stroke="green" stroke-width="0.1" />`);
+  }
+  return parts.join('\n');
+}
+
+function holesLayer(net, mountingHole, edgeLengthMm) {
+  if (!mountingHole || !mountingHole.enabled) return '';
+  const r = mountingHole.diameterMm / 2;
+  const parts = [];
+  for (const face of net.faces) {
+    if (!face) continue;
+    const pts = mountingHolePositions(face.polygon2D, mountingHole, edgeLengthMm);
+    for (const [ux, uy] of pts) {
+      parts.push(`    <circle cx="${fmt(ux * edgeLengthMm)}" cy="${fmt(-uy * edgeLengthMm)}" r="${fmt(r)}" fill="white" stroke="black" stroke-width="0.05" />`);
+    }
+  }
+  return parts.join('\n');
+}
+
+// Return { 'outline.svg': '<?xml…>', 'folds.svg': … }. Omits layers
+// that would be empty so the bundle stays clean.
+export function buildSVGLayers({
+  net, edgeLengthMm,
+  led, ledsPerFace,
+  connector, connectorFaceIdx, wireCount, solderPad,
+  mountingHole,
+}) {
+  const viewBox = bboxForNet(net, edgeLengthMm);
+  const out = {};
+  out['outline.svg'] = svgWrap('Edge.Cuts', viewBox, outlineLayer(net, edgeLengthMm));
+  const folds = foldsLayer(net, edgeLengthMm);
+  if (folds) out['folds.svg'] = svgWrap('Dwgs.User', viewBox, folds);
+  const leds = ledsLayer(net, led, ledsPerFace, edgeLengthMm);
+  if (leds) out['leds.svg'] = svgWrap('F.Fab.LEDs', viewBox, leds);
+  const conn = connLayer(net, connector, connectorFaceIdx, wireCount, solderPad, edgeLengthMm);
+  if (conn) out['connector.svg'] = svgWrap('F.Fab.Connector', viewBox, conn);
+  const holes = holesLayer(net, mountingHole, edgeLengthMm);
+  if (holes) out['holes.svg'] = svgWrap('NPTH', viewBox, holes);
+  return out;
+}

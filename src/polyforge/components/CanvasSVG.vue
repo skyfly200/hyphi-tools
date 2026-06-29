@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { state, geometry, currentLED, currentConnector, requiredWireCount } from '../store.js';
+import { mountingHolePositions, ledPositions as ledPositionsLib } from '../lib/layout.js';
 
 const containerRef = ref(null);
 const width = ref(800);
@@ -25,6 +26,7 @@ watch(
     r: state.rootFace,
     dr: state.params.designRules,
     sp: state.params.solderPad,
+    mh: state.params.mountingHole,
   }),
   () => {
     refreshTick.value++;
@@ -80,16 +82,9 @@ function centroidPx(poly) {
 }
 
 function ledPositions(face) {
-  const [cx, cy] = centroidPx(face.polygon2D);
-  const n = state.params.ledsPerFace;
-  if (n === 0 || !currentLED.value) return [];
-  if (n === 1) return [[cx, cy]];
-  const led = currentLED.value;
-  const r = Math.max(led.body.w, led.body.h) * 0.9;
-  return Array.from({ length: n }, (_, i) => {
-    const a = (2 * Math.PI * i) / n - Math.PI / 2;
-    return [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
-  });
+  const s = state.params.edgeLengthMm;
+  const pts = ledPositionsLib(face.polygon2D, currentLED.value, state.params.ledsPerFace, s);
+  return pts.map(([x, y]) => [x * s, -y * s]);
 }
 
 function onFaceClick(fi) {
@@ -137,6 +132,12 @@ const padPositions = computed(() => {
   const x0 = pos[0] - stripW / 2;
   return Array.from({ length: n }, (_, i) => [x0 + sp.pitchMm * i, pos[1]]);
 });
+
+function holePositionsPx(face) {
+  const s = state.params.edgeLengthMm;
+  const pts = mountingHolePositions(face.polygon2D, state.params.mountingHole, s);
+  return pts.map(([x, y]) => [x * s, -y * s]);
+}
 
 function connPos() {
   const idx = state.params.connectorFaceIdx;
@@ -215,6 +216,17 @@ function connPos() {
         </template>
       </g>
 
+      <!-- Mounting holes -->
+      <g v-if="state.params.mountingHole.enabled && state.prefs.showMountingHoles" class="holes">
+        <template v-for="(face, fi) in geometry.net.faces" :key="`mh-${fi}`">
+          <template v-if="face">
+            <circle v-for="([x, y], i) in holePositionsPx(face)" :key="`mh-${fi}-${i}`"
+                    :cx="x" :cy="y"
+                    :r="state.params.mountingHole.diameterMm / 2" />
+          </template>
+        </template>
+      </g>
+
       <!-- Face labels -->
       <g v-if="state.prefs.showFaceLabels" class="labels">
         <template v-for="(face, fi) in geometry.net.faces" :key="`lbl-${fi}`">
@@ -253,5 +265,6 @@ svg { width: 100%; height: 100%; display: block; }
 .leds rect { fill: rgba(123,92,250,0.18); stroke: var(--led); stroke-width: 0.25; pointer-events: none; transition: x 0.18s ease, y 0.18s ease, width 0.18s ease, height 0.18s ease; }
 .conn rect { fill: rgba(63,191,127,0.18); stroke: var(--conn); stroke-width: 0.4; pointer-events: none; transition: x 0.18s ease, y 0.18s ease, width 0.18s ease, height 0.18s ease; }
 .pads rect, .pads circle { fill: var(--conn); stroke: var(--conn); stroke-width: 0.1; pointer-events: none; transition: x 0.18s ease, y 0.18s ease, cx 0.18s ease, cy 0.18s ease, r 0.18s ease, width 0.18s ease, height 0.18s ease; }
+.holes circle { fill: var(--canvas-bg); stroke: var(--t); stroke-width: 0.2; pointer-events: none; opacity: 0.85; transition: cx 0.18s ease, cy 0.18s ease, r 0.18s ease; }
 .labels text { font: 500 4px 'DM Mono', monospace; fill: var(--sub); pointer-events: none; }
 </style>

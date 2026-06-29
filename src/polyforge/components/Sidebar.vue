@@ -122,6 +122,33 @@ const faceIndices = computed(() => Array.from({ length: faceCount.value }, (_, i
     </section>
 
     <section>
+      <h4>Mounting holes</h4>
+      <label class="inline">
+        <input type="checkbox" v-model="state.params.mountingHole.enabled" />
+        Add mounting holes
+      </label>
+      <template v-if="state.params.mountingHole.enabled">
+        <label>Position
+          <select v-model="state.params.mountingHole.position">
+            <option value="corners">One per face corner</option>
+            <option value="center">One at face center</option>
+          </select>
+        </label>
+        <label>Hole diameter (mm)
+          <input type="number" min="0.5" max="20" step="0.1"
+                 :value="state.params.mountingHole.diameterMm"
+                 @input="state.params.mountingHole.diameterMm = Math.max(0.5, Number($event.target.value) || 0.5)" />
+        </label>
+        <label v-if="state.params.mountingHole.position === 'corners'">
+          Corner inset (mm)
+          <input type="number" min="0" max="50" step="0.5"
+                 :value="state.params.mountingHole.marginMm"
+                 @input="state.params.mountingHole.marginMm = Math.max(0, Number($event.target.value) || 0)" />
+        </label>
+      </template>
+    </section>
+
+    <section>
       <h4>Design rules</h4>
       <label>Trace width (mm)
         <input type="number" min="0.05" max="5" step="0.05"
@@ -158,6 +185,7 @@ const faceIndices = computed(() => Array.from({ length: faceCount.value }, (_, i
       <label class="inline"><input type="checkbox" v-model="state.prefs.showLEDs" /> LED footprints</label>
       <label class="inline"><input type="checkbox" v-model="state.prefs.showConnector" /> Connector keepout</label>
       <label class="inline"><input type="checkbox" v-model="state.prefs.showFaceLabels" /> Face labels</label>
+      <label class="inline"><input type="checkbox" v-model="state.prefs.showMountingHoles" /> Mounting holes</label>
     </section>
   </aside>
 </template>

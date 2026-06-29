@@ -6,12 +6,15 @@ import {
   exportCurrentPatchJSON, importPatchJSON,
 } from '../store.js';
 import { buildDXF } from '../lib/dxf.js';
+import { buildKiCadPCB } from '../lib/kicad.js';
+import { buildSVGLayers } from '../lib/svgLayers.js';
+import { buildZip } from '../lib/zip.js';
 
 const saveName = ref('');
 const importErr = ref('');
 
-function downloadBlob(filename, mime, text) {
-  const blob = new Blob([text], { type: mime });
+function downloadBlob(filename, mime, content) {
+  const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = filename;
@@ -50,9 +53,41 @@ function doExportDXF() {
     connectorFaceIdx: state.params.connectorFaceIdx,
     wireCount: requiredWireCount.value,
     solderPad: state.params.solderPad,
+    mountingHole: state.params.mountingHole,
     scale,
   });
   downloadBlob(suggestedFilename('dxf'), 'application/dxf', dxf);
+}
+
+function doExportKiCad() {
+  const text = buildKiCadPCB({
+    net: geometry.value.net,
+    edgeLengthMm: state.params.edgeLengthMm,
+    led: currentLED.value,
+    ledsPerFace: state.params.ledsPerFace,
+    connector: currentConnector.value,
+    connectorFaceIdx: state.params.connectorFaceIdx,
+    wireCount: requiredWireCount.value,
+    solderPad: state.params.solderPad,
+    mountingHole: state.params.mountingHole,
+  });
+  downloadBlob(suggestedFilename('kicad_pcb'), 'application/octet-stream', text);
+}
+
+function doExportSVGZip() {
+  const files = buildSVGLayers({
+    net: geometry.value.net,
+    edgeLengthMm: state.params.edgeLengthMm,
+    led: currentLED.value,
+    ledsPerFace: state.params.ledsPerFace,
+    connector: currentConnector.value,
+    connectorFaceIdx: state.params.connectorFaceIdx,
+    wireCount: requiredWireCount.value,
+    solderPad: state.params.solderPad,
+    mountingHole: state.params.mountingHole,
+  });
+  const zip = buildZip(files);
+  downloadBlob(suggestedFilename('svg.zip'), 'application/zip', zip);
 }
 
 function doImport(e) {
@@ -133,8 +168,10 @@ const netBox = computed(() => {
     <section>
       <h4>Export / Import</h4>
       <div class="row">
-        <button @click="doExportPatch">Export patch (.json)</button>
-        <button @click="doExportDXF">Export DXF</button>
+        <button @click="doExportPatch">Patch (.json)</button>
+        <button @click="doExportDXF">DXF</button>
+        <button @click="doExportKiCad">KiCad PCB</button>
+        <button @click="doExportSVGZip">SVG layers (.zip)</button>
       </div>
       <label class="filebtn">
         Import patch (.json)

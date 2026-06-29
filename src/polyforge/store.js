@@ -28,6 +28,12 @@ const DEFAULT_PARAMS = {
     pitchMm: 2.54,          // center-to-center spacing between pads
     keepoutMm: 0.4,         // clearance around the whole strip
   },
+  mountingHole: {
+    enabled: false,
+    position: 'corners',    // 'center' | 'corners'
+    diameterMm: 3.2,        // typical M3 clearance
+    marginMm: 4,            // inset from face corner toward centroid (corners mode)
+  },
   // Design rules JSON — what KiCad / fab needs to know. Driven by the
   // sidebar form, but the user can paste a JSON object directly.
   designRules: {
@@ -43,6 +49,7 @@ const DEFAULT_PREFS = {
   showLEDs: true,
   showConnector: true,
   showFaceLabels: true,
+  showMountingHoles: true,
   theme: 'dark',
 };
 
@@ -152,6 +159,7 @@ export function applyPatchObject(patch) {
   const params = { ...DEFAULT_PARAMS, ...patch };
   params.designRules = { ...DEFAULT_PARAMS.designRules, ...(patch.designRules || {}) };
   params.solderPad = { ...DEFAULT_PARAMS.solderPad, ...(patch.solderPad || {}) };
+  params.mountingHole = { ...DEFAULT_PARAMS.mountingHole, ...(patch.mountingHole || {}) };
   if (!POLYHEDRA[params.polyhedronId]) params.polyhedronId = 'tetra';
   if (!LEDS[params.ledId]) params.ledId = 'WS2812B';
   if (!CONNECTORS[params.connectorId]) params.connectorId = 'PAD_ONLY';
