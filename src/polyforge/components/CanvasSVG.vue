@@ -1,10 +1,38 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
-import { state, geometry, currentLED, currentConnector } from '../store.js';
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
+import { state, geometry, currentLED, currentConnector, requiredWireCount } from '../store.js';
 
 const containerRef = ref(null);
 const width = ref(800);
 const height = ref(600);
+
+// Flip a key whenever any meaningful param changes so the canvas can
+// flash a "refreshed" pulse. Watching a stringified signature instead
+// of deep-watching state keeps reactivity cheap.
+const refreshTick = ref(0);
+const flashing = ref(false);
+let flashTimer = null;
+watch(
+  () => JSON.stringify({
+    p: state.params.polyhedronId,
+    e: state.params.edgeLengthMm,
+    led: state.params.ledId,
+    lpf: state.params.ledsPerFace,
+    c: state.params.connectorId,
+    cf: state.params.connectorFaceIdx,
+    cp: state.params.connectorPlacement,
+    s: state.params.panelShape,
+    r: state.rootFace,
+    dr: state.params.designRules,
+  }),
+  () => {
+    refreshTick.value++;
+    flashing.value = true;
+    if (flashTimer) clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => { flashing.value = false; }, 360);
+  }
+);
+onBeforeUnmount(() => { if (flashTimer) clearTimeout(flashTimer); });
 
 function measure() {
   if (!containerRef.value) return;
@@ -78,7 +106,11 @@ const ledBox = computed(() => {
 const connBox = computed(() => {
   const c = currentConnector.value;
   if (!c) return null;
-  return { w: c.body.w + c.keepout * 2, h: c.body.h + c.keepout * 2 };
+  // PAD_ONLY scales lengthwise with the LED's required wire count so a
+  // 4-wire LED gets a wider pad strip than a 3-wire one.
+  let w = c.body.w;
+  if (c.id === 'PAD_ONLY') w = c.pitch * (requiredWireCount.value + 1);
+  return { w: w + c.keepout * 2, h: c.body.h + c.keepout * 2 };
 });
 
 function connPos() {
@@ -90,7 +122,8 @@ function connPos() {
 </script>
 
 <template>
-  <div ref="containerRef" class="canvas-host">
+  <div ref="containerRef" class="canvas-host" :class="{ flashing }">
+    <div class="refresh-toast" :class="{ visible: flashing }">refreshed</div>
     <svg :width="width" :height="height"
          :viewBox="`${viewBox.vx} ${viewBox.vy} ${viewBox.vw} ${viewBox.vh}`"
          preserveAspectRatio="xMidYMid meet">
@@ -156,14 +189,26 @@ function connPos() {
 </template>
 
 <style scoped>
-.canvas-host { width: 100%; height: 100%; background: var(--canvas-bg); display: flex; align-items: stretch; justify-content: stretch; }
+.canvas-host { width: 100%; height: 100%; background: var(--canvas-bg); display: flex; align-items: stretch; justify-content: stretch; position: relative; box-shadow: inset 0 0 0 0 transparent; transition: box-shadow 0.32s ease; }
+.canvas-host.flashing { box-shadow: inset 0 0 0 2px var(--ac2); }
+.refresh-toast {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%) translateY(-8px);
+  background: var(--ac2); color: #fff;
+  font: 500 0.7rem 'DM Mono', monospace;
+  padding: 4px 10px; border-radius: 999px;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  z-index: 5;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+}
+.refresh-toast.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
 svg { width: 100%; height: 100%; display: block; }
-.face { fill: var(--paper); stroke: var(--paper-stroke); stroke-width: 0.6; cursor: pointer; transition: fill 0.12s ease; }
+.face { fill: var(--paper); stroke: var(--paper-stroke); stroke-width: 0.6; cursor: pointer; transition: fill 0.18s ease, stroke 0.18s ease, stroke-width 0.18s ease; }
 .face.hover { fill: var(--acd); }
 .face.selected { stroke: var(--ac2); stroke-width: 1.2; }
 .face.root { stroke: var(--ac); stroke-width: 1.4; }
-.folds line { stroke: var(--fold); stroke-width: 0.5; stroke-dasharray: 2 1.5; opacity: 0.85; pointer-events: none; }
-.leds rect { fill: rgba(123,92,250,0.18); stroke: var(--led); stroke-width: 0.25; pointer-events: none; }
-.conn rect { fill: rgba(63,191,127,0.18); stroke: var(--conn); stroke-width: 0.4; pointer-events: none; }
+.folds line { stroke: var(--fold); stroke-width: 0.5; stroke-dasharray: 2 1.5; opacity: 0.85; pointer-events: none; transition: x1 0.18s ease, y1 0.18s ease, x2 0.18s ease, y2 0.18s ease; }
+.leds rect { fill: rgba(123,92,250,0.18); stroke: var(--led); stroke-width: 0.25; pointer-events: none; transition: x 0.18s ease, y 0.18s ease, width 0.18s ease, height 0.18s ease; }
+.conn rect { fill: rgba(63,191,127,0.18); stroke: var(--conn); stroke-width: 0.4; pointer-events: none; transition: x 0.18s ease, y 0.18s ease, width 0.18s ease, height 0.18s ease; }
 .labels text { font: 500 4px 'DM Mono', monospace; fill: var(--sub); pointer-events: none; }
 </style>

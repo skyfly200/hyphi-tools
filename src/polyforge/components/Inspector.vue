@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue';
 import {
-  state, geometry, currentLED, currentConnector,
+  state, geometry, currentLED, currentConnector, requiredWireCount,
   savePatchAs, loadPatchByName, deletePatchByName,
   exportCurrentPatchJSON, importPatchJSON,
 } from '../store.js';
@@ -48,6 +48,7 @@ function doExportDXF() {
     ledsPerFace: state.params.ledsPerFace,
     connector: state.prefs.showConnector ? currentConnector.value : null,
     connectorFaceIdx: state.params.connectorFaceIdx,
+    wireCount: requiredWireCount.value,
     scale,
   });
   downloadBlob(suggestedFilename('dxf'), 'application/dxf', dxf);
@@ -92,6 +93,7 @@ const netBox = computed(() => {
         <dt>Faces</dt><dd>{{ geometry.built.faces.length }}</dd>
         <dt>Edges</dt><dd>{{ geometry.edges.length }}</dd>
         <dt>Total LEDs</dt><dd>{{ totalLEDs }}</dd>
+        <dt>Wires in</dt><dd>{{ requiredWireCount }}</dd>
         <dt>Total edge length</dt><dd>{{ totalEdgesMm }} mm</dd>
         <dt>Net bbox</dt><dd>{{ netBox.w }} × {{ netBox.h }} mm</dd>
         <dt>Dihedral angle</dt><dd>{{ geometry.poly.dihedralDeg.toFixed(2) }}°</dd>

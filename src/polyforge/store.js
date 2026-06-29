@@ -13,7 +13,7 @@ const DEFAULT_PARAMS = {
   edgeLengthMm: 60,         // physical edge length of the assembled fixture
   ledId: 'WS2812B',
   ledsPerFace: 1,
-  connectorId: 'JST_PH_3',
+  connectorId: 'PAD_ONLY',
   connectorFaceIdx: 0,      // face that hosts the wire entry connector
   connectorPlacement: 'edge',
   panelShape: 'face',       // 'face' | 'circle' | 'hexagon'
@@ -79,6 +79,27 @@ export const geometry = computed(() => {
 export const currentLED = computed(() => LEDS[state.params.ledId] || null);
 export const currentConnector = computed(() => CONNECTORS[state.params.connectorId] || null);
 
+// Wire count is driven by the LED — 3 wires for single-data parts
+// (WS2812 family, SK6812, SK6805), 4 wires for clocked parts (APA102).
+// The connector list filters by this, and PAD_ONLY auto-scales.
+export const requiredWireCount = computed(() => currentLED.value?.wireCount || 3);
+
+export function compatibleConnectors() {
+  const want = requiredWireCount.value;
+  return Object.values(CONNECTORS).filter(c => c.id === 'PAD_ONLY' || c.pins === want);
+}
+
+// When LED changes (and thus the required wire count), if the current
+// connector no longer fits, fall back to the first compatible one.
+watch(requiredWireCount, () => {
+  const c = CONNECTORS[state.params.connectorId];
+  if (!c) return;
+  if (c.id === 'PAD_ONLY') return;
+  if (c.pins === requiredWireCount.value) return;
+  const next = compatibleConnectors().find(x => x.id !== 'PAD_ONLY');
+  if (next) state.params.connectorId = next.id;
+});
+
 export function setPolyhedron(id) {
   if (!POLYHEDRA[id]) return;
   state.params.polyhedronId = id;
@@ -121,7 +142,7 @@ export function applyPatchObject(patch) {
   params.designRules = { ...DEFAULT_PARAMS.designRules, ...(patch.designRules || {}) };
   if (!POLYHEDRA[params.polyhedronId]) params.polyhedronId = 'tetra';
   if (!LEDS[params.ledId]) params.ledId = 'WS2812B';
-  if (!CONNECTORS[params.connectorId]) params.connectorId = 'JST_PH_3';
+  if (!CONNECTORS[params.connectorId]) params.connectorId = 'PAD_ONLY';
   state.params = params;
   state.rootFace = 0;
   state.hoverFace = null;

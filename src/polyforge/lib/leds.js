@@ -13,6 +13,7 @@ export const LEDS = {
     keepout: 0.5, // mm of clearance around the body for hand-soldering
     pads: 4,
     signals: ['VCC', 'DIN', 'GND', 'DOUT'],
+    wireCount: 3, // single-data: VCC, DIN, GND (DOUT chains to next LED)
   },
   WS2812B_MINI: {
     id: 'WS2812B_MINI',
@@ -21,6 +22,7 @@ export const LEDS = {
     keepout: 0.4,
     pads: 4,
     signals: ['VCC', 'DIN', 'GND', 'DOUT'],
+    wireCount: 3, // single-data: VCC, DIN, GND (DOUT chains to next LED)
   },
   SK6812_2020: {
     id: 'SK6812_2020',
@@ -29,6 +31,7 @@ export const LEDS = {
     keepout: 0.3,
     pads: 4,
     signals: ['VCC', 'DIN', 'GND', 'DOUT'],
+    wireCount: 3, // single-data: VCC, DIN, GND (DOUT chains to next LED)
   },
   SK6805_EC15: {
     id: 'SK6805_EC15',
@@ -37,6 +40,7 @@ export const LEDS = {
     keepout: 0.25,
     pads: 4,
     signals: ['VDD', 'DIN', 'VSS', 'DOUT'],
+    wireCount: 3,
   },
   APA102_5050: {
     id: 'APA102_5050',
@@ -45,6 +49,7 @@ export const LEDS = {
     keepout: 0.5,
     pads: 6,
     signals: ['VCC', 'GND', 'CIN', 'DIN', 'COUT', 'DOUT'],
+    wireCount: 4, // clocked: VCC, GND, CIN, DIN (COUT/DOUT chain to next LED)
   },
 };
 

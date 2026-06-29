@@ -1,13 +1,16 @@
 <script setup>
 import { computed } from 'vue';
-import { state, geometry, setPolyhedron, setDesignRulesFromText } from '../store.js';
+import { state, geometry, requiredWireCount, compatibleConnectors, setPolyhedron, setDesignRulesFromText } from '../store.js';
 import { listPolyhedra } from '../lib/polyhedra.js';
 import { listLEDs } from '../lib/leds.js';
-import { listConnectors, CONNECTOR_PLACEMENTS } from '../lib/connectors.js';
+import { CONNECTOR_PLACEMENTS } from '../lib/connectors.js';
 
 const polyhedra = listPolyhedra();
 const leds = listLEDs();
-const connectors = listConnectors();
+const connectors = computed(() => compatibleConnectors().map(c => ({
+  id: c.id,
+  label: c.id === 'PAD_ONLY' ? `${c.label} (${requiredWireCount.value} pads)` : c.label,
+})));
 const placements = CONNECTOR_PLACEMENTS;
 
 const faceCount = computed(() => geometry.value.built.faces.length);

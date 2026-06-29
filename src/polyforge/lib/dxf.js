@@ -63,7 +63,7 @@ function rect(cx, cy, w, h, layer) {
 //        to millimeters. The caller has already applied edgeLen to the
 //        net coordinates passed in; scale stays 1 unless the caller
 //        wants a uniform stretch.
-export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorFaceIdx, scale = 1 }) {
+export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorFaceIdx, wireCount = 3, scale = 1 }) {
   let body = '';
 
   // Outline: emit each unfolded face as its own closed polyline. This
@@ -113,7 +113,10 @@ export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorF
     const face = net.faces[connectorFaceIdx];
     if (face) {
       const c = centroid(face.polygon2D).map(v => v * scale);
-      const w = (connector.body.w + connector.keepout * 2);
+      const baseW = connector.id === 'PAD_ONLY'
+        ? connector.pitch * (wireCount + 1)
+        : connector.body.w;
+      const w = (baseW + connector.keepout * 2);
       const h = (connector.body.h + connector.keepout * 2);
       body += rect(c[0], c[1], w, h, 'CONN');
     }
