@@ -42,11 +42,11 @@ const TOOLS = [
     icon: '⬢',
   },
   {
-    href: 'https://l.hyphi.art',
-    internal: false,
+    href: '/links',
+    internal: true,
     name: 'Link Shortener',
-    tagline: 'Short URLs',
-    desc: 'Shorten and share links under the hyphi.art domain.',
+    tagline: 'l.hyphi.art admin',
+    desc: 'Short URLs under l.hyphi.art. Edit links.json in the repo to add new ones; view click stats with sparklines on the admin dashboard.',
     icon: '↗',
   },
 ]
