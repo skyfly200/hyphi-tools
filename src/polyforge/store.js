@@ -80,6 +80,7 @@ const DEFAULT_PREFS = {
   showBridges: true,
   showChainLabels: false,
   showTraces: true,
+  view: 'net', // 'net' | 'folded'
   layersOpen: true,
   theme: 'dark',
 };

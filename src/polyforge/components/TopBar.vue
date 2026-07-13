@@ -11,6 +11,13 @@ import { state } from '../store.js';
     </div>
 
     <div class="actions">
+      <div class="seg" role="group" aria-label="View">
+        <button :class="{ active: state.prefs.view === 'net' }"
+                @click="state.prefs.view = 'net'" title="Unfolded 2D net">Net</button>
+        <button :class="{ active: state.prefs.view === 'folded' }"
+                @click="state.prefs.view = 'folded'" title="3D folded preview">Folded</button>
+      </div>
+
       <button class="mobile-only"
               :class="{ active: state.ui.mobileSidebar }"
               @click="state.ui.mobileSidebar = !state.ui.mobileSidebar"
@@ -41,6 +48,10 @@ import { state } from '../store.js';
 button { background: var(--bg); color: var(--t); border: 1px solid var(--bd); border-radius: 6px; padding: 6px 9px; font: 500 0.75rem 'DM Sans', sans-serif; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
 button:hover { border-color: var(--ac2); }
 button.active { border-color: var(--ac2); background: var(--acd); }
+.seg { display: inline-flex; border: 1px solid var(--bd); border-radius: 6px; overflow: hidden; }
+.seg button { border: none; border-radius: 0; padding: 6px 12px; }
+.seg button + button { border-left: 1px solid var(--bd); }
+.seg button.active { background: var(--acd); color: var(--ac2); }
 .mobile-only { display: none; }
 @media (max-width: 900px) { .mobile-only { display: inline-flex; } }
 @media (max-width: 700px) {
