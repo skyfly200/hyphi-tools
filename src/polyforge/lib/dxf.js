@@ -155,7 +155,7 @@ export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorF
   // carry. Width is derived from design rules + LED wire count so
   // the bridge is exactly as wide as the traces need.
   const bridgeWidthMm = computeBridgeWidthMm(bridgeTraceCount(wireCount), designRules || {});
-  for (const b of bridgesForNet(net.foldEdges, panel, bridgeWidthMm, scale)) {
+  for (const b of bridgesForNet(net, panel, bridgeWidthMm, scale)) {
     const pts = b.points.map(([x, y]) => [x * scale, y * scale]);
     body += polyline(pts, 'OUTLINE', true);
   }

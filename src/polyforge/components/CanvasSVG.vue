@@ -203,7 +203,7 @@ const bridgeWidthMm = computed(() => {
 const bridgePolys = computed(() => {
   const s = state.params.edgeLengthMm;
   const list = bridgesForNet(
-    geometry.value.net.foldEdges,
+    geometry.value.net,
     state.params.panel,
     bridgeWidthMm.value,
     s,

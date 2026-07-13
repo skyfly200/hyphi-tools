@@ -114,40 +114,104 @@ export function computeBridgeWidthMm(traceCount, designRules) {
   return traceCount * tw + (traceCount - 1) * cl + 2 * em;
 }
 
-// Flex bridges connecting adjacent panels along each fold edge.
-// Each bridge is a 4-point closed rectangle in normalized units,
-// centered on the fold edge, length = (edgeLen - 2*marginMm),
-// width = the precomputed `widthMm` (caller derives it from the
-// trace requirement). Oriented so the long axis lies along the
-// fold edge direction.
-export function bridgesForNet(foldEdges, panel, widthMm, edgeLengthMm) {
+// Centerline of a bridge from cA to cB, in normalized units.
+//
+// 'straight' → two points.
+// 's-curve'  → tessellated cubic Bézier whose control points are
+//              offset laterally in opposite directions, producing a
+//              serpentine. The extra material length lets the hinge
+//              wrap a tighter bend radius without straining copper —
+//              standard practice for dynamic flex sections.
+export function bridgeCenterline(cA, cB, style, ampUnits) {
+  if (style !== 's-curve' || ampUnits <= 0) return [cA, cB];
+  const dx = cB[0] - cA[0], dy = cB[1] - cA[1];
+  const len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len, uy = dy / len;
+  const nx = -uy, ny = ux;
+  // Control points at 1/3 and 2/3 along the axis, offset to opposite
+  // sides — classic S. Amplitude is the lateral control offset.
+  const p0 = cA;
+  const p1 = [cA[0] + ux * len / 3 + nx * ampUnits, cA[1] + uy * len / 3 + ny * ampUnits];
+  const p2 = [cA[0] + ux * 2 * len / 3 - nx * ampUnits, cA[1] + uy * 2 * len / 3 - ny * ampUnits];
+  const p3 = cB;
+  const SEGS = 24;
+  const pts = [];
+  for (let i = 0; i <= SEGS; i++) {
+    const t = i / SEGS, s = 1 - t;
+    pts.push([
+      s*s*s*p0[0] + 3*s*s*t*p1[0] + 3*s*t*t*p2[0] + t*t*t*p3[0],
+      s*s*s*p0[1] + 3*s*s*t*p1[1] + 3*s*t*t*p2[1] + t*t*t*p3[1],
+    ]);
+  }
+  return pts;
+}
+
+// Offset a polyline laterally by `off` using averaged per-point
+// normals. Good enough for the gentle curvature of an S-bridge
+// (curvature radius >> offset).
+export function offsetPolyline(pts, off) {
+  const n = pts.length;
+  if (n < 2) return pts.map(p => [p[0], p[1]]);
+  const normals = [];
+  for (let i = 0; i < n; i++) {
+    const a = pts[Math.max(0, i - 1)];
+    const b = pts[Math.min(n - 1, i + 1)];
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const l = Math.hypot(dx, dy) || 1;
+    normals.push([-dy / l, dx / l]);
+  }
+  return pts.map((p, i) => [p[0] + normals[i][0] * off, p[1] + normals[i][1] * off]);
+}
+
+// Flex bridges connecting adjacent panels across each fold edge.
+//
+// The bridge is a strip running from face A's centroid to face B's
+// centroid (crossing the fold edge at its midpoint), `widthMm` wide.
+// Anchoring the ends at the panel CENTROIDS — which every panel
+// shape contains — guarantees the strip penetrates both panels no
+// matter how far the panel boundary is inset (inset polygon,
+// inscribed circle, inscribed hexagon). The panel/board union at
+// export absorbs the buried portion; only the span between the two
+// panel boundaries survives as visible bridge.
+//
+// style 's-curve' swaps the straight centerline for a serpentine —
+// the outline polygon is built by offsetting the tessellated curve
+// ±width/2, so the strip keeps constant width along the S.
+//
+// Takes the whole net (faces + foldEdges) since it needs centroids.
+export function bridgesForNet(net, panel, widthMm, edgeLengthMm) {
   const cfg = panel?.bridge;
   if (!cfg || !cfg.enabled || widthMm <= 0) return [];
   const wUnits = widthMm / Math.max(edgeLengthMm, 0.001);
-  const mUnits = (cfg.marginMm || 0) / Math.max(edgeLengthMm, 0.001);
+  const ampUnits = (cfg.style === 's-curve' ? (cfg.curveAmplitudeMm || 0) : 0)
+    / Math.max(edgeLengthMm, 0.001);
   const out = [];
-  for (const e of foldEdges) {
-    const [x0, y0] = e.a0;
-    const [x1, y1] = e.a1;
-    const dx = x1 - x0, dy = y1 - y0;
+  for (const e of net.foldEdges) {
+    const fA = net.faces[e.faceA];
+    const fB = net.faces[e.faceB];
+    if (!fA || !fB) continue;
+    const cA = centroid2D(fA.polygon2D);
+    const cB = centroid2D(fB.polygon2D);
+    const dx = cB[0] - cA[0], dy = cB[1] - cA[1];
     const len = Math.sqrt(dx * dx + dy * dy);
-    if (len <= 2 * mUnits) continue; // too short — skip
-    const ux = dx / len, uy = dy / len;       // along the edge
-    const nx = -uy, ny = ux;                  // perpendicular
+    if (len < 1e-9) continue;
+    const ux = dx / len, uy = dy / len;       // along the bridge axis
+    const nx = -uy, ny = ux;                  // across the bridge (trace lanes)
     const half = wUnits / 2;
-    const sx = x0 + ux * mUnits, sy = y0 + uy * mUnits;
-    const ex = x1 - ux * mUnits, ey = y1 - uy * mUnits;
-    const corners = [
-      [sx + nx * half, sy + ny * half],
-      [ex + nx * half, ey + ny * half],
-      [ex - nx * half, ey - ny * half],
-      [sx - nx * half, sy - ny * half],
-    ];
+    const center = bridgeCenterline(cA, cB, cfg.style, ampUnits);
+    const left  = offsetPolyline(center, half);
+    const right = offsetPolyline(center, -half);
+    const corners = [...left, ...right.reverse()];
     out.push({
       points: corners,
+      centerline: center,
       faceA: e.faceA, faceB: e.faceB,
-      midpoint: [(sx + ex) / 2, (sy + ey) / 2],
-      length: len - 2 * mUnits,
+      midpoint: [(cA[0] + cB[0]) / 2, (cA[1] + cB[1]) / 2],
+      axis: [ux, uy],
+      across: [nx, ny],
+      endA: cA,
+      endB: cB,
+      length: len,
       width: wUnits,
     });
   }
@@ -263,26 +327,35 @@ export function planRouting({
     ledsByFace.set(fi, pts.map(([x, y]) => [x * edgeLengthMm, -y * edgeLengthMm]));
   }
 
-  // Bridge entry/exit lane points in mm. For each bridge between
-  // faceA & faceB, compute the lane positions on each side of the
-  // fold edge.
-  const bridgeLanePoint = new Map(); // key: `${fA}-${fB}/${sig}/${side}` → [x,y]
+  // Per-bridge, per-signal lane POLYLINES in mm, stored A→B. For a
+  // straight bridge this is two points; for an S-curve bridge the
+  // lane follows the serpentine at a constant lateral offset, so the
+  // preview and exports carry copper that actually fits the strip.
+  const ampUnits = (panel?.bridge?.style === 's-curve' ? (panel.bridge.curveAmplitudeMm || 0) : 0)
+    / Math.max(edgeLengthMm, 0.001);
+  const bridgeLanePath = new Map(); // key: `${fA}-${fB}/${sig}` → [[x,y], ...] A→B
   for (const e of net.foldEdges) {
-    const a0 = [e.a0[0] * edgeLengthMm, -e.a0[1] * edgeLengthMm];
-    const a1 = [e.a1[0] * edgeLengthMm, -e.a1[1] * edgeLengthMm];
-    const dx = a1[0] - a0[0], dy = a1[1] - a0[1];
-    const len = Math.hypot(dx, dy) || 1;
-    const ux = dx / len, uy = dy / len;
-    const nx = -uy, ny = ux;
-    const mid = [(a0[0] + a1[0]) / 2, (a0[1] + a1[1]) / 2];
+    const fA = net.faces[e.faceA];
+    const fB = net.faces[e.faceB];
+    if (!fA || !fB) continue;
+    const cAr = centroid2D(fA.polygon2D);
+    const cBr = centroid2D(fB.polygon2D);
+    // Centerline in normalized units, then scale to mm with Y-flip.
+    const center = bridgeCenterline(cAr, cBr, panel?.bridge?.style, ampUnits)
+      .map(([x, y]) => [x * edgeLengthMm, -y * edgeLengthMm]);
     for (const sig of signals) {
       const off = lane(laneOf(sig));
-      // entry on side A (positive normal) and side B (negative)
-      const entryA = [mid[0] + nx * (widthMm / 2) + ux * off, mid[1] + ny * (widthMm / 2) + uy * off];
-      const entryB = [mid[0] - nx * (widthMm / 2) + ux * off, mid[1] - ny * (widthMm / 2) + uy * off];
-      bridgeLanePoint.set(`${e.faceA}-${e.faceB}/${sig}/A`, entryA);
-      bridgeLanePoint.set(`${e.faceA}-${e.faceB}/${sig}/B`, entryB);
+      bridgeLanePath.set(`${e.faceA}-${e.faceB}/${sig}`, offsetPolyline(center, off));
     }
+  }
+
+  // Fetch the lane polyline for a signal crossing prev→fi, oriented
+  // in travel direction.
+  function lanePathAcross(prevFace, toFace, sig) {
+    const key = bridgeKey(net, prevFace, toFace, sig);
+    if (!key) return [];
+    const path = bridgeLanePath.get(`${key.id}/${sig}`) || [];
+    return key.fromSide === 'A' ? path : [...path].reverse();
   }
 
   // Build traces per signal. Power rails (VCC, GND) walk every
@@ -322,11 +395,7 @@ export function planRouting({
     let prev = connectorFaceIdx;
     for (const fi of walk) {
       if (fi === prev) continue;
-      const key = bridgeKey(net, prev, fi, sig);
-      if (key) {
-        pts.push(bridgeLanePoint.get(`${key.id}/${sig}/${key.fromSide}`));
-        pts.push(bridgeLanePoint.get(`${key.id}/${sig}/${key.toSide}`));
-      }
+      pts.push(...lanePathAcross(prev, fi, sig));
       const face = net.faces[fi];
       if (face) {
         const c = centroid2D(face.polygon2D);
@@ -354,11 +423,12 @@ export function planRouting({
       // Walk from the previous face's last LED to this face's first
       // LED via a bridge if they're different faces.
       if (fi !== prevFace) {
-        const key = bridgeKey(net, prevFace, fi, inSig);
-        if (key) {
-          pts.push(bridgeLanePoint.get(`${key.id}/${outSig}/${key.fromSide}`));
-          pts.push(bridgeLanePoint.get(`${key.id}/${inSig}/${key.toSide}`));
-        }
+        // Leave on the outbound lane, arrive on the inbound lane —
+        // switch lanes at the bridge midpoint.
+        const out = lanePathAcross(prevFace, fi, outSig);
+        const inn = lanePathAcross(prevFace, fi, inSig);
+        const half = Math.floor(out.length / 2);
+        pts.push(...out.slice(0, half), ...inn.slice(half));
       }
       // Chain through every LED on this face.
       for (const led of ledsHere) {
