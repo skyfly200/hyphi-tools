@@ -9,6 +9,7 @@ import { buildDXF } from '../lib/dxf.js';
 import { buildKiCadPCB } from '../lib/kicad.js';
 import { buildSVGLayers } from '../lib/svgLayers.js';
 import { buildZip } from '../lib/zip.js';
+import { bridgeFoldStats } from '../lib/layout.js';
 
 const saveName = ref('');
 const importErr = ref('');
@@ -128,6 +129,23 @@ const netBox = computed(() => {
   const s = state.params.edgeLengthMm;
   return { w: (b.width * s).toFixed(1), h: (b.height * s).toFixed(1) };
 });
+
+// Flex bend simulation: bend radius of every bridge at full fold vs
+// the design-rule minimum.
+const bendCheck = computed(() => {
+  if (!state.params.panel.bridge.enabled) return null;
+  return bridgeFoldStats({
+    net: geometry.value.net,
+    panel: state.params.panel,
+    wireCount: requiredWireCount.value,
+    designRules: state.params.designRules,
+    edgeLengthMm: state.params.edgeLengthMm,
+    dihedralDeg: geometry.value.poly.dihedralDeg,
+  });
+});
+
+const failingBridges = computed(() =>
+  bendCheck.value ? bendCheck.value.stats.filter(s => !s.ok) : []);
 </script>
 
 <template>
@@ -143,6 +161,32 @@ const netBox = computed(() => {
         <dt>Net bbox</dt><dd>{{ netBox.w }} × {{ netBox.h }} mm</dd>
         <dt>Dihedral angle</dt><dd>{{ geometry.poly.dihedralDeg.toFixed(2) }}°</dd>
       </dl>
+    </section>
+
+    <section v-if="bendCheck">
+      <h4>
+        Flex bend check
+        <span class="badge" :class="bendCheck.allPass ? 'pass' : 'fail'">
+          {{ bendCheck.allPass ? 'PASS' : 'FAIL' }}
+        </span>
+      </h4>
+      <dl>
+        <dt>Fold angle</dt><dd>{{ bendCheck.foldAngleDeg.toFixed(1) }}°</dd>
+        <dt>Bridges OK</dt><dd>{{ bendCheck.passCount }} / {{ bendCheck.total }}</dd>
+        <template v-if="bendCheck.worst">
+          <dt>Worst bend radius</dt>
+          <dd :class="{ bad: !bendCheck.worst.ok }">{{ bendCheck.worst.bendRadiusMm.toFixed(2) }} mm</dd>
+          <dt>Required minimum</dt><dd>{{ bendCheck.minReqMm.toFixed(2) }} mm</dd>
+          <dt>Worst free span</dt><dd>{{ bendCheck.worst.gapMm.toFixed(2) }} mm</dd>
+          <dt>Worst flex path</dt><dd>{{ bendCheck.worst.freePathMm.toFixed(2) }} mm</dd>
+        </template>
+      </dl>
+      <div v-if="!bendCheck.allPass" class="bend-hint">
+        {{ failingBridges.length }} bridge{{ failingBridges.length === 1 ? '' : 's' }} would
+        crease at full fold. Increase the panel inset (more gap between
+        panels), switch the bridge pattern to S-curve, or raise the
+        curve amplitude to lengthen the flex path.
+      </div>
     </section>
 
     <section v-if="state.selectedFace != null">
@@ -195,7 +239,12 @@ const netBox = computed(() => {
 .inspector { width: 280px; background: var(--s); border-left: 1px solid var(--bd); padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
 section { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--bd); }
 section:last-child { border-bottom: none; }
-h4 { margin: 0; font: 500 0.78rem 'DM Sans'; color: var(--ac2); }
+h4 { margin: 0; font: 500 0.78rem 'DM Sans'; color: var(--ac2); display: flex; align-items: center; gap: 8px; }
+.badge { font: 700 0.62rem 'DM Mono', monospace; padding: 1px 7px; border-radius: 999px; letter-spacing: 0.06em; }
+.badge.pass { background: rgba(63,191,127,0.16); color: #3fbf7f; border: 1px solid #3fbf7f; }
+.badge.fail { background: rgba(226,59,59,0.14); color: #e23b3b; border: 1px solid #e23b3b; }
+dd.bad { color: #e23b3b; }
+.bend-hint { font: 400 0.72rem 'DM Sans'; color: var(--sub); line-height: 1.5; padding: 2px 0; }
 dl { display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; margin: 0; font: 400 0.78rem 'DM Sans'; }
 dt { color: var(--sub); }
 dd { color: var(--t); margin: 0; font-family: 'DM Mono', monospace; }

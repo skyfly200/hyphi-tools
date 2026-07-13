@@ -163,6 +163,42 @@ export function offsetPolyline(pts, off) {
   return pts.map((p, i) => [p[0] + normals[i][0] * off, p[1] + normals[i][1] * off]);
 }
 
+// Gap-aware bridge centerline between two adjacent faces, in
+// normalized units. Straight bridges are just centroid → centroid.
+// For S-curve bridges, the serpentine is confined to the GAP between
+// the two panel boundaries — that's the only stretch free to flex, so
+// spreading the curve across the whole span (most of it bonded to
+// rigid panel) would waste the amplitude where it does nothing.
+export function gapAwareCenterline(net, e, panel, edgeLengthMm) {
+  const fA = net.faces[e.faceA];
+  const fB = net.faces[e.faceB];
+  const cA = centroid2D(fA.polygon2D);
+  const cB = centroid2D(fB.polygon2D);
+  const cfg = panel?.bridge || {};
+  if (cfg.style !== 's-curve' || !(cfg.curveAmplitudeMm > 0)) return [cA, cB];
+
+  const shapeA = panelOutline(fA.polygon2D, panel, edgeLengthMm);
+  const shapeB = panelOutline(fB.polygon2D, panel, edgeLengthMm);
+  const N = 160;
+  const line = Array.from({ length: N }, (_, i) => {
+    const t = i / (N - 1);
+    return [cA[0] + (cB[0] - cA[0]) * t, cA[1] + (cB[1] - cA[1]) * t];
+  });
+  let exitA = 0;
+  for (let i = 0; i < N; i++) {
+    if (insidePanelShape(line[i], shapeA)) exitA = i; else break;
+  }
+  let entryB = N - 1;
+  for (let i = N - 1; i >= 0; i--) {
+    if (insidePanelShape(line[i], shapeB)) entryB = i; else break;
+  }
+  if (entryB - exitA < 2) return [cA, cB]; // panels touch — no gap to shape
+
+  const ampUnits = cfg.curveAmplitudeMm / Math.max(edgeLengthMm, 0.001);
+  const s = bridgeCenterline(line[exitA], line[entryB], 's-curve', ampUnits);
+  return [cA, ...s, cB];
+}
+
 // Flex bridges connecting adjacent panels across each fold edge.
 //
 // The bridge is a strip running from face A's centroid to face B's
@@ -174,17 +210,16 @@ export function offsetPolyline(pts, off) {
 // export absorbs the buried portion; only the span between the two
 // panel boundaries survives as visible bridge.
 //
-// style 's-curve' swaps the straight centerline for a serpentine —
-// the outline polygon is built by offsetting the tessellated curve
-// ±width/2, so the strip keeps constant width along the S.
+// style 's-curve' swaps the straight centerline through the panel
+// gap for a serpentine (see gapAwareCenterline) — the outline is
+// built by offsetting the tessellated curve ±width/2, so the strip
+// keeps constant width along the S.
 //
 // Takes the whole net (faces + foldEdges) since it needs centroids.
 export function bridgesForNet(net, panel, widthMm, edgeLengthMm) {
   const cfg = panel?.bridge;
   if (!cfg || !cfg.enabled || widthMm <= 0) return [];
   const wUnits = widthMm / Math.max(edgeLengthMm, 0.001);
-  const ampUnits = (cfg.style === 's-curve' ? (cfg.curveAmplitudeMm || 0) : 0)
-    / Math.max(edgeLengthMm, 0.001);
   const out = [];
   for (const e of net.foldEdges) {
     const fA = net.faces[e.faceA];
@@ -198,7 +233,7 @@ export function bridgesForNet(net, panel, widthMm, edgeLengthMm) {
     const ux = dx / len, uy = dy / len;       // along the bridge axis
     const nx = -uy, ny = ux;                  // across the bridge (trace lanes)
     const half = wUnits / 2;
-    const center = bridgeCenterline(cA, cB, cfg.style, ampUnits);
+    const center = gapAwareCenterline(net, e, panel, edgeLengthMm);
     const left  = offsetPolyline(center, half);
     const right = offsetPolyline(center, -half);
     const corners = [...left, ...right.reverse()];
@@ -216,6 +251,129 @@ export function bridgesForNet(net, panel, widthMm, edgeLengthMm) {
     });
   }
   return out;
+}
+
+// Point-in-shape test for a panelOutline result (normalized units).
+export function insidePanelShape(pt, shape) {
+  if (shape.kind === 'circle') {
+    return Math.hypot(pt[0] - shape.cx, pt[1] - shape.cy) <= shape.r + 1e-12;
+  }
+  let inside = false;
+  const pts = shape.points;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, yi] = pts[i], [xj, yj] = pts[j];
+    if ((yi > pt[1]) !== (yj > pt[1]) &&
+        pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+// Resample a polyline to n roughly-equidistant points.
+function resamplePolyline(pts, n) {
+  if (pts.length < 2) return pts;
+  const segLen = [];
+  let total = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const l = Math.hypot(pts[i][0]-pts[i-1][0], pts[i][1]-pts[i-1][1]);
+    segLen.push(l); total += l;
+  }
+  if (total <= 0) return pts;
+  const out = [pts[0]];
+  let seg = 0, segStart = 0;
+  for (let k = 1; k < n; k++) {
+    const target = (total * k) / (n - 1);
+    while (seg < segLen.length - 1 && segStart + segLen[seg] < target) {
+      segStart += segLen[seg]; seg++;
+    }
+    const t = segLen[seg] > 0 ? (target - segStart) / segLen[seg] : 0;
+    out.push([
+      pts[seg][0] + (pts[seg+1][0] - pts[seg][0]) * t,
+      pts[seg][1] + (pts[seg+1][1] - pts[seg][1]) * t,
+    ]);
+  }
+  return out;
+}
+
+// Simulate the fold of every bridge and check flex bend radius.
+//
+// Physical model: at full fold the two panels meet at the polyhedron's
+// dihedral angle, so the bridge material must bend through
+// θ = π − dihedral. Only the FREE span — the stretch of centerline
+// between the two panel boundaries — can bend; the ends are bonded to
+// rigid panels. Approximating the bend as a uniform circular arc, the
+// neutral-axis bend radius is
+//
+//     r = freePathLength / θ
+//
+// which must be ≥ the flex stack's minimum bend radius
+// (designRules.minBendRadiusMm; flex vendors typically quote 6–10 ×
+// stack thickness for static bends).
+//
+// The free path length is measured along the actual centerline, so an
+// S-curve bridge — whose serpentine path is longer than the straight
+// gap — earns a proportionally larger bend radius. That is the whole
+// reason the S-curve pattern exists.
+export function bridgeFoldStats({ net, panel, wireCount, designRules, edgeLengthMm, dihedralDeg }) {
+  const tc = bridgeTraceCount(wireCount);
+  const widthMm = computeBridgeWidthMm(tc, designRules);
+  const bridges = bridgesForNet(net, panel, widthMm, edgeLengthMm);
+  const theta = Math.PI - (dihedralDeg * Math.PI) / 180;
+  const minReq = designRules?.minBendRadiusMm ?? 3;
+
+  const stats = [];
+  for (const b of bridges) {
+    const shapeA = panelOutline(net.faces[b.faceA].polygon2D, panel, edgeLengthMm);
+    const shapeB = panelOutline(net.faces[b.faceB].polygon2D, panel, edgeLengthMm);
+    const line = resamplePolyline(b.centerline, 240);
+
+    // Walk from the A end: the free span starts where the centerline
+    // leaves panel A and ends where it enters panel B.
+    let exitA = 0;
+    for (let i = 0; i < line.length; i++) {
+      if (insidePanelShape(line[i], shapeA)) exitA = i; else break;
+    }
+    let entryB = line.length - 1;
+    for (let i = line.length - 1; i >= 0; i--) {
+      if (insidePanelShape(line[i], shapeB)) entryB = i; else break;
+    }
+
+    let freePathUnits = 0;
+    for (let i = Math.max(1, exitA + 1); i <= Math.min(entryB, line.length - 1); i++) {
+      freePathUnits += Math.hypot(line[i][0]-line[i-1][0], line[i][1]-line[i-1][1]);
+    }
+    const gapUnits = entryB > exitA
+      ? Math.hypot(line[entryB][0]-line[exitA][0], line[entryB][1]-line[exitA][1])
+      : 0;
+
+    const freePathMm = freePathUnits * edgeLengthMm;
+    const gapMm = gapUnits * edgeLengthMm;
+    const bendRadiusMm = theta > 1e-9 ? freePathMm / theta : Infinity;
+
+    stats.push({
+      faceA: b.faceA,
+      faceB: b.faceB,
+      gapMm,
+      freePathMm,
+      bendRadiusMm,
+      ok: bendRadiusMm >= minReq,
+    });
+  }
+
+  const worst = stats.length
+    ? stats.reduce((w, s) => (s.bendRadiusMm < w.bendRadiusMm ? s : w))
+    : null;
+  const passCount = stats.filter(s => s.ok).length;
+
+  return {
+    foldAngleDeg: (theta * 180) / Math.PI,
+    minReqMm: minReq,
+    bridgeWidthMm: widthMm,
+    stats,
+    worst,
+    passCount,
+    total: stats.length,
+    allPass: stats.length > 0 && passCount === stats.length,
+  };
 }
 
 // DFS walk of the spanning tree. Returns the sequence of face
@@ -329,19 +487,16 @@ export function planRouting({
 
   // Per-bridge, per-signal lane POLYLINES in mm, stored A→B. For a
   // straight bridge this is two points; for an S-curve bridge the
-  // lane follows the serpentine at a constant lateral offset, so the
-  // preview and exports carry copper that actually fits the strip.
-  const ampUnits = (panel?.bridge?.style === 's-curve' ? (panel.bridge.curveAmplitudeMm || 0) : 0)
-    / Math.max(edgeLengthMm, 0.001);
+  // lane follows the gap-confined serpentine at a constant lateral
+  // offset, so the preview and exports carry copper that actually
+  // fits the strip.
   const bridgeLanePath = new Map(); // key: `${fA}-${fB}/${sig}` → [[x,y], ...] A→B
   for (const e of net.foldEdges) {
     const fA = net.faces[e.faceA];
     const fB = net.faces[e.faceB];
     if (!fA || !fB) continue;
-    const cAr = centroid2D(fA.polygon2D);
-    const cBr = centroid2D(fB.polygon2D);
     // Centerline in normalized units, then scale to mm with Y-flip.
-    const center = bridgeCenterline(cAr, cBr, panel?.bridge?.style, ampUnits)
+    const center = gapAwareCenterline(net, e, panel, edgeLengthMm)
       .map(([x, y]) => [x * edgeLengthMm, -y * edgeLengthMm]);
     for (const sig of signals) {
       const off = lane(laneOf(sig));
