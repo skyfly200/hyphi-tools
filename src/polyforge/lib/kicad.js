@@ -270,7 +270,7 @@ export function buildKiCadPCB({
   // carry. Width derives from design rules + LED wire count, so the
   // bridge is exactly as wide as the traces need.
   const bridgeWidthMm = computeBridgeWidthMm(bridgeTraceCount(wireCount), designRules || {});
-  for (const b of bridgesForNet(net.foldEdges, panel, bridgeWidthMm, edgeLengthMm)) {
+  for (const b of bridgesForNet(net, panel, bridgeWidthMm, edgeLengthMm)) {
     const pts = b.points.map(([x, y]) => [x * edgeLengthMm, -y * edgeLengthMm]);
     for (let i = 0; i < pts.length; i++) {
       const a = pts[i], c = pts[(i + 1) % pts.length];

@@ -24,12 +24,14 @@ const DEFAULT_PARAMS = {
     cornerRadiusMm: 0,      // 'face' only: round the polygon corners
     insetMm: 0,             // pull the boundary inward by this much
     scale: 0.95,            // 'circle' / 'hexagon': fraction of face's inscribed radius
-    // Flex bridges between adjacent panels along each fold edge.
-    // Width is auto-derived from the design rules + signal count so
-    // the bridge is only as wide as the traces need it to be.
+    // Flex bridges between adjacent panels. Each bridge runs from
+    // panel centroid to panel centroid across the fold edge so it
+    // always reaches both panels, however far the boundary is inset.
+    // Width is auto-derived from design rules + signal count.
     bridge: {
       enabled: true,
-      marginMm: 2,          // inset from each endpoint of the fold edge
+      style: 'straight',    // 'straight' | 's-curve'
+      curveAmplitudeMm: 3,  // s-curve lateral control-point offset
     },
   },
   // Copper routing through the bridges.
@@ -192,9 +194,10 @@ export function applyPatchObject(patch) {
   // Migrate the older flat panelShape string into the new panel block.
   params.panel = { ...DEFAULT_PARAMS.panel, ...(patch.panel || {}) };
   params.panel.bridge = { ...DEFAULT_PARAMS.panel.bridge, ...(patch.panel?.bridge || {}) };
-  // Older patches saved a manual bridge width — strip it so the
-  // auto-derived width takes effect on import.
+  // Older patches saved manual bridge dimensions — strip them so the
+  // auto-derived centroid-to-centroid geometry takes effect.
   delete params.panel.bridge.widthMm;
+  delete params.panel.bridge.marginMm;
   params.routing = { ...DEFAULT_PARAMS.routing, ...(patch.routing || {}) };
   if (patch.panelShape && !patch.panel) params.panel.shape = patch.panelShape;
   delete params.panelShape;

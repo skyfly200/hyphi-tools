@@ -48,7 +48,7 @@ function outlineLayer(net, panel, designRules, wireCount, edgeLengthMm) {
   // Bridges first so they sit underneath the panel outlines in the
   // SVG stack — visually no different, but keeps the file logical.
   const bridgeWidthMm = computeBridgeWidthMm(bridgeTraceCount(wireCount), designRules || {});
-  for (const b of bridgesForNet(net.foldEdges, panel, bridgeWidthMm, edgeLengthMm)) {
+  for (const b of bridgesForNet(net, panel, bridgeWidthMm, edgeLengthMm)) {
     const pts = b.points.map(([x, y]) =>
       `${fmt(x * edgeLengthMm)},${fmt(-y * edgeLengthMm)}`).join(' ');
     parts.push(`    <polygon points="${pts}" fill="none" stroke="black" stroke-width="0.05" />`);

@@ -47,7 +47,7 @@ const derivedBridgeWidth = computed(() =>
       <h4>Panel</h4>
       <label>Shape
         <select v-model="state.params.panel.shape">
-          <option value="face">Full face polygon</option>
+          <option value="face">Face polygon (full or inset)</option>
           <option value="circle">Inscribed circle</option>
           <option value="hexagon">Inscribed hexagon</option>
         </select>
@@ -77,14 +77,24 @@ const derivedBridgeWidth = computed(() =>
           Connect adjacent panels
         </label>
         <template v-if="state.params.panel.bridge.enabled">
-          <label>End margin (mm)
-            <input type="number" min="0" max="50" step="0.5"
-                   :value="state.params.panel.bridge.marginMm"
-                   @input="state.params.panel.bridge.marginMm = Math.max(0, Number($event.target.value) || 0)" />
+          <label>Pattern
+            <select v-model="state.params.panel.bridge.style">
+              <option value="straight">Straight</option>
+              <option value="s-curve">S-curve (tighter folds)</option>
+            </select>
+          </label>
+          <label v-if="state.params.panel.bridge.style === 's-curve'">
+            Curve amplitude (mm)
+            <input type="number" min="0.5" max="30" step="0.5"
+                   :value="state.params.panel.bridge.curveAmplitudeMm"
+                   @input="state.params.panel.bridge.curveAmplitudeMm = Math.max(0.5, Number($event.target.value) || 0.5)" />
           </label>
           <div class="hint-row">
-            Bridge width auto-sized from design rules:
-            <strong>{{ derivedBridgeWidth.toFixed(2) }} mm</strong>
+            Each bridge spans panel-center to panel-center across the
+            fold, so it always reaches both panels regardless of inset.
+            The S-curve pattern adds slack material so the hinge can
+            wrap a tighter bend radius. Width auto-sized from design
+            rules: <strong>{{ derivedBridgeWidth.toFixed(2) }} mm</strong>
             ({{ bridgeTraces }} traces)
           </div>
         </template>
