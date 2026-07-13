@@ -4,6 +4,7 @@ import { state, geometry, requiredWireCount, compatibleConnectors, setPolyhedron
 import { listPolyhedra } from '../lib/polyhedra.js';
 import { listLEDs } from '../lib/leds.js';
 import { CONNECTOR_PLACEMENTS } from '../lib/connectors.js';
+import { bridgeTraceCount, computeBridgeWidthMm } from '../lib/layout.js';
 
 const polyhedra = listPolyhedra();
 const leds = listLEDs();
@@ -15,6 +16,10 @@ const placements = CONNECTOR_PLACEMENTS;
 
 const faceCount = computed(() => geometry.value.built.faces.length);
 const faceIndices = computed(() => Array.from({ length: faceCount.value }, (_, i) => i));
+
+const bridgeTraces = computed(() => bridgeTraceCount(requiredWireCount.value));
+const derivedBridgeWidth = computed(() =>
+  computeBridgeWidthMm(bridgeTraces.value, state.params.designRules));
 </script>
 
 <template>
@@ -41,12 +46,62 @@ const faceIndices = computed(() => Array.from({ length: faceCount.value }, (_, i
     <section>
       <h4>Panel</h4>
       <label>Shape
-        <select v-model="state.params.panelShape">
+        <select v-model="state.params.panel.shape">
           <option value="face">Full face polygon</option>
           <option value="circle">Inscribed circle</option>
           <option value="hexagon">Inscribed hexagon</option>
         </select>
       </label>
+      <label>Inset (mm)
+        <input type="number" min="0" max="50" step="0.5"
+               :value="state.params.panel.insetMm"
+               @input="state.params.panel.insetMm = Math.max(0, Number($event.target.value) || 0)" />
+      </label>
+      <label v-if="state.params.panel.shape === 'face'">
+        Corner radius (mm)
+        <input type="number" min="0" max="50" step="0.5"
+               :value="state.params.panel.cornerRadiusMm"
+               @input="state.params.panel.cornerRadiusMm = Math.max(0, Number($event.target.value) || 0)" />
+      </label>
+      <label v-else>
+        Scale (× inscribed radius)
+        <input type="number" min="0.1" max="1" step="0.01"
+               :value="state.params.panel.scale"
+               @input="state.params.panel.scale = Math.min(1, Math.max(0.1, Number($event.target.value) || 0.1))" />
+      </label>
+
+      <fieldset class="subsec">
+        <legend>Bridges (flex hinges)</legend>
+        <label class="inline">
+          <input type="checkbox" v-model="state.params.panel.bridge.enabled" />
+          Connect adjacent panels
+        </label>
+        <template v-if="state.params.panel.bridge.enabled">
+          <label>End margin (mm)
+            <input type="number" min="0" max="50" step="0.5"
+                   :value="state.params.panel.bridge.marginMm"
+                   @input="state.params.panel.bridge.marginMm = Math.max(0, Number($event.target.value) || 0)" />
+          </label>
+          <div class="hint-row">
+            Bridge width auto-sized from design rules:
+            <strong>{{ derivedBridgeWidth.toFixed(2) }} mm</strong>
+            ({{ bridgeTraces }} traces)
+          </div>
+        </template>
+      </fieldset>
+
+      <fieldset class="subsec">
+        <legend>Routing</legend>
+        <label class="inline">
+          <input type="checkbox" v-model="state.params.routing.enabled" />
+          Auto-route VCC / GND / DATA
+        </label>
+        <div v-if="state.params.routing.enabled" class="hint-row">
+          One pass of VCC + GND rails through every bridge, plus
+          DIN / DOUT along the chain. Design-rule values control trace
+          width + spacing.
+        </div>
+      </fieldset>
     </section>
 
     <section>
@@ -64,7 +119,7 @@ const faceIndices = computed(() => Array.from({ length: faceCount.value }, (_, i
     </section>
 
     <section>
-      <h4>Connector</h4>
+      <h4>Connector <span class="hint">· back layer</span></h4>
       <label>Type
         <select v-model="state.params.connectorId">
           <option v-for="c in connectors" :key="c.id" :value="c.id">{{ c.label }}</option>
@@ -179,14 +234,6 @@ const faceIndices = computed(() => Array.from({ length: faceCount.value }, (_, i
       </details>
     </section>
 
-    <section>
-      <h4>Display</h4>
-      <label class="inline"><input type="checkbox" v-model="state.prefs.showFoldLines" /> Fold lines</label>
-      <label class="inline"><input type="checkbox" v-model="state.prefs.showLEDs" /> LED footprints</label>
-      <label class="inline"><input type="checkbox" v-model="state.prefs.showConnector" /> Connector keepout</label>
-      <label class="inline"><input type="checkbox" v-model="state.prefs.showFaceLabels" /> Face labels</label>
-      <label class="inline"><input type="checkbox" v-model="state.prefs.showMountingHoles" /> Mounting holes</label>
-    </section>
   </aside>
 </template>
 
@@ -204,4 +251,7 @@ details summary { cursor: pointer; padding: 4px 0; }
 .err { color: var(--ac); font: 500 0.72rem 'DM Mono', monospace; padding-top: 4px; }
 .subsec { margin: 4px 0 0; padding: 8px 10px 10px; border: 1px solid var(--bd); border-radius: 6px; display: flex; flex-direction: column; gap: 8px; }
 .subsec legend { font: 500 0.7rem 'DM Mono', monospace; color: var(--ac2); padding: 0 6px; }
+h4 .hint { font: 400 0.65rem 'DM Mono', monospace; color: var(--sub); }
+.hint-row { font: 400 0.68rem 'DM Sans', sans-serif; color: var(--sub); padding: 4px 2px; line-height: 1.45; }
+.hint-row strong { color: var(--t); font-weight: 500; font-family: 'DM Mono', monospace; }
 </style>

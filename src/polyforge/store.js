@@ -16,7 +16,28 @@ const DEFAULT_PARAMS = {
   connectorId: 'PAD_ONLY',
   connectorFaceIdx: 0,      // face that hosts the wire entry connector
   connectorPlacement: 'edge',
-  panelShape: 'face',       // 'face' | 'circle' | 'hexagon'
+  // Panel shape clips each face's exported outline. 'face' keeps the
+  // raw face polygon (with optional rounded corners); 'circle' and
+  // 'hexagon' inscribe a smaller shape inside the face.
+  panel: {
+    shape: 'face',          // 'face' | 'circle' | 'hexagon'
+    cornerRadiusMm: 0,      // 'face' only: round the polygon corners
+    insetMm: 0,             // pull the boundary inward by this much
+    scale: 0.95,            // 'circle' / 'hexagon': fraction of face's inscribed radius
+    // Flex bridges between adjacent panels along each fold edge.
+    // Width is auto-derived from the design rules + signal count so
+    // the bridge is only as wide as the traces need it to be.
+    bridge: {
+      enabled: true,
+      marginMm: 2,          // inset from each endpoint of the fold edge
+    },
+  },
+  // Copper routing through the bridges.
+  routing: {
+    enabled: true,
+    // signalsPerFace is informational — for chained 3-wire LEDs each
+    // bridge carries VCC + GND + DIN-forward + DOUT-back.
+  },
   // Solder-pad parameters used only when connectorId === 'PAD_ONLY'.
   // Pads sit in a row at the configured pitch; the strip length scales
   // automatically with the LED's wireCount.
@@ -50,6 +71,14 @@ const DEFAULT_PREFS = {
   showConnector: true,
   showFaceLabels: true,
   showMountingHoles: true,
+  // Faint outline showing the original (unfolded) face polygon
+  // even when the panel shape clips inward. Useful when you want to
+  // see how the panel sits inside the face boundary.
+  showFaceGuide: false,
+  showBridges: true,
+  showChainLabels: false,
+  showTraces: true,
+  layersOpen: true,
   theme: 'dark',
 };
 
@@ -160,6 +189,15 @@ export function applyPatchObject(patch) {
   params.designRules = { ...DEFAULT_PARAMS.designRules, ...(patch.designRules || {}) };
   params.solderPad = { ...DEFAULT_PARAMS.solderPad, ...(patch.solderPad || {}) };
   params.mountingHole = { ...DEFAULT_PARAMS.mountingHole, ...(patch.mountingHole || {}) };
+  // Migrate the older flat panelShape string into the new panel block.
+  params.panel = { ...DEFAULT_PARAMS.panel, ...(patch.panel || {}) };
+  params.panel.bridge = { ...DEFAULT_PARAMS.panel.bridge, ...(patch.panel?.bridge || {}) };
+  // Older patches saved a manual bridge width — strip it so the
+  // auto-derived width takes effect on import.
+  delete params.panel.bridge.widthMm;
+  params.routing = { ...DEFAULT_PARAMS.routing, ...(patch.routing || {}) };
+  if (patch.panelShape && !patch.panel) params.panel.shape = patch.panelShape;
+  delete params.panelShape;
   if (!POLYHEDRA[params.polyhedronId]) params.polyhedronId = 'tetra';
   if (!LEDS[params.ledId]) params.ledId = 'WS2812B';
   if (!CONNECTORS[params.connectorId]) params.connectorId = 'PAD_ONLY';
