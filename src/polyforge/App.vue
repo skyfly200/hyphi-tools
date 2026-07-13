@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar.vue';
 import Inspector from './components/Inspector.vue';
 import BottomBar from './components/BottomBar.vue';
 import CanvasSVG from './components/CanvasSVG.vue';
+import Folded3D from './components/Folded3D.vue';
 import { state } from './store.js';
 </script>
 
@@ -15,7 +16,10 @@ import { state } from './store.js';
       <div class="backdrop"
            @click="state.ui.mobileSidebar = state.ui.mobileInspector = false"></div>
       <Sidebar />
-      <main class="canvas-area"><CanvasSVG /></main>
+      <main class="canvas-area">
+        <Folded3D v-if="state.prefs.view === 'folded'" />
+        <CanvasSVG v-else />
+      </main>
       <Inspector />
     </div>
     <BottomBar />
