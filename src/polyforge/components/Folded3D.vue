@@ -12,7 +12,10 @@
 
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { state, geometry, currentLED } from '../store.js';
-import { centroid2D, panelOutline, ledPositions } from '../lib/layout.js';
+import {
+  centroid2D, panelOutline, ledPositions,
+  bridgesForNet, offsetPolyline, bridgeTraceCount, computeBridgeWidthMm,
+} from '../lib/layout.js';
 
 const containerRef = ref(null);
 const width = ref(800);
@@ -141,6 +144,69 @@ function panelPoints(face) {
   return shape.points;
 }
 
+// Bridge half-strips: each bridge crosses the fold edge between two
+// panels, so it can't ride a single face transform. We split the
+// bridge centerline at the crease line, then attach each half to its
+// own face. Because the centroid→centroid centerline is perpendicular
+// to the shared edge (regular polygons, mirror-symmetric across the
+// edge), the two halves meet cleanly on the crease as it folds.
+const bridgeHalves = computed(() => {
+  if (!state.prefs.showBridges) return [];
+  const net = geometry.value.net;
+  const s = state.params.edgeLengthMm;
+  const w = computeBridgeWidthMm(bridgeTraceCount(currentLED.value?.wireCount || 3), state.params.designRules);
+  const bridges = bridgesForNet(net, state.params.panel, w, s);
+  const foldByPair = new Map();
+  for (const e of net.foldEdges) foldByPair.set(`${e.faceA}-${e.faceB}`, e);
+
+  const halves = [];
+  for (const b of bridges) {
+    const e = foldByPair.get(`${b.faceA}-${b.faceB}`);
+    if (!e) continue;
+    const split = splitAtFold(b.centerline, e.a0, e.a1);
+    const half = b.width / 2;
+    if (split.A.length >= 2) {
+      const strip = [...offsetPolyline(split.A, half), ...offsetPolyline(split.A, -half).reverse()];
+      halves.push({ face: b.faceA, pts: strip });
+    }
+    if (split.B.length >= 2) {
+      const strip = [...offsetPolyline(split.B, half), ...offsetPolyline(split.B, -half).reverse()];
+      halves.push({ face: b.faceB, pts: strip });
+    }
+  }
+  return halves;
+});
+
+// Split a centerline polyline at the (infinite) fold-edge line through
+// a0→a1. Returns { A, B } where A is the portion on the start side
+// (face A's centroid) and B the far side, sharing the exact crossing
+// point so the two folded halves stay joined at the crease.
+function splitAtFold(center, a0, a1) {
+  const dx = a1[0] - a0[0], dy = a1[1] - a0[1];
+  const sd = (p) => dx * (p[1] - a0[1]) - dy * (p[0] - a0[0]);
+  const A = [], B = [];
+  let crossed = false;
+  for (let i = 0; i < center.length; i++) {
+    const p = center[i];
+    if (!crossed) {
+      A.push(p);
+      if (i < center.length - 1) {
+        const s0 = sd(p), s1 = sd(center[i + 1]);
+        if ((s0 <= 0) !== (s1 <= 0) && s0 !== s1) {
+          const t = s0 / (s0 - s1);
+          const cp = [p[0] + (center[i + 1][0] - p[0]) * t, p[1] + (center[i + 1][1] - p[1]) * t];
+          A.push(cp); B.push(cp);
+          crossed = true;
+        }
+      }
+    } else {
+      B.push(p);
+    }
+  }
+  if (!crossed) return { A: center, B: [] };
+  return { A, B };
+}
+
 // ── projection ──────────────────────────────────────────────────
 const scene = computed(() => {
   const net = geometry.value.net;
@@ -160,6 +226,20 @@ const scene = computed(() => {
 
   const polys = [];
   let ledDots = [];
+
+  // Bridges first into the shared poly list so they depth-sort against
+  // the panels. Each half rides its own face's fold transform.
+  for (const h of bridgeHalves.value) {
+    const world = h.pts.map(p => view(transformPoint([p[0], p[1], 0], h.face, t, sign)));
+    const zMean = world.reduce((a, p) => a + p[2], 0) / world.length;
+    polys.push({
+      fi: `bridge-${h.face}`,
+      kind: 'bridge',
+      zMean,
+      pts: world.map(p => `${p[0].toFixed(4)},${(-p[1]).toFixed(4)}`).join(' '),
+    });
+  }
+
   for (let fi = 0; fi < net.faces.length; fi++) {
     const face = net.faces[fi];
     if (!face) continue;
@@ -167,6 +247,7 @@ const scene = computed(() => {
     const zMean = world.reduce((a, p) => a + p[2], 0) / world.length;
     polys.push({
       fi,
+      kind: 'panel',
       zMean,
       pts: world.map(p => `${p[0].toFixed(4)},${(-p[1]).toFixed(4)}`).join(' '),
     });
@@ -207,7 +288,11 @@ const ledR = computed(() => {
       <g class="panels3d">
         <polygon v-for="p in scene.polys" :key="`p3-${p.fi}`"
                  :points="p.pts"
-                 :class="{ conn: p.fi === state.params.connectorFaceIdx, root: p.fi === state.rootFace }" />
+                 :class="{
+                   bridge: p.kind === 'bridge',
+                   conn: p.kind === 'panel' && p.fi === state.params.connectorFaceIdx,
+                   root: p.kind === 'panel' && p.fi === state.rootFace,
+                 }" />
       </g>
       <g v-if="state.prefs.showLEDs" class="leds3d">
         <circle v-for="(d, i) in scene.ledDots" :key="`l3-${i}`"
@@ -232,6 +317,7 @@ svg { width: 100%; height: 100%; display: block; }
 .panels3d polygon { fill: var(--paper); stroke: var(--paper-stroke); stroke-width: 0.012; fill-opacity: 0.92; }
 .panels3d polygon.root { stroke: var(--ac); stroke-width: 0.02; }
 .panels3d polygon.conn { stroke: var(--conn); stroke-width: 0.02; }
+.panels3d polygon.bridge { fill: var(--ac2); fill-opacity: 0.55; stroke: var(--ac2); stroke-width: 0.008; }
 .leds3d circle { fill: var(--led); opacity: 0.9; }
 .fold-ctl {
   position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
