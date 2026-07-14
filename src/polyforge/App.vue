@@ -4,8 +4,12 @@ import Sidebar from './components/Sidebar.vue';
 import Inspector from './components/Inspector.vue';
 import BottomBar from './components/BottomBar.vue';
 import CanvasSVG from './components/CanvasSVG.vue';
-import Folded3D from './components/Folded3D.vue';
+import { defineAsyncComponent } from 'vue';
 import { state } from './store.js';
+
+// Lazy-load the Three.js folded renderer so its ~150KB (gzipped)
+// bundle only loads when the user actually opens the Folded view.
+const Folded3D = defineAsyncComponent(() => import('./components/Folded3D.vue'));
 </script>
 
 <template>
