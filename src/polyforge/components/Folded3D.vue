@@ -14,9 +14,9 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { state, geometry, currentLED } from '../store.js';
+import { state, geometry, currentLED, currentConnector } from '../store.js';
 import {
-  centroid2D, panelOutline, ledPositions,
+  centroid2D, panelOutline, ledPositions, insidePanelShape,
   bridgesForNet, offsetPolyline, bridgeTraceCount, computeBridgeWidthMm,
 } from '../lib/layout.js';
 
@@ -128,16 +128,42 @@ function splitAtFold(center, a0, a1) {
   return crossed ? { A, B } : { A: center, B: [] };
 }
 
-// Half-strips: { face, left[], right[] } in flat-net normalized units.
+// Trim a crease→outward centerline so it stops `overlap` units inside
+// the panel boundary instead of running all the way to the centroid.
+// `part[0]` is the crease end; we walk toward the far (centroid) end
+// and cut shortly after the boundary crossing so the bridge only spans
+// the gap plus a small bonded overlap onto the panel.
+function trimToPanelEdge(part, face2D, panel, s, overlap) {
+  const shape = panelOutline(face2D, panel, s);
+  // Find the first point (from the crease) that enters the panel.
+  let enter = -1;
+  for (let i = 0; i < part.length; i++) {
+    if (insidePanelShape(part[i], shape)) { enter = i; break; }
+  }
+  if (enter < 0) return part; // never reaches the panel — keep as-is
+  // Extend `overlap` past the boundary along the centerline.
+  let acc = 0, cut = enter;
+  for (let i = enter; i < part.length - 1; i++) {
+    acc += Math.hypot(part[i + 1][0] - part[i][0], part[i + 1][1] - part[i][1]);
+    cut = i + 1;
+    if (acc >= overlap) break;
+  }
+  return part.slice(0, cut + 1);
+}
+
+// Half-strips: { face, left[], right[] } in flat-net normalized units,
+// trimmed so the bridge ends just inside each panel edge.
 function bridgeHalves() {
   if (!state.prefs.showBridges) return [];
   const net = geometry.value.net;
   const s = state.params.edgeLengthMm;
+  const panel = state.params.panel;
   const w = computeBridgeWidthMm(
     bridgeTraceCount(currentLED.value?.wireCount || 3), state.params.designRules);
-  const bridges = bridgesForNet(net, state.params.panel, w, s);
+  const bridges = bridgesForNet(net, panel, w, s);
   const foldByPair = new Map();
   for (const e of net.foldEdges) foldByPair.set(`${e.faceA}-${e.faceB}`, e);
+  const overlap = 1.5 / s; // 1.5mm bonded onto each panel
 
   const halves = [];
   for (const b of bridges) {
@@ -145,8 +171,10 @@ function bridgeHalves() {
     if (!e) continue;
     const half = b.width / 2;
     const sp = splitAtFold(b.centerline, e.a0, e.a1);
-    if (sp.A.length >= 2) halves.push({ face: b.faceA, left: offsetPolyline(sp.A, half), right: offsetPolyline(sp.A, -half) });
-    if (sp.B.length >= 2) halves.push({ face: b.faceB, left: offsetPolyline(sp.B, half), right: offsetPolyline(sp.B, -half) });
+    const A = trimToPanelEdge(sp.A, net.faces[b.faceA].polygon2D, panel, s, overlap);
+    const B = trimToPanelEdge(sp.B, net.faces[b.faceB].polygon2D, panel, s, overlap);
+    if (A.length >= 2) halves.push({ face: b.faceA, left: offsetPolyline(A, half), right: offsetPolyline(A, -half) });
+    if (B.length >= 2) halves.push({ face: b.faceB, left: offsetPolyline(B, half), right: offsetPolyline(B, -half) });
   }
   return halves;
 }
@@ -207,106 +235,175 @@ function onResize() {
 function disposeMesh(m) {
   if (!m) return;
   scene.remove(m);
+  m.traverse?.(o => { o.geometry?.dispose?.(); if (Array.isArray(o.material)) o.material.forEach(x => x.dispose()); else o.material?.dispose?.(); });
   m.geometry?.dispose?.();
   if (Array.isArray(m.material)) m.material.forEach(x => x.dispose());
   else m.material?.dispose?.();
 }
+
+// ── geometry emit helpers (all fold-transform their vertices) ────
+// Every point is a flat-net coordinate [x, y, z] where z is the
+// signed height above the net plane; transformPoint carries it
+// through the fold rotations (axes lie in z=0, so height rides along
+// the face normal after folding).
+
+// Extrude a convex outline into a prism between zBot and zTop.
+function emitConvexPrism(outline2D, fi, zBot, zTop, t, sign, out) {
+  const top = outline2D.map(p => transformPoint([p[0], p[1], zTop], fi, t, sign));
+  const bot = outline2D.map(p => transformPoint([p[0], p[1], zBot], fi, t, sign));
+  const tri = (a, b, c) => { pushV(out, a); pushV(out, b); pushV(out, c); };
+  for (let k = 1; k < top.length - 1; k++) tri(top[0], top[k], top[k + 1]);   // top
+  for (let k = 1; k < bot.length - 1; k++) tri(bot[0], bot[k + 1], bot[k]);   // bottom (reversed)
+  const n = outline2D.length;
+  for (let i = 0; i < n; i++) {                                                // walls
+    const j = (i + 1) % n;
+    tri(top[i], bot[i], bot[j]); tri(top[i], bot[j], top[j]);
+  }
+}
+
+// Extrude a ribbon (left/right rails) into a prism — used for bridges,
+// whose outline is not convex so a fan won't do.
+function emitRibbonPrism(left2D, right2D, fi, zBot, zTop, t, sign, out) {
+  const n = Math.min(left2D.length, right2D.length);
+  if (n < 2) return;
+  const lT = [], rT = [], lB = [], rB = [];
+  for (let i = 0; i < n; i++) {
+    lT.push(transformPoint([left2D[i][0], left2D[i][1], zTop], fi, t, sign));
+    rT.push(transformPoint([right2D[i][0], right2D[i][1], zTop], fi, t, sign));
+    lB.push(transformPoint([left2D[i][0], left2D[i][1], zBot], fi, t, sign));
+    rB.push(transformPoint([right2D[i][0], right2D[i][1], zBot], fi, t, sign));
+  }
+  const tri = (a, b, c) => { pushV(out, a); pushV(out, b); pushV(out, c); };
+  for (let i = 0; i < n - 1; i++) {
+    tri(lT[i], rT[i], lT[i + 1]); tri(rT[i], rT[i + 1], lT[i + 1]);           // top
+    tri(lB[i], lB[i + 1], rB[i]); tri(rB[i], lB[i + 1], rB[i + 1]);           // bottom
+    tri(lT[i], lT[i + 1], lB[i]); tri(lB[i], lT[i + 1], lB[i + 1]);           // left wall
+    tri(rT[i], rB[i], rT[i + 1]); tri(rB[i], rB[i + 1], rT[i + 1]);           // right wall
+  }
+  // end caps
+  tri(lT[0], lB[0], rT[0]); tri(rT[0], lB[0], rB[0]);
+  const e = n - 1;
+  tri(lT[e], rT[e], lB[e]); tri(rT[e], rB[e], lB[e]);
+}
+
+// Axis-aligned (in the flat-net plane) box for component bodies.
+function emitBox(cx, cy, fi, zBot, zTop, w, h, t, sign, out) {
+  const hw = w / 2, hh = h / 2;
+  const c = [
+    [cx-hw, cy-hh], [cx+hw, cy-hh], [cx+hw, cy+hh], [cx-hw, cy+hh],
+  ];
+  emitConvexPrism(c, fi, zBot, zTop, t, sign, out);
+}
+
+function pushV(arr, v) { arr.push(v[0], v[1], v[2]); }
 
 // Rebuild all geometry for the current fold + params.
 function rebuild() {
   if (!scene) return;
   const t = foldT.value, sign = foldSign.value;
   const net = geometry.value.net;
+  const s = state.params.edgeLengthMm;
+  const panel = state.params.panel;
+  const led = currentLED.value;
 
-  // Collect every world vertex first so we can recenter the model.
-  const panelTris = []; // flat [x,y,z, ...]
+  // Thicknesses in normalized units.
+  const boardH = (state.params.designRules.boardThicknessMm ?? 1.6) / s;
+  const flexH  = (state.params.designRules.flexThicknessMm ?? 0.2) / s;
+
+  const panelTris = [];
   const bridgeTris = [];
-  const ledCenters = [];
-  const acc = []; // for centering
+  const ledBodyTris = [];
+  const ledDomeTris = [];
+  const connTris = [];
 
-  const push = (arr, v) => { arr.push(v[0], v[1], v[2]); acc.push(v); };
-
-  // Panels — fan-triangulate each convex outline.
+  // Panels as prisms (front = +z, back = −z).
   for (let fi = 0; fi < net.faces.length; fi++) {
     const face = net.faces[fi];
     if (!face) continue;
-    const pts = panelPoints(face).map(p => transformPoint([p[0], p[1], 0], fi, t, sign));
-    for (let k = 1; k < pts.length - 1; k++) {
-      push(panelTris, pts[0]); push(panelTris, pts[k]); push(panelTris, pts[k + 1]);
-    }
-    if (state.prefs.showLEDs) {
-      const lp = ledPositions(face.polygon2D, currentLED.value, state.params.ledsPerFace, state.params.edgeLengthMm);
-      for (const p of lp) ledCenters.push(transformPoint([p[0], p[1], 0], fi, t, sign));
-    }
+    emitConvexPrism(panelPoints(face), fi, -boardH / 2, boardH / 2, t, sign, panelTris);
   }
 
-  // Bridges — quad-strip each half.
+  // Bridges as thin flex prisms, centered on the net plane.
   for (const h of bridgeHalves()) {
-    const L = h.left.map(p => transformPoint([p[0], p[1], 0], h.face, t, sign));
-    const R = h.right.map(p => transformPoint([p[0], p[1], 0], h.face, t, sign));
-    const n = Math.min(L.length, R.length);
-    for (let i = 0; i < n - 1; i++) {
-      push(bridgeTris, L[i]); push(bridgeTris, R[i]);   push(bridgeTris, L[i + 1]);
-      push(bridgeTris, R[i]); push(bridgeTris, R[i + 1]); push(bridgeTris, L[i + 1]);
+    emitRibbonPrism(h.left, h.right, h.face, -flexH / 2, flexH / 2, t, sign, bridgeTris);
+  }
+
+  // Component models: LED package (dark body + emissive top) sitting on
+  // the FRONT of each panel. Connector body on the BACK of its face.
+  if (state.prefs.showLEDs && led) {
+    const bw = led.body.w / s, bh = led.body.h / s;
+    const bodyH = (led.body.w >= 4 ? 1.4 : 0.8) / s;     // taller for 5050
+    const domeH = 0.35 / s;
+    const front = boardH / 2;
+    for (let fi = 0; fi < net.faces.length; fi++) {
+      const face = net.faces[fi];
+      if (!face) continue;
+      for (const p of ledPositions(face.polygon2D, led, state.params.ledsPerFace, s, panel)) {
+        emitBox(p[0], p[1], fi, front, front + bodyH, bw, bh, t, sign, ledBodyTris);
+        emitBox(p[0], p[1], fi, front + bodyH, front + bodyH + domeH, bw * 0.62, bh * 0.62, t, sign, ledDomeTris);
+      }
+    }
+  }
+  const conn = currentConnector.value;
+  if (state.prefs.showConnector && conn) {
+    const fi = state.params.connectorFaceIdx;
+    const face = net.faces[fi];
+    if (face) {
+      const c = centroid2D(face.polygon2D);
+      const cw = conn.body.w / s, ch = conn.body.h / s;
+      const bodyH = 2.0 / s;
+      const back = -boardH / 2;
+      emitBox(c[0], c[1], fi, back - bodyH, back, cw, ch, t, sign, connTris);
     }
   }
 
-  // Center the model on the origin so OrbitControls orbits its middle.
-  let cx = 0, cy = 0, cz = 0;
-  for (const v of acc) { cx += v[0]; cy += v[1]; cz += v[2]; }
-  const n = Math.max(1, acc.length);
-  cx /= n; cy /= n; cz /= n;
-  const recenter = (arr) => { for (let i = 0; i < arr.length; i += 3) { arr[i]-=cx; arr[i+1]-=cy; arr[i+2]-=cz; } };
-  recenter(panelTris); recenter(bridgeTris);
-  for (const v of ledCenters) { v[0]-=cx; v[1]-=cy; v[2]-=cz; }
+  // Recenter everything on the origin.
+  const allArrays = [panelTris, bridgeTris, ledBodyTris, ledDomeTris, connTris];
+  let cx = 0, cy = 0, cz = 0, count = 0;
+  for (const arr of allArrays) for (let i = 0; i < arr.length; i += 3) { cx += arr[i]; cy += arr[i+1]; cz += arr[i+2]; count++; }
+  count = Math.max(1, count); cx /= count; cy /= count; cz /= count;
+  for (const arr of allArrays) for (let i = 0; i < arr.length; i += 3) { arr[i]-=cx; arr[i+1]-=cy; arr[i+2]-=cz; }
 
-  disposeMesh(panelMesh); disposeMesh(bridgeMesh);
-  if (ledGroup) { for (const c of [...ledGroup.children]) { c.geometry?.dispose?.(); c.material?.dispose?.(); } disposeMesh(ledGroup); ledGroup = null; }
+  disposeMesh(panelMesh); disposeMesh(bridgeMesh); disposeMesh(ledGroup);
+  panelMesh = bridgeMesh = ledGroup = null;
 
-  const paper = new THREE.Color(cssVar('--paper', '#1e1e2a'));
+  const paper  = new THREE.Color(cssVar('--paper', '#1e1e2a'));
   const accent = new THREE.Color(cssVar('--ac2', '#7b5cfa'));
   const ledCol = new THREE.Color(cssVar('--led', '#7b5cfa'));
 
-  const pg = new THREE.BufferGeometry();
-  pg.setAttribute('position', new THREE.Float32BufferAttribute(panelTris, 3));
-  pg.computeVertexNormals();
-  panelMesh = new THREE.Mesh(pg, new THREE.MeshStandardMaterial({
-    color: paper, roughness: 0.72, metalness: 0.02, side: THREE.DoubleSide, flatShading: true,
-  }));
-  scene.add(panelMesh);
+  const mkMesh = (tris, mat) => {
+    if (!tris.length) return null;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(tris, 3));
+    g.computeVertexNormals();
+    return new THREE.Mesh(g, mat);
+  };
 
-  if (bridgeTris.length) {
-    const bg = new THREE.BufferGeometry();
-    bg.setAttribute('position', new THREE.Float32BufferAttribute(bridgeTris, 3));
-    bg.computeVertexNormals();
-    bridgeMesh = new THREE.Mesh(bg, new THREE.MeshStandardMaterial({
-      color: accent, roughness: 0.5, metalness: 0.1, side: THREE.DoubleSide,
-      polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
-    }));
-    scene.add(bridgeMesh);
+  panelMesh = mkMesh(panelTris, new THREE.MeshStandardMaterial({
+    color: paper, roughness: 0.72, metalness: 0.02, flatShading: true }));
+  if (panelMesh) scene.add(panelMesh);
+
+  bridgeMesh = mkMesh(bridgeTris, new THREE.MeshStandardMaterial({
+    color: accent, roughness: 0.5, metalness: 0.1 }));
+  if (bridgeMesh) scene.add(bridgeMesh);
+
+  // Component meshes grouped so they dispose together.
+  ledGroup = new THREE.Group();
+  const bodyMesh = mkMesh(ledBodyTris, new THREE.MeshStandardMaterial({ color: 0x161821, roughness: 0.6 }));
+  const domeMesh = mkMesh(ledDomeTris, new THREE.MeshStandardMaterial({ color: 0xf4f4f8, emissive: ledCol, emissiveIntensity: 0.85, roughness: 0.25 }));
+  const connMesh = mkMesh(connTris, new THREE.MeshStandardMaterial({ color: 0x2b2f3a, roughness: 0.55, metalness: 0.2 }));
+  for (const m of [bodyMesh, domeMesh, connMesh]) if (m) ledGroup.add(m);
+  scene.add(ledGroup);
+
+  // Frame the camera once to the model extent.
+  if (panelMesh && !rebuild._framed) {
+    const box = new THREE.Box3().setFromObject(panelMesh);
+    const sphere = box.getBoundingSphere(new THREE.Sphere());
+    const fitDist = sphere.radius / Math.sin((camera.fov * Math.PI / 180) / 2);
+    camera.position.setLength(fitDist * 1.15);
+    rebuild._framed = true;
   }
-
-  if (ledCenters.length) {
-    ledGroup = new THREE.Group();
-    const l = currentLED.value;
-    const r = l ? Math.max(l.body.w, l.body.h) / (2 * state.params.edgeLengthMm) : 0.02;
-    const geo = new THREE.SphereGeometry(r, 12, 10);
-    const mat = new THREE.MeshStandardMaterial({ color: ledCol, emissive: ledCol, emissiveIntensity: 0.4, roughness: 0.4 });
-    for (const c of ledCenters) {
-      const m = new THREE.Mesh(geo, mat);
-      m.position.set(c[0], c[1], c[2]);
-      ledGroup.add(m);
-    }
-    scene.add(ledGroup);
-  }
-
-  // Frame the camera to the model extent (once per rebuild is fine —
-  // OrbitControls keeps the user's orbit, we only reset target).
-  const box = new THREE.Box3().setFromObject(panelMesh);
-  const sphere = box.getBoundingSphere(new THREE.Sphere());
   controls.target.set(0, 0, 0);
-  const fitDist = sphere.radius / Math.sin((camera.fov * Math.PI / 180) / 2);
-  if (!rebuild._framed) { camera.position.setLength(fitDist * 1.15); rebuild._framed = true; }
 }
 
 function animate() {

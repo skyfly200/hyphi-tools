@@ -95,7 +95,7 @@ function centroidPx(poly) {
 
 function ledPositions(face) {
   const s = state.params.edgeLengthMm;
-  const pts = ledPositionsLib(face.polygon2D, currentLED.value, state.params.ledsPerFace, s);
+  const pts = ledPositionsLib(face.polygon2D, currentLED.value, state.params.ledsPerFace, s, state.params.panel);
   return pts.map(([x, y]) => [x * s, -y * s]);
 }
 

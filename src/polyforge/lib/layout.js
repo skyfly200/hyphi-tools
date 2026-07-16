@@ -481,7 +481,8 @@ export function planRouting({
   for (const fi of chain) {
     const face = net.faces[fi];
     if (!face) continue;
-    const pts = ledPositions(face.polygon2D, led, ledsPerFace, edgeLengthMm);
+    // Panel-aware so multi-LED rings stay inside inset/inscribed panels.
+    const pts = ledPositions(face.polygon2D, led, ledsPerFace, edgeLengthMm, panel);
     ledsByFace.set(fi, pts.map(([x, y]) => [x * edgeLengthMm, -y * edgeLengthMm]));
   }
 
@@ -527,13 +528,19 @@ export function planRouting({
   const cnCx = connFace ? centroid2D(connFace.polygon2D)[0] * edgeLengthMm : 0;
   const cnCy = connFace ? -centroid2D(connFace.polygon2D)[1] * edgeLengthMm : 0;
 
-  // Each signal entry point at the connector — a small fan along the
-  // pad strip if PAD_ONLY, otherwise just the connector centroid.
+  // Each signal entry point at the connector — a compact fan centered
+  // on the connector centroid, clamped to stay inside the panel.
+  const connMarginUnits = (designRules?.edgeMarginMm ?? 0.5) / Math.max(edgeLengthMm, 0.001);
   function connEntryPoint(sig) {
     const idx = signals.indexOf(sig);
     const spread = (signals.length - 1) * pitch;
     const startX = cnCx - spread / 2;
-    return [startX + idx * pitch, cnCy];
+    const ptMm = [startX + idx * pitch, cnCy];
+    if (!connFace) return ptMm;
+    // Clamp in normalized space, then back to mm (Y-flip).
+    const norm = [ptMm[0] / edgeLengthMm, -ptMm[1] / edgeLengthMm];
+    const cl = clampInsidePanel(norm, connFace.polygon2D, panel, edgeLengthMm, connMarginUnits);
+    return [cl[0] * edgeLengthMm, -cl[1] * edgeLengthMm];
   }
 
   function pushPolyline(sig, points) {
@@ -612,15 +619,77 @@ function bridgeKey(net, fA, fB, _sig) {
   return null;
 }
 
+// Inradius (normalized units) of the actual panel shape — the largest
+// circle centered on the centroid that fits inside the rendered panel.
+export function panelInradius(face2D, panel, edgeLengthMm) {
+  const shape = panelOutline(face2D, panel || { shape: 'face' }, edgeLengthMm);
+  if (shape.kind === 'circle') return shape.r;
+  const c = centroid2D(shape.points);
+  let r = Infinity;
+  const pts = shape.points;
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    const d = Math.abs(dy * c[0] - dx * c[1] + b[0] * a[1] - b[1] * a[0]) / len;
+    if (d < r) r = d;
+  }
+  return r;
+}
+
+// Move a point inward toward the panel centroid until it sits inside
+// the panel shape, keeping `marginUnits` of clearance from the edge.
+export function clampInsidePanel(ptNorm, face2D, panel, edgeLengthMm, marginUnits = 0) {
+  const shape = panelOutline(face2D, panel || { shape: 'face' }, edgeLengthMm);
+  const c = shape.kind === 'circle' ? [shape.cx, shape.cy] : centroid2D(shape.points);
+  if (shape.kind === 'circle') {
+    const dx = ptNorm[0] - c[0], dy = ptNorm[1] - c[1];
+    const d = Math.hypot(dx, dy);
+    const rMax = Math.max(0, shape.r - marginUnits);
+    if (d <= rMax || d < 1e-9) return ptNorm;
+    return [c[0] + (dx / d) * rMax, c[1] + (dy / d) * rMax];
+  }
+  // Polygon: binary-search the fraction from centroid toward the point
+  // that keeps it inside (minus margin via a shrunk test).
+  if (insidePanelShape(ptNorm, shape) && distToBoundary(ptNorm, shape.points) >= marginUnits) return ptNorm;
+  let lo = 0, hi = 1;
+  for (let it = 0; it < 24; it++) {
+    const mid = (lo + hi) / 2;
+    const q = [c[0] + (ptNorm[0] - c[0]) * mid, c[1] + (ptNorm[1] - c[1]) * mid];
+    if (insidePanelShape(q, shape) && distToBoundary(q, shape.points) >= marginUnits) lo = mid;
+    else hi = mid;
+  }
+  return [c[0] + (ptNorm[0] - c[0]) * lo, c[1] + (ptNorm[1] - c[1]) * lo];
+}
+
+function distToBoundary(pt, poly) {
+  let min = Infinity;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length];
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const l2 = dx * dx + dy * dy || 1;
+    let t = ((pt[0] - a[0]) * dx + (pt[1] - a[1]) * dy) / l2;
+    t = Math.max(0, Math.min(1, t));
+    const px = a[0] + dx * t, py = a[1] + dy * t;
+    min = Math.min(min, Math.hypot(pt[0] - px, pt[1] - py));
+  }
+  return min;
+}
+
 // LED positions per face, in normalized units. Single LED → centroid;
 // multiple LEDs → ring around the centroid sized by LED body so they
-// don't overlap.
-export function ledPositions(face2D, ledFootprint, ledsPerFace, edgeLengthMm) {
+// don't overlap. When `panel` is given, the ring radius is capped so
+// every LED (and its body) stays inside the panel boundary.
+export function ledPositions(face2D, ledFootprint, ledsPerFace, edgeLengthMm, panel = null) {
   if (!ledFootprint || ledsPerFace <= 0) return [];
   const c = centroid2D(face2D);
   if (ledsPerFace === 1) return [c];
-  const rMm = Math.max(ledFootprint.body.w, ledFootprint.body.h) * 0.9;
-  const rUnits = rMm / Math.max(edgeLengthMm, 0.001);
+  const ledHalfUnits = (Math.max(ledFootprint.body.w, ledFootprint.body.h) / 2) / Math.max(edgeLengthMm, 0.001);
+  let rUnits = (Math.max(ledFootprint.body.w, ledFootprint.body.h) * 0.9) / Math.max(edgeLengthMm, 0.001);
+  if (panel) {
+    const inr = panelInradius(face2D, panel, edgeLengthMm);
+    rUnits = Math.min(rUnits, Math.max(0, inr - ledHalfUnits));
+  }
   return Array.from({ length: ledsPerFace }, (_, i) => {
     const a = (2 * Math.PI * i) / ledsPerFace - Math.PI / 2;
     return [c[0] + Math.cos(a) * rUnits, c[1] + Math.sin(a) * rUnits];
