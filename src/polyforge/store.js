@@ -21,9 +21,10 @@ const DEFAULT_PARAMS = {
   // 'hexagon' inscribe a smaller shape inside the face.
   panel: {
     shape: 'face',          // 'face' | 'circle' | 'hexagon'
-    cornerRadiusMm: 0,      // 'face' only: round the polygon corners
+    cornerRadiusMm: 0,      // round the polygon corners (face + n-gons)
     insetMm: 0,             // pull the boundary inward by this much
-    scale: 0.95,            // 'circle' / 'hexagon': fraction of face's inscribed radius
+    scale: 0.95,            // inscribed shapes: fraction of face's inscribed radius
+    rotationDeg: 0,         // inscribed n-gon spin
     // Flex bridges between adjacent panels. Each bridge runs from
     // panel centroid to panel centroid across the fold edge so it
     // always reaches both panels, however far the boundary is inset.
@@ -32,6 +33,9 @@ const DEFAULT_PARAMS = {
       enabled: true,
       style: 'straight',    // 'straight' | 's-curve'
       curveAmplitudeMm: 3,  // s-curve lateral control-point offset
+      curved: true,         // flared/filleted transitions into the panels
+      filletMm: 1.4,        // how far the strip widens at each panel junction
+      overlapMm: 1.2,       // bonded overlap past each panel edge
     },
   },
   // Copper routing through the bridges.

@@ -16,8 +16,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { state, geometry, currentLED, currentConnector } from '../store.js';
 import {
-  centroid2D, panelOutline, ledPositions, insidePanelShape,
-  bridgesForNet, offsetPolyline, bridgeTraceCount, computeBridgeWidthMm,
+  centroid2D, panelOutline, ledPositions,
+  bridgesForNet, offsetVariablePolyline, bridgeTraceCount, computeBridgeWidthMm,
 } from '../lib/layout.js';
 
 const containerRef = ref(null);
@@ -103,56 +103,37 @@ function panelPoints(face) {
   return shape.points;
 }
 
-// Split a bridge centerline at the fold-edge line so each half rides
-// its own face's transform (the two halves stay joined on the crease).
-function splitAtFold(center, a0, a1) {
+// Split a centerline + its per-point width profile at the fold-edge
+// line, interpolating width at the crossing so the two folded halves
+// share an identical seam edge.
+function splitProfileAtFold(center, prof, a0, a1) {
   const dx = a1[0] - a0[0], dy = a1[1] - a0[1];
   const sd = (p) => dx * (p[1] - a0[1]) - dy * (p[0] - a0[0]);
-  const A = [], B = [];
+  const A = { pts: [], w: [] }, B = { pts: [], w: [] };
   let crossed = false;
   for (let i = 0; i < center.length; i++) {
-    const p = center[i];
+    const p = center[i], w = prof[i];
     if (!crossed) {
-      A.push(p);
+      A.pts.push(p); A.w.push(w);
       if (i < center.length - 1) {
         const s0 = sd(p), s1 = sd(center[i + 1]);
         if ((s0 <= 0) !== (s1 <= 0) && s0 !== s1) {
           const t = s0 / (s0 - s1);
           const cp = [p[0] + (center[i + 1][0] - p[0]) * t, p[1] + (center[i + 1][1] - p[1]) * t];
-          A.push(cp); B.push(cp);
+          const cw = w + (prof[i + 1] - w) * t;
+          A.pts.push(cp); A.w.push(cw); B.pts.push(cp); B.w.push(cw);
           crossed = true;
         }
       }
-    } else B.push(p);
+    } else { B.pts.push(p); B.w.push(w); }
   }
-  return crossed ? { A, B } : { A: center, B: [] };
+  return crossed ? { A, B } : { A, B: { pts: [], w: [] } };
 }
 
-// Trim a crease→outward centerline so it stops `overlap` units inside
-// the panel boundary instead of running all the way to the centroid.
-// `part[0]` is the crease end; we walk toward the far (centroid) end
-// and cut shortly after the boundary crossing so the bridge only spans
-// the gap plus a small bonded overlap onto the panel.
-function trimToPanelEdge(part, face2D, panel, s, overlap) {
-  const shape = panelOutline(face2D, panel, s);
-  // Find the first point (from the crease) that enters the panel.
-  let enter = -1;
-  for (let i = 0; i < part.length; i++) {
-    if (insidePanelShape(part[i], shape)) { enter = i; break; }
-  }
-  if (enter < 0) return part; // never reaches the panel — keep as-is
-  // Extend `overlap` past the boundary along the centerline.
-  let acc = 0, cut = enter;
-  for (let i = enter; i < part.length - 1; i++) {
-    acc += Math.hypot(part[i + 1][0] - part[i][0], part[i + 1][1] - part[i][1]);
-    cut = i + 1;
-    if (acc >= overlap) break;
-  }
-  return part.slice(0, cut + 1);
-}
-
-// Half-strips: { face, left[], right[] } in flat-net normalized units,
-// trimmed so the bridge ends just inside each panel edge.
+// Half-strips: { face, left[], right[] } in flat-net normalized units.
+// bridgesForNet already trims to the panel edges and carries the flared
+// width profile; we just split each bridge at its crease so each half
+// rides its own face's fold transform.
 function bridgeHalves() {
   if (!state.prefs.showBridges) return [];
   const net = geometry.value.net;
@@ -163,18 +144,14 @@ function bridgeHalves() {
   const bridges = bridgesForNet(net, panel, w, s);
   const foldByPair = new Map();
   for (const e of net.foldEdges) foldByPair.set(`${e.faceA}-${e.faceB}`, e);
-  const overlap = 1.5 / s; // 1.5mm bonded onto each panel
 
   const halves = [];
   for (const b of bridges) {
     const e = foldByPair.get(`${b.faceA}-${b.faceB}`);
     if (!e) continue;
-    const half = b.width / 2;
-    const sp = splitAtFold(b.centerline, e.a0, e.a1);
-    const A = trimToPanelEdge(sp.A, net.faces[b.faceA].polygon2D, panel, s, overlap);
-    const B = trimToPanelEdge(sp.B, net.faces[b.faceB].polygon2D, panel, s, overlap);
-    if (A.length >= 2) halves.push({ face: b.faceA, left: offsetPolyline(A, half), right: offsetPolyline(A, -half) });
-    if (B.length >= 2) halves.push({ face: b.faceB, left: offsetPolyline(B, half), right: offsetPolyline(B, -half) });
+    const sp = splitProfileAtFold(b.centerline, b.widthProfile, e.a0, e.a1);
+    if (sp.A.pts.length >= 2) halves.push({ face: b.faceA, left: offsetVariablePolyline(sp.A.pts, sp.A.w, +1), right: offsetVariablePolyline(sp.A.pts, sp.A.w, -1) });
+    if (sp.B.pts.length >= 2) halves.push({ face: b.faceB, left: offsetVariablePolyline(sp.B.pts, sp.B.w, +1), right: offsetVariablePolyline(sp.B.pts, sp.B.w, -1) });
   }
   return halves;
 }

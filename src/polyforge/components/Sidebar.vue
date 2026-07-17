@@ -4,7 +4,9 @@ import { state, geometry, requiredWireCount, compatibleConnectors, setPolyhedron
 import { listPolyhedra } from '../lib/polyhedra.js';
 import { listLEDs } from '../lib/leds.js';
 import { CONNECTOR_PLACEMENTS } from '../lib/connectors.js';
-import { bridgeTraceCount, computeBridgeWidthMm } from '../lib/layout.js';
+import { bridgeTraceCount, computeBridgeWidthMm, PANEL_SHAPES, INSCRIBED_NGON } from '../lib/layout.js';
+
+const panelShapes = PANEL_SHAPES;
 
 const polyhedra = listPolyhedra();
 const leds = listLEDs();
@@ -17,6 +19,7 @@ const placements = CONNECTOR_PLACEMENTS;
 const faceCount = computed(() => geometry.value.built.faces.length);
 const faceIndices = computed(() => Array.from({ length: faceCount.value }, (_, i) => i));
 
+const isNgon = computed(() => !!INSCRIBED_NGON[state.params.panel.shape]);
 const bridgeTraces = computed(() => bridgeTraceCount(requiredWireCount.value));
 const derivedBridgeWidth = computed(() =>
   computeBridgeWidthMm(bridgeTraces.value, state.params.designRules));
@@ -47,9 +50,7 @@ const derivedBridgeWidth = computed(() =>
       <h4>Panel</h4>
       <label>Shape
         <select v-model="state.params.panel.shape">
-          <option value="face">Face polygon (full or inset)</option>
-          <option value="circle">Inscribed circle</option>
-          <option value="hexagon">Inscribed hexagon</option>
+          <option v-for="s in panelShapes" :key="s.id" :value="s.id">{{ s.label }}</option>
         </select>
       </label>
       <label>Inset (mm)
@@ -57,13 +58,19 @@ const derivedBridgeWidth = computed(() =>
                :value="state.params.panel.insetMm"
                @input="state.params.panel.insetMm = Math.max(0, Number($event.target.value) || 0)" />
       </label>
-      <label v-if="state.params.panel.shape === 'face'">
+      <label v-if="state.params.panel.shape === 'face' || isNgon">
         Corner radius (mm)
         <input type="number" min="0" max="50" step="0.5"
                :value="state.params.panel.cornerRadiusMm"
                @input="state.params.panel.cornerRadiusMm = Math.max(0, Number($event.target.value) || 0)" />
       </label>
-      <label v-else>
+      <label v-if="isNgon">
+        Rotation (°)
+        <input type="number" min="-180" max="180" step="5"
+               :value="state.params.panel.rotationDeg"
+               @input="state.params.panel.rotationDeg = Number($event.target.value) || 0" />
+      </label>
+      <label v-if="state.params.panel.shape !== 'face'">
         Scale (× inscribed radius)
         <input type="number" min="0.1" max="1" step="0.01"
                :value="state.params.panel.scale"
@@ -89,12 +96,28 @@ const derivedBridgeWidth = computed(() =>
                    :value="state.params.panel.bridge.curveAmplitudeMm"
                    @input="state.params.panel.bridge.curveAmplitudeMm = Math.max(0.5, Number($event.target.value) || 0.5)" />
           </label>
+          <label class="inline">
+            <input type="checkbox" v-model="state.params.panel.bridge.curved" />
+            Curved (filleted) transitions
+          </label>
+          <label v-if="state.params.panel.bridge.curved">
+            Fillet flare (mm)
+            <input type="number" min="0" max="20" step="0.2"
+                   :value="state.params.panel.bridge.filletMm"
+                   @input="state.params.panel.bridge.filletMm = Math.max(0, Number($event.target.value) || 0)" />
+          </label>
+          <label>
+            Panel overlap (mm)
+            <input type="number" min="0" max="20" step="0.2"
+                   :value="state.params.panel.bridge.overlapMm"
+                   @input="state.params.panel.bridge.overlapMm = Math.max(0, Number($event.target.value) || 0)" />
+          </label>
           <div class="hint-row">
-            Each bridge spans panel-center to panel-center across the
-            fold, so it always reaches both panels regardless of inset.
-            The S-curve pattern adds slack material so the hinge can
-            wrap a tighter bend radius. Width auto-sized from design
-            rules: <strong>{{ derivedBridgeWidth.toFixed(2) }} mm</strong>
+            Bridges span only the gap between panels plus a short bonded
+            overlap, so they stop at the panel edges. Curved transitions
+            flare the strip where it meets each panel to relieve flex
+            stress. Width auto-sized from design rules:
+            <strong>{{ derivedBridgeWidth.toFixed(2) }} mm</strong>
             ({{ bridgeTraces }} traces)
           </div>
         </template>

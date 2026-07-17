@@ -29,38 +29,61 @@ export function mountingHolePositions(face2D, params, edgeLengthMm) {
   });
 }
 
-// Apply the panel shape (face / circle / hexagon) to a face's 2D
-// polygon and return a tagged outline ready to render or export.
+// Regular-polygon panel shapes, keyed by side count. 'circle' is
+// handled separately as a real circle primitive.
+export const INSCRIBED_NGON = {
+  triangle: 3, square: 4, pentagon: 5, hexagon: 6,
+  heptagon: 7, octagon: 8,
+};
+
+// All selectable panel shapes, in menu order, with human labels.
+export const PANEL_SHAPES = [
+  { id: 'face',     label: 'Face polygon (full or inset)' },
+  { id: 'circle',   label: 'Inscribed circle' },
+  { id: 'triangle', label: 'Inscribed triangle' },
+  { id: 'square',   label: 'Inscribed square' },
+  { id: 'pentagon', label: 'Inscribed pentagon' },
+  { id: 'hexagon',  label: 'Inscribed hexagon' },
+  { id: 'heptagon', label: 'Inscribed heptagon' },
+  { id: 'octagon',  label: 'Inscribed octagon' },
+];
+
+// Apply the panel shape to a face's 2D polygon and return a tagged
+// outline ready to render or export.
 //
-// 'face'    → original polygon, optionally inset and/or rounded at
-//             the corners. cornerRadius is in normalized units.
-// 'circle'  → inscribed circle, scaled by panel.scale. Returned as
-//             { kind: 'circle', cx, cy, r } so the renderer can use
-//             a real circle primitive instead of a many-sided polygon.
-// 'hexagon' → regular 6-gon inscribed in the face's inradius.
+// 'face'     → original polygon, optionally inset and/or corner-rounded.
+// 'circle'   → inscribed circle scaled by panel.scale, returned as
+//              { kind:'circle', cx, cy, r } for a real circle primitive.
+// n-gon ids  → regular polygon inscribed in the face's inradius, with an
+//              optional panel.rotationDeg spin. cornerRadius applies too.
 export function panelOutline(face2D, panel, edgeLengthMm) {
   const c = centroid2D(face2D);
   const inradius = inradiusOf(face2D, c);
   const insetUnits = (panel?.insetMm || 0) / Math.max(edgeLengthMm, 0.001);
   const shape = panel?.shape || 'face';
+  const cornerRadius = (panel?.cornerRadiusMm || 0) / Math.max(edgeLengthMm, 0.001);
 
   if (shape === 'circle') {
     const r = Math.max(0.001, inradius * (panel?.scale ?? 0.95) - insetUnits);
     return { kind: 'circle', cx: c[0], cy: c[1], r };
   }
 
-  if (shape === 'hexagon') {
+  const sides = INSCRIBED_NGON[shape];
+  if (sides) {
     const r = Math.max(0.001, inradius * (panel?.scale ?? 0.95) - insetUnits);
-    const pts = Array.from({ length: 6 }, (_, i) => {
-      const a = (Math.PI / 3) * i;
+    // Default orientation: flat-bottom for even-sided, point-up for odd,
+    // plus any user rotation.
+    const base = (sides % 2 ? -Math.PI / 2 : Math.PI / sides);
+    const rot = base + (panel?.rotationDeg || 0) * Math.PI / 180;
+    const pts = Array.from({ length: sides }, (_, i) => {
+      const a = rot + (2 * Math.PI / sides) * i;
       return [c[0] + Math.cos(a) * r, c[1] + Math.sin(a) * r];
     });
-    return { kind: 'polygon', points: pts, cornerRadius: 0 };
+    return { kind: 'polygon', points: pts, cornerRadius };
   }
 
   // 'face' — same shape as the original polygon, inset and/or rounded.
   const inset = insetPolygon(face2D, c, insetUnits);
-  const cornerRadius = (panel?.cornerRadiusMm || 0) / Math.max(edgeLengthMm, 0.001);
   return { kind: 'polygon', points: inset, cornerRadius };
 }
 
@@ -163,6 +186,80 @@ export function offsetPolyline(pts, off) {
   return pts.map((p, i) => [p[0] + normals[i][0] * off, p[1] + normals[i][1] * off]);
 }
 
+// Offset a polyline with a PER-POINT half-width (used for flared /
+// curved bridge ends). side is +1 / −1.
+export function offsetVariablePolyline(pts, halfWidths, side) {
+  const n = pts.length;
+  if (n < 2) return pts.map(p => [p[0], p[1]]);
+  const normals = [];
+  for (let i = 0; i < n; i++) {
+    const a = pts[Math.max(0, i - 1)];
+    const b = pts[Math.min(n - 1, i + 1)];
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const l = Math.hypot(dx, dy) || 1;
+    normals.push([-dy / l, dx / l]);
+  }
+  return pts.map((p, i) => [p[0] + normals[i][0] * halfWidths[i] * side, p[1] + normals[i][1] * halfWidths[i] * side]);
+}
+
+// Cumulative arc length along a polyline.
+function cumLen(pts) {
+  const c = [0];
+  for (let i = 1; i < pts.length; i++)
+    c[i] = c[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+  return c;
+}
+function ptAtArc(pts, cum, s) {
+  const total = cum[cum.length - 1];
+  s = Math.max(0, Math.min(total, s));
+  let i = 1;
+  while (i < cum.length && cum[i] < s) i++;
+  const seg = (cum[i] - cum[i - 1]) || 1;
+  const t = (s - cum[i - 1]) / seg;
+  return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * t, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * t];
+}
+// Uniformly resample the arc-length range [s0, s1] into `samples+1` pts.
+function subByArc(pts, cum, s0, s1, samples) {
+  const out = [];
+  for (let k = 0; k <= samples; k++) out.push(ptAtArc(pts, cum, s0 + (s1 - s0) * k / samples));
+  return out;
+}
+
+// Trim a centroid→centroid centerline down to just the free gap plus a
+// short bonded overlap onto each panel, so the bridge stops at (just
+// past) the panel edges instead of burying all the way to the centroid.
+function trimCenterlineToEdges(net, e, center, panel, edgeLengthMm, overlapUnits) {
+  const shA = panelOutline(net.faces[e.faceA].polygon2D, panel, edgeLengthMm);
+  const shB = panelOutline(net.faces[e.faceB].polygon2D, panel, edgeLengthMm);
+  const dense = center.length >= 40 ? center : subByArc(center, cumLen(center), 0, cumLen(center).at(-1), 80);
+  const cum = cumLen(dense);
+  const total = cum.at(-1);
+  let exitA = 0;
+  for (let i = 0; i < dense.length; i++) { if (insidePanelShape(dense[i], shA)) exitA = i; else break; }
+  let entryB = dense.length - 1;
+  for (let i = dense.length - 1; i >= 0; i--) { if (insidePanelShape(dense[i], shB)) entryB = i; else break; }
+  if (entryB <= exitA) return { line: dense, cum, gap0: 0, gap1: total }; // panels overlap
+  const s0 = Math.max(0, cum[exitA] - overlapUnits);
+  const s1 = Math.min(total, cum[entryB] + overlapUnits);
+  const line = subByArc(dense, cum, s0, s1, 60);
+  return { line, cum: cumLen(line), gap0: cum[exitA] - s0, gap1: (s1 - s0) - (s1 - cum[entryB]) };
+}
+
+// Half-width profile along a trimmed centerline: nominal `half` in the
+// middle, flaring smoothly to `endHalf` over the bonded `flareLen` at
+// each end — this is what makes the bridge-to-panel transition curve.
+function bridgeWidthProfile(line, half, endHalf, flareLen) {
+  const cum = cumLen(line);
+  const total = cum.at(-1) || 1;
+  return line.map((_, i) => {
+    const dEdge = Math.min(cum[i], total - cum[i]);
+    if (dEdge >= flareLen || flareLen <= 0) return half;
+    const u = dEdge / flareLen;          // 0 at the very end → 1 at flareLen
+    const s = u * u * (3 - 2 * u);        // smoothstep
+    return endHalf + (half - endHalf) * s;
+  });
+}
+
 // Gap-aware bridge centerline between two adjacent faces, in
 // normalized units. Straight bridges are just centroid → centroid.
 // For S-curve bridges, the serpentine is confined to the GAP between
@@ -233,13 +330,27 @@ export function bridgesForNet(net, panel, widthMm, edgeLengthMm) {
     const ux = dx / len, uy = dy / len;       // along the bridge axis
     const nx = -uy, ny = ux;                  // across the bridge (trace lanes)
     const half = wUnits / 2;
-    const center = gapAwareCenterline(net, e, panel, edgeLengthMm);
-    const left  = offsetPolyline(center, half);
-    const right = offsetPolyline(center, -half);
+
+    // Full centroid→centroid centerline (with any S-curve), then trim
+    // to the free gap + a short bonded overlap so the bridge ends at
+    // the panel edges instead of running to the centroids.
+    const raw = gapAwareCenterline(net, e, panel, edgeLengthMm);
+    const overlap = (cfg.overlapMm ?? 1.2) / Math.max(edgeLengthMm, 0.001);
+    const { line: center } = trimCenterlineToEdges(net, e, raw, panel, edgeLengthMm, overlap);
+
+    // Curved transitions: flare the width out at the two bonded ends.
+    const curved = cfg.curved !== false;
+    const filletUnits = curved ? (cfg.filletMm ?? 1.4) / Math.max(edgeLengthMm, 0.001) : 0;
+    const flareLen = Math.max(overlap, filletUnits);
+    const prof = bridgeWidthProfile(center, half, half + filletUnits, flareLen);
+
+    const left  = offsetVariablePolyline(center, prof, +1);
+    const right = offsetVariablePolyline(center, prof, -1);
     const corners = [...left, ...right.reverse()];
     out.push({
       points: corners,
       centerline: center,
+      widthProfile: prof,
       faceA: e.faceA, faceB: e.faceB,
       midpoint: [(cA[0] + cB[0]) / 2, (cA[1] + cB[1]) / 2],
       axis: [ux, uy],
