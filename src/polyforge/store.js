@@ -33,8 +33,8 @@ const DEFAULT_PARAMS = {
       enabled: true,
       style: 'straight',    // 'straight' | 's-curve'
       curveAmplitudeMm: 3,  // s-curve lateral control-point offset
-      curved: true,         // flared/filleted transitions into the panels
-      filletMm: 1.4,        // how far the strip widens at each panel junction
+      curved: true,         // filleted transitions into the panels
+      filletMm: 0.8,        // gentle widening at each panel junction (capped)
       overlapMm: 1.2,       // bonded overlap past each panel edge
     },
   },

@@ -339,9 +339,13 @@ export function bridgesForNet(net, panel, widthMm, edgeLengthMm) {
     const { line: center } = trimCenterlineToEdges(net, e, raw, panel, edgeLengthMm, overlap);
 
     // Curved transitions: flare the width out at the two bonded ends.
+    // The fillet is capped at a fraction of the nominal half-width so
+    // the ends stay modest (≤ ~1.3× nominal) — otherwise several
+    // bridges converging on one panel balloon into a blob.
     const curved = cfg.curved !== false;
-    const filletUnits = curved ? (cfg.filletMm ?? 1.4) / Math.max(edgeLengthMm, 0.001) : 0;
-    const flareLen = Math.max(overlap, filletUnits);
+    const rawFillet = (cfg.filletMm ?? 0.8) / Math.max(edgeLengthMm, 0.001);
+    const filletUnits = curved ? Math.min(rawFillet, half * 0.3) : 0;
+    const flareLen = Math.max(overlap, 1.5 / Math.max(edgeLengthMm, 0.001));
     const prof = bridgeWidthProfile(center, half, half + filletUnits, flareLen);
 
     const left  = offsetVariablePolyline(center, prof, +1);
@@ -597,22 +601,18 @@ export function planRouting({
     ledsByFace.set(fi, pts.map(([x, y]) => [x * edgeLengthMm, -y * edgeLengthMm]));
   }
 
-  // Per-bridge, per-signal lane POLYLINES in mm, stored A→B. For a
-  // straight bridge this is two points; for an S-curve bridge the
-  // lane follows the gap-confined serpentine at a constant lateral
-  // offset, so the preview and exports carry copper that actually
-  // fits the strip.
+  // Per-bridge, per-signal lane POLYLINES in mm, stored A→B, built from
+  // the ACTUAL trimmed bridge centerlines. Because a trimmed bridge
+  // ends at the panel edges (not the centroids), the lanes stop there
+  // too — so the lanes of different bridges no longer all funnel onto
+  // the shared centroid and cross each other. Each face's interior
+  // routing then connects those edge points via per-signal waypoints.
   const bridgeLanePath = new Map(); // key: `${fA}-${fB}/${sig}` → [[x,y], ...] A→B
-  for (const e of net.foldEdges) {
-    const fA = net.faces[e.faceA];
-    const fB = net.faces[e.faceB];
-    if (!fA || !fB) continue;
-    // Centerline in normalized units, then scale to mm with Y-flip.
-    const center = gapAwareCenterline(net, e, panel, edgeLengthMm)
-      .map(([x, y]) => [x * edgeLengthMm, -y * edgeLengthMm]);
+  for (const b of bridgesForNet(net, panel, widthMm, edgeLengthMm)) {
+    const center = b.centerline.map(([x, y]) => [x * edgeLengthMm, -y * edgeLengthMm]);
     for (const sig of signals) {
       const off = lane(laneOf(sig));
-      bridgeLanePath.set(`${e.faceA}-${e.faceB}/${sig}`, offsetPolyline(center, off));
+      bridgeLanePath.set(`${b.faceA}-${b.faceB}/${sig}`, offsetPolyline(center, off));
     }
   }
 
@@ -659,63 +659,49 @@ export function planRouting({
     traces.push({ signal: sig, color: color[sig] || '#888', points });
   }
 
-  // Power: build a DFS walk of face centroids — each face is touched,
-  // and the polyline backtracks through bridges so it physically
-  // matches the routable copper.
+  // Per-face lane spread direction: perpendicular to the line from the
+  // face centroid toward the connector face. Every signal crosses a
+  // face as a parallel track offset by `lane(sig)` along this direction
+  // — including at the LED pads — so no two signals ever collapse onto
+  // the same point (which used to make them cross / short at the LED
+  // and the face centroid).
+  const connCn = connFace ? centroid2D(connFace.polygon2D) : [0, 0];
+  function faceDirOf(fi) {
+    const c = centroid2D(net.faces[fi].polygon2D);
+    let dx = c[0] - connCn[0], dy = c[1] - connCn[1];
+    const l = Math.hypot(dx, dy);
+    return l < 1e-6 ? [1, 0] : [-dy / l, dx / l];
+  }
+  // Waypoints for a signal on a face: each LED (in chain order), or the
+  // centroid if the face has none, each offset by the signal's lane.
+  function faceWaypoints(fi, sig) {
+    const dir = faceDirOf(fi);
+    const off = lane(laneOf(sig));
+    const leds = ledsByFace.get(fi) || [];
+    if (!leds.length) {
+      const c = centroid2D(net.faces[fi].polygon2D);
+      return [[c[0] * edgeLengthMm + dir[0] * off, -c[1] * edgeLengthMm + dir[1] * off]];
+    }
+    return leds.map(p => [p[0] + dir[0] * off, p[1] + dir[1] * off]);
+  }
+
+  // Route every signal as its own parallel lane along the spanning-tree
+  // DFS walk from the connector. Power (VCC/GND) and clock/data lanes
+  // all stay separated the whole way.
   const walk = chainWalkFromConnector(net, connectorFaceIdx);
-  function powerPolyline(sig) {
+  function busPolyline(sig) {
     const pts = [connEntryPoint(sig)];
     let prev = connectorFaceIdx;
+    pts.push(...faceWaypoints(connectorFaceIdx, sig));
     for (const fi of walk) {
       if (fi === prev) continue;
       pts.push(...lanePathAcross(prev, fi, sig));
-      const face = net.faces[fi];
-      if (face) {
-        const c = centroid2D(face.polygon2D);
-        pts.push([c[0] * edgeLengthMm, -c[1] * edgeLengthMm]);
-      }
+      pts.push(...faceWaypoints(fi, sig));
       prev = fi;
     }
     pushPolyline(sig, pts);
   }
-  powerPolyline('VCC');
-  powerPolyline('GND');
-
-  // Data line: connector → LED1 DIN → LED1 DOUT → LED2 DIN → ...
-  // The visual is one polyline that hops between LED centroids in
-  // chain order, going through bridges in between. We treat DIN as
-  // the "data going in" lane and DOUT as the "data coming out" lane;
-  // between two LEDs in chain order they meet at the bridge midpoint.
-  function dataPolyline(inSig, outSig) {
-    const pts = [connEntryPoint(inSig)];
-    let prevFace = connectorFaceIdx;
-    let prevLedPt = null;
-    for (let i = 0; i < chain.length; i++) {
-      const fi = chain[i];
-      const ledsHere = ledsByFace.get(fi) || [];
-      // Walk from the previous face's last LED to this face's first
-      // LED via a bridge if they're different faces.
-      if (fi !== prevFace) {
-        // Leave on the outbound lane, arrive on the inbound lane —
-        // switch lanes at the bridge midpoint.
-        const out = lanePathAcross(prevFace, fi, outSig);
-        const inn = lanePathAcross(prevFace, fi, inSig);
-        const half = Math.floor(out.length / 2);
-        pts.push(...out.slice(0, half), ...inn.slice(half));
-      }
-      // Chain through every LED on this face.
-      for (const led of ledsHere) {
-        pts.push(led); // DIN at LED
-        // Within-face: DOUT also at LED for the schematic preview.
-        // KiCad emits this as two distinct pads on the footprint.
-      }
-      prevFace = fi;
-      prevLedPt = ledsHere[ledsHere.length - 1] || prevLedPt;
-    }
-    pushPolyline(inSig, pts);
-  }
-  dataPolyline('DIN', 'DOUT');
-  if (wireCount === 4) dataPolyline('CIN', 'COUT');
+  for (const sig of signals) busPolyline(sig);
 
   return { traces, widthMm };
 }
