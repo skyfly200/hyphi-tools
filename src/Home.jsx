@@ -42,6 +42,14 @@ const TOOLS = [
     icon: '⬢',
   },
   {
+    href: '/harness',
+    internal: true,
+    name: 'Harness Calculator',
+    tagline: 'Stem wiring cut-length planner',
+    desc: 'Plan LED stem wiring harnesses: lay out core bends, power taps, and data links with optional tip forks, then get a precut wire list with total power and data lengths.',
+    icon: '⌥',
+  },
+  {
     href: '/links',
     internal: true,
     name: 'Link Shortener',
