@@ -56,6 +56,7 @@ function doExportDXF() {
     solderPad: state.params.solderPad,
     mountingHole: state.params.mountingHole,
     panel: state.params.panel,
+    connectorTab: state.params.connectorTab,
     designRules: state.params.designRules,
     routing: state.params.routing,
     scale,
@@ -75,6 +76,7 @@ function doExportKiCad() {
     solderPad: state.params.solderPad,
     mountingHole: state.params.mountingHole,
     panel: state.params.panel,
+    connectorTab: state.params.connectorTab,
     designRules: state.params.designRules,
     routing: state.params.routing,
   });
@@ -93,6 +95,7 @@ function doExportSVGZip() {
     solderPad: state.params.solderPad,
     mountingHole: state.params.mountingHole,
     panel: state.params.panel,
+    connectorTab: state.params.connectorTab,
     designRules: state.params.designRules,
     routing: state.params.routing,
   });
@@ -137,6 +140,7 @@ const bendCheck = computed(() => {
   return bridgeFoldStats({
     net: geometry.value.net,
     panel: state.params.panel,
+    connectorTab: state.params.connectorTab,
     wireCount: requiredWireCount.value,
     designRules: state.params.designRules,
     edgeLengthMm: state.params.edgeLengthMm,

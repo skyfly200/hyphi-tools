@@ -21,8 +21,9 @@
 import {
   mountingHolePositions, ledPositions, centroid2D, panelOutline,
   bridgesForNet, bridgeTraceCount, computeBridgeWidthMm,
-  chainOrderFromConnector, planRouting,
+  chainOrderFromConnector, planRouting, connectorTabGeometry,
 } from './layout.js';
+import { resolveTabSpec } from './connectors.js';
 
 const LINE_W = 0.05; // mm, KiCad's typical Edge.Cuts hairline
 
@@ -198,6 +199,7 @@ export function buildKiCadPCB({
   solderPad,
   mountingHole,
   panel,
+  connectorTab,
   designRules,
   routing,
 }) {
@@ -359,6 +361,33 @@ export function buildKiCadPCB({
         const [x2, y2] = pts[i];
         lines.push(`  (segment (start ${n(x1)} ${n(y1)}) (end ${n(x2)} ${n(y2)}) (width ${n(tw)}) (layer "F.Cu") (net ${netIdx}))`);
       }
+    }
+  }
+
+  // Connector tab: Edge.Cuts outline for the tab (and its flex bridge)
+  // plus SMD pads on B.Cu wired to the same net table.
+  if (connectorTab?.enabled) {
+    const g = connectorTabGeometry(net, { connectorTab, connectorFaceIdx }, resolveTabSpec(connectorTab), edgeLengthMm);
+    if (g) {
+      const edgeLoop = (poly) => {
+        const p = poly.map(([x, y]) => [x * edgeLengthMm, -y * edgeLengthMm]);
+        for (let i = 0; i < p.length; i++) {
+          const a = p[i], b = p[(i + 1) % p.length];
+          lines.push(`  (gr_line (start ${n(a[0])} ${n(a[1])}) (end ${n(b[0])} ${n(b[1])}) (layer "Edge.Cuts") (width ${LINE_W}))`);
+        }
+      };
+      edgeLoop(g.tab);
+      if (g.bridge) edgeLoop(g.bridge);
+      const padSig = wireSignals(led, wireCount);
+      g.pads.forEach((p, i) => {
+        const cx = p[0] * edgeLengthMm, cy = -p[1] * edgeLengthMm;
+        const sig = padSig[i] || `P${i + 1}`;
+        const netIdx = nets[sig] ?? 0;
+        const netStr = netIdx > 0 ? ` (net ${netIdx} "${sig}")` : '';
+        lines.push(`  (footprint "PolyForge:TabPad" (layer "B.Cu") (at ${n(cx)} ${n(cy)}) (attr smd)`);
+        lines.push(`    (pad "${i + 1}" smd rect (at 0 0) (size ${n(g.padW * edgeLengthMm)} ${n(g.padH * edgeLengthMm)}) (layers "B.Cu" "B.Paste" "B.Mask")${netStr})`);
+        lines.push('  )');
+      });
     }
   }
 

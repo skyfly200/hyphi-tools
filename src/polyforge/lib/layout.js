@@ -368,6 +368,80 @@ export function bridgesForNet(net, panel, widthMm, edgeLengthMm) {
   return out;
 }
 
+// Connector tab: a small board protruding off one edge of the
+// connector face, carrying the wire-entry connector. Returns null when
+// disabled. All geometry in normalized units.
+//
+//   { tab: [[x,y]...],        // tab outline polygon
+//     pads: [[x,y]...],       // pad centers (row along the edge)
+//     padW, padH,             // pad size
+//     bridge: [[x,y]...]|null,// flex strip (attach === 'bridge')
+//     dir: [nx,ny],           // outward normal (tab points this way)
+//     along: [ux,uy],         // edge tangent (pad row runs this way)
+//     faceIdx }               // face the tab rides (folds with it)
+//
+// `spec` comes from resolveTabSpec(); passed in so this module stays
+// free of the connector catalog import.
+export function connectorTabGeometry(net, params, spec, edgeLengthMm) {
+  const ct = params?.connectorTab;
+  if (!ct?.enabled || !spec) return null;
+  const face = net.faces[params.connectorFaceIdx];
+  if (!face) return null;
+  const poly = face.polygon2D;
+  const c = centroid2D(poly);
+  const n = poly.length;
+  const ei = ((ct.edge % n) + n) % n;
+  const a = poly[ei], b = poly[(ei + 1) % n];
+  const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  const ex = b[0] - a[0], ey = b[1] - a[1];
+  const el = Math.hypot(ex, ey) || 1;
+  const ux = ex / el, uy = ey / el;      // along the edge
+  let nx = -uy, ny = ux;                  // edge normal
+  // Flip to point away from the face centroid (outward).
+  if (Math.hypot(mid[0] + nx - c[0], mid[1] + ny - c[1]) < Math.hypot(mid[0] - c[0], mid[1] - c[1])) {
+    nx = -nx; ny = -ny;
+  }
+
+  const M = Math.max(edgeLengthMm, 0.001);
+  const tabW = spec.tabWMm / M, tabL = spec.tabLMm / M;
+  const gap = ct.attach === 'bridge' ? (ct.offsetMm ?? 6) / M : 0;
+  const innerC = [mid[0] + nx * gap, mid[1] + ny * gap];
+  const outerC = [innerC[0] + nx * tabL, innerC[1] + ny * tabL];
+  const hw = tabW / 2;
+  const tab = [
+    [innerC[0] + ux * hw, innerC[1] + uy * hw],
+    [outerC[0] + ux * hw, outerC[1] + uy * hw],
+    [outerC[0] - ux * hw, outerC[1] - uy * hw],
+    [innerC[0] - ux * hw, innerC[1] - uy * hw],
+  ];
+
+  // Pad row, centered across the tab, ~60% of the way out.
+  const padC = [innerC[0] + nx * tabL * 0.6, innerC[1] + ny * tabL * 0.6];
+  const pitch = spec.pitchMm / M;
+  const strip = pitch * (spec.pins - 1);
+  const pads = Array.from({ length: spec.pins }, (_, i) => {
+    const tt = -strip / 2 + pitch * i;
+    return [padC[0] + ux * tt, padC[1] + uy * tt];
+  });
+
+  // Flex bridge from the face edge to the tab when attaching by bridge.
+  let bridge = null;
+  if (ct.attach === 'bridge' && gap > 1e-6) {
+    const bhw = ((spec.bridgeWidthMm ?? Math.min(spec.tabWMm, 6)) / M) / 2;
+    bridge = [
+      [mid[0] + ux * bhw, mid[1] + uy * bhw],
+      [innerC[0] + ux * bhw, innerC[1] + uy * bhw],
+      [innerC[0] - ux * bhw, innerC[1] - uy * bhw],
+      [mid[0] - ux * bhw, mid[1] - uy * bhw],
+    ];
+  }
+
+  return {
+    tab, pads, padW: spec.padWMm / M, padH: spec.padHMm / M,
+    bridge, dir: [nx, ny], along: [ux, uy], faceIdx: params.connectorFaceIdx,
+  };
+}
+
 // Point-in-shape test for a panelOutline result (normalized units).
 export function insidePanelShape(pt, shape) {
   if (shape.kind === 'circle') {

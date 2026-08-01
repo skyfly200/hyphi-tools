@@ -3,8 +3,10 @@ import { computed } from 'vue';
 import { state, geometry, requiredWireCount, compatibleConnectors, setPolyhedron, setDesignRulesFromText } from '../store.js';
 import { listPolyhedra } from '../lib/polyhedra.js';
 import { listLEDs } from '../lib/leds.js';
-import { CONNECTOR_PLACEMENTS } from '../lib/connectors.js';
+import { CONNECTOR_PLACEMENTS, listConnectorTabs } from '../lib/connectors.js';
 import { bridgeTraceCount, computeBridgeWidthMm, PANEL_SHAPES, INSCRIBED_NGON } from '../lib/layout.js';
+
+const connectorTabs = listConnectorTabs();
 
 const panelShapes = PANEL_SHAPES;
 
@@ -20,6 +22,11 @@ const faceCount = computed(() => geometry.value.built.faces.length);
 const faceIndices = computed(() => Array.from({ length: faceCount.value }, (_, i) => i));
 
 const isNgon = computed(() => !!INSCRIBED_NGON[state.params.panel.shape]);
+// Edges available on the connector face (for tab placement).
+const connFaceEdges = computed(() => {
+  const f = geometry.value.built.faces[state.params.connectorFaceIdx];
+  return f ? Array.from({ length: f.length }, (_, i) => i) : [0];
+});
 const bridgeTraces = computed(() => bridgeTraceCount(requiredWireCount.value));
 const derivedBridgeWidth = computed(() =>
   computeBridgeWidthMm(bridgeTraces.value, state.params.designRules));
@@ -206,6 +213,78 @@ const derivedBridgeWidth = computed(() =>
                  :value="state.params.solderPad.keepoutMm"
                  @input="state.params.solderPad.keepoutMm = Math.max(0, Number($event.target.value) || 0)" />
         </label>
+      </fieldset>
+
+      <!-- Connector tab: move the connector onto a protruding tab -->
+      <fieldset class="subsec">
+        <legend>Connector tab</legend>
+        <label class="inline">
+          <input type="checkbox" v-model="state.params.connectorTab.enabled" />
+          Put connector on a tab
+        </label>
+        <template v-if="state.params.connectorTab.enabled">
+          <label>Connection
+            <select v-model="state.params.connectorTab.preset">
+              <option v-for="t in connectorTabs" :key="t.id" :value="t.id">{{ t.label }}</option>
+            </select>
+          </label>
+          <label>Attach
+            <select v-model="state.params.connectorTab.attach">
+              <option value="direct">Direct — tab abuts the edge</option>
+              <option value="bridge">Bridge — flex link off the edge</option>
+            </select>
+          </label>
+          <label>Face edge
+            <select :value="state.params.connectorTab.edge"
+                    @change="state.params.connectorTab.edge = Number($event.target.value)">
+              <option v-for="i in connFaceEdges" :key="i" :value="i">Edge {{ i }}</option>
+            </select>
+          </label>
+          <label v-if="state.params.connectorTab.attach === 'bridge'">
+            Bridge length (mm)
+            <input type="number" min="1" max="60" step="0.5"
+                   :value="state.params.connectorTab.offsetMm"
+                   @input="state.params.connectorTab.offsetMm = Math.max(1, Number($event.target.value) || 1)" />
+          </label>
+
+          <template v-if="state.params.connectorTab.preset === 'custom'">
+            <label>Pins
+              <input type="number" min="1" max="12" step="1"
+                     :value="state.params.connectorTab.pins"
+                     @input="state.params.connectorTab.pins = Math.max(1, Number($event.target.value) || 1)" />
+            </label>
+            <label>Pad pitch (mm)
+              <input type="number" min="0.4" max="10" step="0.1"
+                     :value="state.params.connectorTab.pitchMm"
+                     @input="state.params.connectorTab.pitchMm = Math.max(0.4, Number($event.target.value) || 0.4)" />
+            </label>
+            <label>Pad width (mm)
+              <input type="number" min="0.2" max="10" step="0.1"
+                     :value="state.params.connectorTab.padWMm"
+                     @input="state.params.connectorTab.padWMm = Math.max(0.2, Number($event.target.value) || 0.2)" />
+            </label>
+            <label>Pad height (mm)
+              <input type="number" min="0.2" max="20" step="0.1"
+                     :value="state.params.connectorTab.padHMm"
+                     @input="state.params.connectorTab.padHMm = Math.max(0.2, Number($event.target.value) || 0.2)" />
+            </label>
+            <label>Tab width (mm)
+              <input type="number" min="2" max="60" step="0.5"
+                     :value="state.params.connectorTab.tabWMm"
+                     @input="state.params.connectorTab.tabWMm = Math.max(2, Number($event.target.value) || 2)" />
+            </label>
+            <label>Tab length (mm)
+              <input type="number" min="2" max="60" step="0.5"
+                     :value="state.params.connectorTab.tabLMm"
+                     @input="state.params.connectorTab.tabLMm = Math.max(2, Number($event.target.value) || 2)" />
+            </label>
+            <label>Bridge width (mm)
+              <input type="number" min="1" max="30" step="0.5"
+                     :value="state.params.connectorTab.bridgeWidthMm"
+                     @input="state.params.connectorTab.bridgeWidthMm = Math.max(1, Number($event.target.value) || 1)" />
+            </label>
+          </template>
+        </template>
       </fieldset>
     </section>
 

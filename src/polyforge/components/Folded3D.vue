@@ -18,7 +18,9 @@ import { state, geometry, currentLED, currentConnector } from '../store.js';
 import {
   centroid2D, panelOutline, ledPositions,
   bridgesForNet, offsetVariablePolyline, bridgeTraceCount, computeBridgeWidthMm,
+  connectorTabGeometry,
 } from '../lib/layout.js';
+import { resolveTabSpec } from '../lib/connectors.js';
 
 const containerRef = ref(null);
 const foldT = ref(1); // 0 = flat, 1 = fully folded
@@ -322,7 +324,7 @@ function rebuild() {
     }
   }
   const conn = currentConnector.value;
-  if (state.prefs.showConnector && conn) {
+  if (state.prefs.showConnector && conn && !state.params.connectorTab.enabled) {
     const fi = state.params.connectorFaceIdx;
     const face = net.faces[fi];
     if (face) {
@@ -331,6 +333,22 @@ function rebuild() {
       const bodyH = 2.0 / s;
       const back = -boardH / 2;
       emitBox(c[0], c[1], fi, back - bodyH, back, cw, ch, t, sign, connTris);
+    }
+  }
+
+  // Connector tab: tab board + optional flex bridge ride the connector
+  // face's fold transform; a connector body block sits on the tab.
+  if (state.prefs.showConnector && state.params.connectorTab.enabled) {
+    const g = connectorTabGeometry(net, state.params, resolveTabSpec(state.params.connectorTab), s);
+    if (g) {
+      const fi = g.faceIdx;
+      emitConvexPrism(g.tab, fi, -boardH / 2, boardH / 2, t, sign, panelTris);
+      if (g.bridge) emitConvexPrism(g.bridge, fi, -flexH / 2, flexH / 2, t, sign, bridgeTris);
+      // connector body straddling the tab (on the front for visibility)
+      let bx = 0, by = 0; for (const p of g.tab) { bx += p[0] / 4; by += p[1] / 4; }
+      const cw = (resolveTabSpec(state.params.connectorTab).tabWMm * 0.7) / s;
+      const ch = (resolveTabSpec(state.params.connectorTab).tabLMm * 0.35) / s;
+      emitBox(bx, by, fi, boardH / 2, boardH / 2 + 2.0 / s, cw, ch, t, sign, connTris);
     }
   }
 
@@ -400,7 +418,8 @@ watch(
     led: state.params.ledId, lpf: state.params.ledsPerFace,
     cf: state.params.connectorFaceIdx, r: state.rootFace,
     panel: state.params.panel, dr: state.params.designRules,
-    b: state.prefs.showBridges, sl: state.prefs.showLEDs,
+    tab: state.params.connectorTab,
+    b: state.prefs.showBridges, sl: state.prefs.showLEDs, sc: state.prefs.showConnector,
     theme: state.prefs.theme,
   }),
   () => { needsRebuild = true; },

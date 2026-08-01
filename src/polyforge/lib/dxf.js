@@ -1,8 +1,9 @@
 import {
   mountingHolePositions, panelOutline,
   bridgesForNet, bridgeTraceCount, computeBridgeWidthMm,
-  planRouting,
+  planRouting, connectorTabGeometry,
 } from './layout.js';
+import { resolveTabSpec } from './connectors.js';
 
 // Minimal DXF writer for PolyForge.
 //
@@ -130,7 +131,7 @@ function circle(cx, cy, r, layer) {
   return s;
 }
 
-export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorFaceIdx, wireCount = 3, solderPad = null, mountingHole = null, panel = null, designRules = null, routing = null, scale = 1 }) {
+export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorFaceIdx, wireCount = 3, solderPad = null, mountingHole = null, panel = null, designRules = null, routing = null, connectorTab = null, scale = 1 }) {
   let body = '';
 
   // Outline: each face's panel-clipped boundary. The "OUTLINE" layer
@@ -251,6 +252,19 @@ export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorF
       const pts = mountingHolePositions(face.polygon2D, mountingHole, scale);
       for (const [x, y] of pts) {
         body += circle(x * scale, y * scale, mountingHole.diameterMm / 2, 'HOLE');
+      }
+    }
+  }
+
+  // Connector tab: extra board outline on OUTLINE (tab + optional flex
+  // bridge) with the pad row on CONN_B.
+  if (connectorTab?.enabled) {
+    const g = connectorTabGeometry(net, { connectorTab, connectorFaceIdx }, resolveTabSpec(connectorTab), scale);
+    if (g) {
+      body += polyline(g.tab.map(([x, y]) => [x * scale, y * scale]), 'OUTLINE', true);
+      if (g.bridge) body += polyline(g.bridge.map(([x, y]) => [x * scale, y * scale]), 'OUTLINE', true);
+      for (const [x, y] of g.pads) {
+        body += rect(x * scale, y * scale, g.padW * scale, g.padH * scale, 'CONN_B');
       }
     }
   }

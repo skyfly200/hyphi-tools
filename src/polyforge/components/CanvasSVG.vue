@@ -10,7 +10,9 @@ import {
   computeBridgeWidthMm,
   chainOrderFromConnector,
   planRouting,
+  connectorTabGeometry,
 } from '../lib/layout.js';
+import { resolveTabSpec } from '../lib/connectors.js';
 
 const containerRef = ref(null);
 const width = ref(800);
@@ -37,8 +39,8 @@ watch(
     sp: state.params.solderPad,
     mh: state.params.mountingHole,
     pn: state.params.panel,
-    cf: state.params.connectorFaceIdx,
     rt: state.params.routing,
+    tab: state.params.connectorTab,
   }),
   () => {
     refreshTick.value++;
@@ -192,6 +194,20 @@ function holePositionsPx(face) {
   const pts = mountingHolePositions(face.polygon2D, state.params.mountingHole, s);
   return pts.map(([x, y]) => [x * s, -y * s]);
 }
+
+// Connector tab in canvas pixel space.
+const tabGeom = computed(() => {
+  const s = state.params.edgeLengthMm;
+  const g = connectorTabGeometry(geometry.value.net, state.params, resolveTabSpec(state.params.connectorTab), s);
+  if (!g) return null;
+  const px = ([x, y]) => [x * s, -y * s];
+  return {
+    tab: g.tab.map(px).map(p => p.join(',')).join(' '),
+    bridge: g.bridge ? g.bridge.map(px).map(p => p.join(',')).join(' ') : null,
+    pads: g.pads.map(px),
+    padW: g.padW * s, padH: g.padH * s,
+  };
+});
 
 // Auto-derived bridge width based on trace count + design rules.
 const bridgeWidthMm = computed(() => {
@@ -406,6 +422,16 @@ function connPos() {
         </template>
       </g>
 
+      <!-- Connector tab (protrudes off the connector face) -->
+      <g v-if="state.prefs.showConnector && tabGeom" class="conntab">
+        <polygon v-if="tabGeom.bridge" class="tab-bridge" :points="tabGeom.bridge" />
+        <polygon class="tab-board" :points="tabGeom.tab" />
+        <rect v-for="([x, y], i) in tabGeom.pads" :key="`tabpad-${i}`"
+              class="tab-pad"
+              :x="x - tabGeom.padW / 2" :y="y - tabGeom.padH / 2"
+              :width="tabGeom.padW" :height="tabGeom.padH" rx="0.15" />
+      </g>
+
       <!-- Mounting holes -->
       <g v-if="state.params.mountingHole.enabled && state.prefs.showMountingHoles" class="holes">
         <template v-for="(face, fi) in geometry.net.faces" :key="`mh-${fi}`">
@@ -505,6 +531,9 @@ svg { width: 100%; height: 100%; display: block; }
    and lower opacity to read as "hidden / on the other layer". */
 .conn rect { fill: rgba(63,191,127,0.10); stroke: var(--conn); stroke-width: 0.4; stroke-dasharray: 1.2 0.8; opacity: 0.75; pointer-events: none; transition: x 0.18s ease, y 0.18s ease, width 0.18s ease, height 0.18s ease; }
 .pads rect, .pads circle { fill: var(--conn); stroke: var(--conn); stroke-width: 0.1; opacity: 0.55; pointer-events: none; transition: x 0.18s ease, y 0.18s ease, cx 0.18s ease, cy 0.18s ease, r 0.18s ease, width 0.18s ease, height 0.18s ease; }
+.conntab .tab-board { fill: var(--paper); stroke: var(--conn); stroke-width: 0.4; pointer-events: none; }
+.conntab .tab-bridge { fill: var(--paper); stroke: var(--paper-stroke); stroke-width: 0.3; pointer-events: none; }
+.conntab .tab-pad { fill: var(--conn); stroke: var(--conn); stroke-width: 0.1; pointer-events: none; }
 .holes circle { fill: var(--canvas-bg); stroke: var(--t); stroke-width: 0.2; pointer-events: none; opacity: 0.85; transition: cx 0.18s ease, cy 0.18s ease, r 0.18s ease; }
 .labels text { font: 500 4px 'DM Mono', monospace; fill: var(--sub); pointer-events: none; }
 </style>

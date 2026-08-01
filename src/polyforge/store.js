@@ -16,6 +16,18 @@ const DEFAULT_PARAMS = {
   connectorId: 'PAD_ONLY',
   connectorFaceIdx: 0,      // face that hosts the wire entry connector
   connectorPlacement: 'edge',
+  // Optional connector tab: move the wire-entry connector off the
+  // panel onto a small board protruding from the chosen face edge.
+  connectorTab: {
+    enabled: false,
+    preset: 'led3',         // led3 | led4 | fpc4 | pads | custom
+    attach: 'bridge',       // 'direct' (abuts the edge) | 'bridge' (flex link)
+    edge: 0,                // which edge of the connector face to tab off
+    offsetMm: 6,            // gap to the tab when attach === 'bridge'
+    // custom overrides (used only when preset === 'custom'):
+    pins: 4, pitchMm: 2.0, padWMm: 1.6, padHMm: 3.0,
+    tabWMm: 12, tabLMm: 9, bridgeWidthMm: 6,
+  },
   // Panel shape clips each face's exported outline. 'face' keeps the
   // raw face polygon (with optional rounded corners); 'circle' and
   // 'hexagon' inscribe a smaller shape inside the face.
@@ -204,6 +216,7 @@ export function applyPatchObject(patch) {
   params.designRules = { ...DEFAULT_PARAMS.designRules, ...(patch.designRules || {}) };
   params.solderPad = { ...DEFAULT_PARAMS.solderPad, ...(patch.solderPad || {}) };
   params.mountingHole = { ...DEFAULT_PARAMS.mountingHole, ...(patch.mountingHole || {}) };
+  params.connectorTab = { ...DEFAULT_PARAMS.connectorTab, ...(patch.connectorTab || {}) };
   // Migrate the older flat panelShape string into the new panel block.
   params.panel = { ...DEFAULT_PARAMS.panel, ...(patch.panel || {}) };
   params.panel.bridge = { ...DEFAULT_PARAMS.panel.bridge, ...(patch.panel?.bridge || {}) };
