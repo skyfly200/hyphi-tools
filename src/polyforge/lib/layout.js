@@ -873,17 +873,10 @@ export function planRouting({
     }
   }
 
-  // Short connector fan-out: a stub from each connector pad to the first
-  // bridge lane on the connector face, so the wire entry is shown
-  // reaching the copper (still ending near the segment edge).
-  const firstBridge = net.foldEdges.find(e => e.faceA === connectorFaceIdx || e.faceB === connectorFaceIdx);
-  if (firstBridge) {
-    for (const sig of signals) {
-      const lp = lanePathAcross(connectorFaceIdx,
-        firstBridge.faceA === connectorFaceIdx ? firstBridge.faceB : firstBridge.faceA, sig);
-      if (lp && lp.length) pushPolyline(sig, [connEntryPoint(sig), lp[0]]);
-    }
-  }
+  // No connector fan-out: bringing every signal to a single wire-entry
+  // point pinched the lanes together. The traces are left as the spaced
+  // parallel bridge lanes, ending just past each segment edge — the
+  // wire-up to the connector / LED pads is left to the fab step.
 
   return { traces, widthMm };
 }

@@ -19,8 +19,8 @@ import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
 import { state, geometry, currentLED, currentConnector, requiredWireCount } from '../store.js';
 import {
   centroid2D, panelOutline, ledPositions, insidePanelShape,
-  bridgesForNet, offsetVariablePolyline, bridgeTraceCount, computeBridgeWidthMm,
-  connectorTabGeometry, planRouting,
+  bridgesForNet, bridgeTraceCount, computeBridgeWidthMm,
+  connectorTabGeometry,
 } from '../lib/layout.js';
 import { resolveTabSpec } from '../lib/connectors.js';
 
@@ -107,38 +107,41 @@ function panelPoints(face) {
   return shape.points;
 }
 
-// Split a centerline + its per-point width profile at the fold-edge
-// line, interpolating width at the crossing so the two folded halves
-// share an identical seam edge.
-function splitProfileAtFold(center, prof, a0, a1) {
-  const dx = a1[0] - a0[0], dy = a1[1] - a0[1];
-  const sd = (p) => dx * (p[1] - a0[1]) - dy * (p[0] - a0[0]);
-  const A = { pts: [], w: [] }, B = { pts: [], w: [] };
-  let crossed = false;
-  for (let i = 0; i < center.length; i++) {
-    const p = center[i], w = prof[i];
-    if (!crossed) {
-      A.pts.push(p); A.w.push(w);
-      if (i < center.length - 1) {
-        const s0 = sd(p), s1 = sd(center[i + 1]);
-        if ((s0 <= 0) !== (s1 <= 0) && s0 !== s1) {
-          const t = s0 / (s0 - s1);
-          const cp = [p[0] + (center[i + 1][0] - p[0]) * t, p[1] + (center[i + 1][1] - p[1]) * t];
-          const cw = w + (prof[i + 1] - w) * t;
-          A.pts.push(cp); A.w.push(cw); B.pts.push(cp); B.w.push(cw);
-          crossed = true;
-        }
-      }
-    } else { B.pts.push(p); B.w.push(w); }
+// Transform a flat-net point that sits on a bridge, applying a PARTIAL
+// rotation about that bridge's own crease. faceA is the bridge's parent
+// face; `f` blends 0 → parent-face orientation, 1 → child-face
+// orientation. Ramping f across the free gap makes the bridge sweep a
+// smooth arc (the bend radius) instead of a hard crease. All other
+// creases up faceA's chain use the full fold angle.
+function transformBridgePoint(p, faceA, e, f, t, sign) {
+  const { chains } = foldTree.value;
+  const dihedral = geometry.value.poly.dihedralDeg * Math.PI / 180;
+  const thetaFull = sign * t * (Math.PI - dihedral);
+  // partial rotation about this bridge's crease
+  const a = [e.a0[0], e.a0[1], 0];
+  const d = [e.a1[0] - e.a0[0], e.a1[1] - e.a0[1], 0];
+  const l = Math.hypot(d[0], d[1]) || 1;
+  const th = thetaFull * f;
+  let q = rotAboutAxis(p, a, [d[0] / l, d[1] / l, 0], Math.cos(th), Math.sin(th));
+  // then faceA's own chain at the full angle
+  const chain = chains.get(faceA) || [];
+  const cF = Math.cos(thetaFull), sF = Math.sin(thetaFull);
+  for (let i = chain.length - 1; i >= 0; i--) {
+    const ce = chain[i];
+    const ca = [ce.a0[0], ce.a0[1], 0];
+    const cd = [ce.a1[0] - ce.a0[0], ce.a1[1] - ce.a0[1], 0];
+    const cl = Math.hypot(cd[0], cd[1]) || 1;
+    q = rotAboutAxis(q, ca, [cd[0] / cl, cd[1] / cl, 0], cF, sF);
   }
-  return crossed ? { A, B } : { A, B: { pts: [], w: [] } };
+  return q;
 }
 
-// Half-strips: { face, left[], right[] } in flat-net normalized units.
-// bridgesForNet already trims to the panel edges and carries the flared
-// width profile; we just split each bridge at its crease so each half
-// rides its own face's fold transform.
-function bridgeHalves() {
+// Per-bridge data for the curved 3D render: the (trimmed) centerline,
+// its width profile, the parent face + crease, and a per-point blend f
+// that is 0 where the strip is bonded to face A, 1 where bonded to
+// face B, and ramps linearly across the free gap (→ constant-curvature
+// arc = the flex bend radius).
+function curvedBridges() {
   if (!state.prefs.showBridges) return [];
   const net = geometry.value.net;
   const s = state.params.edgeLengthMm;
@@ -149,15 +152,29 @@ function bridgeHalves() {
   const foldByPair = new Map();
   for (const e of net.foldEdges) foldByPair.set(`${e.faceA}-${e.faceB}`, e);
 
-  const halves = [];
+  const out = [];
   for (const b of bridges) {
     const e = foldByPair.get(`${b.faceA}-${b.faceB}`);
-    if (!e) continue;
-    const sp = splitProfileAtFold(b.centerline, b.widthProfile, e.a0, e.a1);
-    if (sp.A.pts.length >= 2) halves.push({ face: b.faceA, left: offsetVariablePolyline(sp.A.pts, sp.A.w, +1), right: offsetVariablePolyline(sp.A.pts, sp.A.w, -1) });
-    if (sp.B.pts.length >= 2) halves.push({ face: b.faceB, left: offsetVariablePolyline(sp.B.pts, sp.B.w, +1), right: offsetVariablePolyline(sp.B.pts, sp.B.w, -1) });
+    if (!e || b.centerline.length < 2) continue;
+    const shA = panelOutline(net.faces[b.faceA].polygon2D, panel, s);
+    const shB = panelOutline(net.faces[b.faceB].polygon2D, panel, s);
+    const c = b.centerline;
+    const nrm = c.map((p, i) => {
+      const a = c[Math.max(0, i - 1)], bb = c[Math.min(c.length - 1, i + 1)];
+      const dx = bb[0] - a[0], dy = bb[1] - a[1];
+      const ll = Math.hypot(dx, dy) || 1;
+      return [-dy / ll, dx / ll];
+    });
+    let exitA = 0;
+    for (let i = 0; i < c.length; i++) { if (insidePanelShape(c[i], shA)) exitA = i; else break; }
+    let entryB = c.length - 1;
+    for (let i = c.length - 1; i >= 0; i--) { if (insidePanelShape(c[i], shB)) entryB = i; else break; }
+    if (entryB <= exitA) { exitA = 0; entryB = c.length - 1; }
+    const blend = c.map((_, i) =>
+      i <= exitA ? 0 : i >= entryB ? 1 : (i - exitA) / (entryB - exitA));
+    out.push({ faceA: b.faceA, e, center: c, prof: b.widthProfile, nrm, blend });
   }
-  return halves;
+  return out;
 }
 
 // ── Three.js scene ──────────────────────────────────────────────
@@ -242,31 +259,6 @@ function emitConvexPrism(outline2D, fi, zBot, zTop, t, sign, out) {
   }
 }
 
-// Extrude a ribbon (left/right rails) into a prism — used for bridges,
-// whose outline is not convex so a fan won't do.
-function emitRibbonPrism(left2D, right2D, fi, zBot, zTop, t, sign, out) {
-  const n = Math.min(left2D.length, right2D.length);
-  if (n < 2) return;
-  const lT = [], rT = [], lB = [], rB = [];
-  for (let i = 0; i < n; i++) {
-    lT.push(transformPoint([left2D[i][0], left2D[i][1], zTop], fi, t, sign));
-    rT.push(transformPoint([right2D[i][0], right2D[i][1], zTop], fi, t, sign));
-    lB.push(transformPoint([left2D[i][0], left2D[i][1], zBot], fi, t, sign));
-    rB.push(transformPoint([right2D[i][0], right2D[i][1], zBot], fi, t, sign));
-  }
-  const tri = (a, b, c) => { pushV(out, a); pushV(out, b); pushV(out, c); };
-  for (let i = 0; i < n - 1; i++) {
-    tri(lT[i], rT[i], lT[i + 1]); tri(rT[i], rT[i + 1], lT[i + 1]);           // top
-    tri(lB[i], lB[i + 1], rB[i]); tri(rB[i], lB[i + 1], rB[i + 1]);           // bottom
-    tri(lT[i], lT[i + 1], lB[i]); tri(lB[i], lT[i + 1], lB[i + 1]);           // left wall
-    tri(rT[i], rB[i], rT[i + 1]); tri(rB[i], rB[i + 1], rT[i + 1]);           // right wall
-  }
-  // end caps
-  tri(lT[0], lB[0], rT[0]); tri(rT[0], lB[0], rB[0]);
-  const e = n - 1;
-  tri(lT[e], rT[e], lB[e]); tri(rT[e], rB[e], lB[e]);
-}
-
 // Axis-aligned (in the flat-net plane) box for component bodies.
 function emitBox(cx, cy, fi, zBot, zTop, w, h, t, sign, out) {
   const hw = w / 2, hh = h / 2;
@@ -278,55 +270,48 @@ function emitBox(cx, cy, fi, zBot, zTop, w, h, t, sign, out) {
 
 function pushV(arr, v) { arr.push(v[0], v[1], v[2]); }
 
-// Which face's panel contains a normalized net point (else nearest by
-// centroid) — used to ride copper traces on the folding faces.
-function faceForNetPoint(net, panel, edgeLengthMm, pt) {
-  for (let fi = 0; fi < net.faces.length; fi++) {
-    const f = net.faces[fi];
-    if (f && insidePanelShape(pt, panelOutline(f.polygon2D, panel, edgeLengthMm))) return fi;
+// Emit a curved bridge substrate prism: each cross-section rides a
+// partial fold (blend f), so the strip sweeps a smooth arc across the
+// gap instead of a hard crease.
+function emitCurvedBridge(bd, zBot, zTop, t, sign, out) {
+  const { faceA, e, center, prof, nrm, blend } = bd;
+  const n = center.length;
+  const lT = [], rT = [], lB = [], rB = [];
+  for (let i = 0; i < n; i++) {
+    const hw = prof[i];
+    const lx = center[i][0] + nrm[i][0] * hw, ly = center[i][1] + nrm[i][1] * hw;
+    const rx = center[i][0] - nrm[i][0] * hw, ry = center[i][1] - nrm[i][1] * hw;
+    lT.push(transformBridgePoint([lx, ly, zTop], faceA, e, blend[i], t, sign));
+    rT.push(transformBridgePoint([rx, ry, zTop], faceA, e, blend[i], t, sign));
+    lB.push(transformBridgePoint([lx, ly, zBot], faceA, e, blend[i], t, sign));
+    rB.push(transformBridgePoint([rx, ry, zBot], faceA, e, blend[i], t, sign));
   }
-  let best = 0, bd = Infinity;
-  for (let fi = 0; fi < net.faces.length; fi++) {
-    const f = net.faces[fi];
-    if (!f) continue;
-    const c = centroid2D(f.polygon2D);
-    const d = (c[0] - pt[0]) ** 2 + (c[1] - pt[1]) ** 2;
-    if (d < bd) { bd = d; best = fi; }
+  const tri = (a, b, c) => { pushV(out, a); pushV(out, b); pushV(out, c); };
+  for (let i = 0; i < n - 1; i++) {
+    tri(lT[i], rT[i], lT[i + 1]); tri(rT[i], rT[i + 1], lT[i + 1]);
+    tri(lB[i], lB[i + 1], rB[i]); tri(rB[i], lB[i + 1], rB[i + 1]);
+    tri(lT[i], lT[i + 1], lB[i]); tri(lB[i], lT[i + 1], lB[i + 1]);
+    tri(rT[i], rB[i], rT[i + 1]); tri(rB[i], rB[i + 1], rT[i + 1]);
   }
-  return best;
+  tri(lT[0], lB[0], rT[0]); tri(rT[0], lB[0], rB[0]);
+  const e2 = n - 1;
+  tri(lT[e2], rT[e2], lB[e2]); tri(rT[e2], rB[e2], lB[e2]);
 }
 
-// Copper trace ribbons on the board surface. Each routed polyline (mm,
-// Y-down) becomes a thin flat ribbon sitting just above the front face,
-// with every vertex riding the fold transform of the face it lies on.
-function emitTraces(net, panel, edgeLengthMm, zTop, t, sign, out) {
-  const plan = planRouting({
-    net, connectorFaceIdx: state.params.connectorFaceIdx,
-    led: currentLED.value, ledsPerFace: state.params.ledsPerFace,
-    connector: currentConnector.value, panel,
-    wireCount: requiredWireCount.value, designRules: state.params.designRules,
-    edgeLengthMm,
-  });
-  const halfW = ((state.params.designRules.traceWidthMm ?? 0.25) / 2) / edgeLengthMm;
-  const z = zTop + 0.02 / edgeLengthMm; // hair above the surface
-  for (const tr of plan.traces) {
-    // Convert to normalized net coords and resolve a face per vertex.
-    const pts = tr.points.map(([x, y]) => [x / edgeLengthMm, -y / edgeLengthMm]);
-    if (pts.length < 2) continue;
-    const faces = pts.map(p => faceForNetPoint(net, panel, edgeLengthMm, p));
-    // Per-point unit normal (2D) for the ribbon offset.
-    const nrm = pts.map((p, i) => {
-      const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
-      const dx = b[0] - a[0], dy = b[1] - a[1];
-      const l = Math.hypot(dx, dy) || 1;
-      return [-dy / l, dx / l];
-    });
-    const L = pts.map((p, i) => transformPoint([p[0] + nrm[i][0] * halfW, p[1] + nrm[i][1] * halfW, z], faces[i], t, sign));
-    const R = pts.map((p, i) => transformPoint([p[0] - nrm[i][0] * halfW, p[1] - nrm[i][1] * halfW, z], faces[i], t, sign));
-    for (let i = 0; i < pts.length - 1; i++) {
-      pushV(out, L[i]); pushV(out, R[i]); pushV(out, L[i + 1]);
-      pushV(out, R[i]); pushV(out, R[i + 1]); pushV(out, L[i + 1]);
-    }
+// Emit a thin copper lane ribbon on a bridge, offset `off` across the
+// strip, following the same curved fold so it stays bonded.
+function emitCurvedLane(bd, off, halfW, z, t, sign, out) {
+  const { faceA, e, center, nrm, blend } = bd;
+  const n = center.length;
+  const L = [], R = [];
+  for (let i = 0; i < n; i++) {
+    const cx = center[i][0] + nrm[i][0] * off, cy = center[i][1] + nrm[i][1] * off;
+    L.push(transformBridgePoint([cx + nrm[i][0] * halfW, cy + nrm[i][1] * halfW, z], faceA, e, blend[i], t, sign));
+    R.push(transformBridgePoint([cx - nrm[i][0] * halfW, cy - nrm[i][1] * halfW, z], faceA, e, blend[i], t, sign));
+  }
+  for (let i = 0; i < n - 1; i++) {
+    pushV(out, L[i]); pushV(out, R[i]); pushV(out, L[i + 1]);
+    pushV(out, R[i]); pushV(out, R[i + 1]); pushV(out, L[i + 1]);
   }
 }
 
@@ -373,9 +358,9 @@ function rebuild() {
   const panel = state.params.panel;
   const led = currentLED.value;
 
-  // Thicknesses in normalized units.
+  // One uniform stack thickness — segments and bridges are the same
+  // flex sheet, so they render at the same thickness.
   const boardH = (state.params.designRules.boardThicknessMm ?? 1.6) / s;
-  const flexH  = (state.params.designRules.flexThicknessMm ?? 0.2) / s;
 
   const panelTris = [];
   const bridgeTris = [];
@@ -392,9 +377,26 @@ function rebuild() {
     emitConvexPrism(panelPoints(face), fi, -boardH / 2, boardH / 2, t, sign, panelTris);
   }
 
-  // Bridges as thin flex prisms, centered on the net plane.
-  for (const h of bridgeHalves()) {
-    emitRibbonPrism(h.left, h.right, h.face, -flexH / 2, flexH / 2, t, sign, bridgeTris);
+  // Bridges: same thickness as the segments (one continuous flex
+  // sheet), and each sweeps a gradual arc over its free span rather
+  // than a hard crease. Copper lanes ride the same curve so they stay
+  // bonded and end spaced apart at the segment edges (no convergence).
+  const bd3d = curvedBridges();
+  const traceHalf = ((state.params.designRules.traceWidthMm ?? 0.25) / 2) / s;
+  const laneZ = boardH / 2 + 0.02 / s;
+  const showTraces3d = state.prefs.showTraces && state.params.routing.enabled;
+  const tc = bridgeTraceCount(requiredWireCount.value);
+  const tw = (state.params.designRules.traceWidthMm ?? 0.25);
+  const cl = (state.params.designRules.clearanceMm ?? 0.2);
+  const pitchN = (tw + cl) / s;
+  for (const bd of bd3d) {
+    emitCurvedBridge(bd, -boardH / 2, boardH / 2, t, sign, bridgeTris);
+    if (showTraces3d) {
+      for (let k = 0; k < tc; k++) {
+        const off = (k - (tc - 1) / 2) * pitchN;
+        emitCurvedLane(bd, off, traceHalf, laneZ, t, sign, copperTris);
+      }
+    }
   }
 
   // Component models: LED package (dark body + emissive top) sitting on
@@ -433,7 +435,7 @@ function rebuild() {
     if (g) {
       const fi = g.faceIdx;
       emitConvexPrism(g.tab, fi, -boardH / 2, boardH / 2, t, sign, panelTris);
-      if (g.bridge) emitConvexPrism(g.bridge, fi, -flexH / 2, flexH / 2, t, sign, bridgeTris);
+      if (g.bridge) emitConvexPrism(g.bridge, fi, -boardH / 2, boardH / 2, t, sign, bridgeTris);
       // connector body straddling the tab (on the front for visibility)
       let bx = 0, by = 0; for (const p of g.tab) { bx += p[0] / 4; by += p[1] / 4; }
       const cw = (resolveTabSpec(state.params.connectorTab).tabWMm * 0.7) / s;
@@ -444,10 +446,7 @@ function rebuild() {
     }
   }
 
-  // Copper traces on the front surface + gold LED pad hints.
-  if (state.prefs.showTraces && state.params.routing.enabled) {
-    emitTraces(net, panel, s, boardH / 2, t, sign, copperTris);
-  }
+  // (Copper traces are emitted alongside each bridge above.)
 
   // Recenter everything on the origin.
   const allArrays = [panelTris, bridgeTris, ledBodyTris, ledDomeTris, connTris, copperTris, padTris];
