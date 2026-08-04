@@ -14,11 +14,13 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { state, geometry, currentLED, currentConnector } from '../store.js';
+import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
+import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
+import { state, geometry, currentLED, currentConnector, requiredWireCount } from '../store.js';
 import {
-  centroid2D, panelOutline, ledPositions,
+  centroid2D, panelOutline, ledPositions, insidePanelShape,
   bridgesForNet, offsetVariablePolyline, bridgeTraceCount, computeBridgeWidthMm,
-  connectorTabGeometry,
+  connectorTabGeometry, planRouting,
 } from '../lib/layout.js';
 import { resolveTabSpec } from '../lib/connectors.js';
 
@@ -276,6 +278,92 @@ function emitBox(cx, cy, fi, zBot, zTop, w, h, t, sign, out) {
 
 function pushV(arr, v) { arr.push(v[0], v[1], v[2]); }
 
+// Which face's panel contains a normalized net point (else nearest by
+// centroid) — used to ride copper traces on the folding faces.
+function faceForNetPoint(net, panel, edgeLengthMm, pt) {
+  for (let fi = 0; fi < net.faces.length; fi++) {
+    const f = net.faces[fi];
+    if (f && insidePanelShape(pt, panelOutline(f.polygon2D, panel, edgeLengthMm))) return fi;
+  }
+  let best = 0, bd = Infinity;
+  for (let fi = 0; fi < net.faces.length; fi++) {
+    const f = net.faces[fi];
+    if (!f) continue;
+    const c = centroid2D(f.polygon2D);
+    const d = (c[0] - pt[0]) ** 2 + (c[1] - pt[1]) ** 2;
+    if (d < bd) { bd = d; best = fi; }
+  }
+  return best;
+}
+
+// Copper trace ribbons on the board surface. Each routed polyline (mm,
+// Y-down) becomes a thin flat ribbon sitting just above the front face,
+// with every vertex riding the fold transform of the face it lies on.
+function emitTraces(net, panel, edgeLengthMm, zTop, t, sign, out) {
+  const plan = planRouting({
+    net, connectorFaceIdx: state.params.connectorFaceIdx,
+    led: currentLED.value, ledsPerFace: state.params.ledsPerFace,
+    connector: currentConnector.value, panel,
+    wireCount: requiredWireCount.value, designRules: state.params.designRules,
+    edgeLengthMm,
+  });
+  const halfW = ((state.params.designRules.traceWidthMm ?? 0.25) / 2) / edgeLengthMm;
+  const z = zTop + 0.02 / edgeLengthMm; // hair above the surface
+  for (const tr of plan.traces) {
+    // Convert to normalized net coords and resolve a face per vertex.
+    const pts = tr.points.map(([x, y]) => [x / edgeLengthMm, -y / edgeLengthMm]);
+    if (pts.length < 2) continue;
+    const faces = pts.map(p => faceForNetPoint(net, panel, edgeLengthMm, p));
+    // Per-point unit normal (2D) for the ribbon offset.
+    const nrm = pts.map((p, i) => {
+      const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+      const dx = b[0] - a[0], dy = b[1] - a[1];
+      const l = Math.hypot(dx, dy) || 1;
+      return [-dy / l, dx / l];
+    });
+    const L = pts.map((p, i) => transformPoint([p[0] + nrm[i][0] * halfW, p[1] + nrm[i][1] * halfW, z], faces[i], t, sign));
+    const R = pts.map((p, i) => transformPoint([p[0] - nrm[i][0] * halfW, p[1] - nrm[i][1] * halfW, z], faces[i], t, sign));
+    for (let i = 0; i < pts.length - 1; i++) {
+      pushV(out, L[i]); pushV(out, R[i]); pushV(out, L[i + 1]);
+      pushV(out, R[i]); pushV(out, R[i + 1]); pushV(out, L[i + 1]);
+    }
+  }
+}
+
+// Procedural polyimide (Kapton) texture: an amber base with fine fiber
+// speckle + a faint weave, so the flex substrate reads as a real board
+// instead of flat plastic. Generated on a canvas — no external assets.
+let _polyTex = null;
+function polyimideTexture() {
+  if (_polyTex) return _polyTex;
+  const N = 256;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = N;
+  const g = cv.getContext('2d');
+  g.fillStyle = '#8a5a1e';
+  g.fillRect(0, 0, N, N);
+  // fiber speckle
+  const img = g.getImageData(0, 0, N, N);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const n = (Math.sin(i * 12.9898) * 43758.5453) % 1;
+    const d = (n - Math.floor(n) - 0.5) * 26;
+    img.data[i] += d; img.data[i + 1] += d * 0.8; img.data[i + 2] += d * 0.5;
+  }
+  g.putImageData(img, 0, 0);
+  // faint diagonal weave
+  g.globalAlpha = 0.05;
+  g.strokeStyle = '#000';
+  for (let k = -N; k < N; k += 6) {
+    g.beginPath(); g.moveTo(k, 0); g.lineTo(k + N, N); g.stroke();
+  }
+  g.globalAlpha = 1;
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(3, 3);
+  _polyTex = tex;
+  return tex;
+}
+
 // Rebuild all geometry for the current fold + params.
 function rebuild() {
   if (!scene) return;
@@ -294,6 +382,8 @@ function rebuild() {
   const ledBodyTris = [];
   const ledDomeTris = [];
   const connTris = [];
+  const copperTris = [];
+  const padTris = [];
 
   // Panels as prisms (front = +z, back = −z).
   for (let fi = 0; fi < net.faces.length; fi++) {
@@ -349,11 +439,18 @@ function rebuild() {
       const cw = (resolveTabSpec(state.params.connectorTab).tabWMm * 0.7) / s;
       const ch = (resolveTabSpec(state.params.connectorTab).tabLMm * 0.35) / s;
       emitBox(bx, by, fi, boardH / 2, boardH / 2 + 2.0 / s, cw, ch, t, sign, connTris);
+      // Gold tab pads on the back surface.
+      for (const p of g.pads) emitBox(p[0], p[1], fi, -boardH / 2 - 0.02 / s, -boardH / 2, g.padW, g.padH, t, sign, padTris);
     }
   }
 
+  // Copper traces on the front surface + gold LED pad hints.
+  if (state.prefs.showTraces && state.params.routing.enabled) {
+    emitTraces(net, panel, s, boardH / 2, t, sign, copperTris);
+  }
+
   // Recenter everything on the origin.
-  const allArrays = [panelTris, bridgeTris, ledBodyTris, ledDomeTris, connTris];
+  const allArrays = [panelTris, bridgeTris, ledBodyTris, ledDomeTris, connTris, copperTris, padTris];
   let cx = 0, cy = 0, cz = 0, count = 0;
   for (const arr of allArrays) for (let i = 0; i < arr.length; i += 3) { cx += arr[i]; cy += arr[i+1]; cz += arr[i+2]; count++; }
   count = Math.max(1, count); cx /= count; cy /= count; cz /= count;
@@ -362,32 +459,47 @@ function rebuild() {
   disposeMesh(panelMesh); disposeMesh(bridgeMesh); disposeMesh(ledGroup);
   panelMesh = bridgeMesh = ledGroup = null;
 
-  const paper  = new THREE.Color(cssVar('--paper', '#1e1e2a'));
-  const accent = new THREE.Color(cssVar('--ac2', '#7b5cfa'));
   const ledCol = new THREE.Color(cssVar('--led', '#7b5cfa'));
 
-  const mkMesh = (tris, mat) => {
+  const mkMesh = (tris, mat, uvScale) => {
     if (!tris.length) return null;
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(tris, 3));
+    if (uvScale) {
+      // Planar UVs from world XY — static in the assembled view.
+      const uv = new Float32Array((tris.length / 3) * 2);
+      for (let i = 0, j = 0; i < tris.length; i += 3, j += 2) {
+        uv[j] = tris[i] * uvScale; uv[j + 1] = tris[i + 1] * uvScale;
+      }
+      g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    }
     g.computeVertexNormals();
     return new THREE.Mesh(g, mat);
   };
 
-  panelMesh = mkMesh(panelTris, new THREE.MeshStandardMaterial({
-    color: paper, roughness: 0.72, metalness: 0.02, flatShading: true }));
+  // Flex PCB look: amber polyimide substrate (textured) for panels and
+  // bridges, copper traces, gold pads.
+  const poly = polyimideTexture();
+  const uvScale = 6 / geometry.value.net.bbox.width; // a few repeats across the net
+  const substrate = () => new THREE.MeshStandardMaterial({
+    color: 0xb9832f, map: poly, roughness: 0.62, metalness: 0.12,
+    emissive: 0x2a1602, emissiveIntensity: 0.25, side: THREE.DoubleSide,
+  });
+
+  panelMesh = mkMesh(panelTris, substrate(), uvScale);
   if (panelMesh) scene.add(panelMesh);
 
-  bridgeMesh = mkMesh(bridgeTris, new THREE.MeshStandardMaterial({
-    color: accent, roughness: 0.5, metalness: 0.1 }));
+  bridgeMesh = mkMesh(bridgeTris, substrate(), uvScale);
   if (bridgeMesh) scene.add(bridgeMesh);
 
-  // Component meshes grouped so they dispose together.
+  // Copper + component meshes grouped so they dispose together.
   ledGroup = new THREE.Group();
-  const bodyMesh = mkMesh(ledBodyTris, new THREE.MeshStandardMaterial({ color: 0x161821, roughness: 0.6 }));
-  const domeMesh = mkMesh(ledDomeTris, new THREE.MeshStandardMaterial({ color: 0xf4f4f8, emissive: ledCol, emissiveIntensity: 0.85, roughness: 0.25 }));
-  const connMesh = mkMesh(connTris, new THREE.MeshStandardMaterial({ color: 0x2b2f3a, roughness: 0.55, metalness: 0.2 }));
-  for (const m of [bodyMesh, domeMesh, connMesh]) if (m) ledGroup.add(m);
+  const copperMesh = mkMesh(copperTris, new THREE.MeshStandardMaterial({ color: 0xc4772f, roughness: 0.35, metalness: 0.85, side: THREE.DoubleSide }));
+  const padMesh = mkMesh(padTris, new THREE.MeshStandardMaterial({ color: 0xd9b25a, roughness: 0.3, metalness: 0.9 }));
+  const bodyMesh = mkMesh(ledBodyTris, new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.5 }));
+  const domeMesh = mkMesh(ledDomeTris, new THREE.MeshStandardMaterial({ color: 0xf6f6f2, emissive: ledCol, emissiveIntensity: 0.9, roughness: 0.2 }));
+  const connMesh = mkMesh(connTris, new THREE.MeshStandardMaterial({ color: 0xf2f2f4, roughness: 0.5, metalness: 0.1 }));
+  for (const m of [copperMesh, padMesh, bodyMesh, domeMesh, connMesh]) if (m) ledGroup.add(m);
   scene.add(ledGroup);
 
   // Frame the camera once to the model extent.
@@ -409,6 +521,38 @@ function animate() {
   renderer?.render(scene, camera);
 }
 
+// ── folded 3D model export (GLB keeps materials, STL is print-ready) ─
+function dl(name, data, mime) {
+  const blob = new Blob([data], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+function modelName(ext) {
+  const stem = state.currentPatch || `${state.params.polyhedronId}-${state.params.edgeLengthMm}mm`;
+  return `${stem.replace(/\s+/g, '_')}-folded.${ext}`;
+}
+function exportGroup() {
+  const grp = new THREE.Group();
+  for (const m of [panelMesh, bridgeMesh, ledGroup]) if (m) grp.add(m.clone());
+  grp.updateMatrixWorld(true);
+  return grp;
+}
+const exporting = ref(false);
+function exportGLB() {
+  exporting.value = true;
+  new GLTFExporter().parse(exportGroup(),
+    (res) => { dl(modelName('glb'), res, 'model/gltf-binary'); exporting.value = false; },
+    (err) => { console.error(err); exporting.value = false; },
+    { binary: true });
+}
+function exportSTL() {
+  const stl = new STLExporter().parse(exportGroup(), { binary: true });
+  dl(modelName('stl'), stl, 'model/stl');
+}
+
 // Rebuild whenever the fold or any shape-affecting param changes.
 watch(
   () => JSON.stringify({
@@ -418,8 +562,9 @@ watch(
     led: state.params.ledId, lpf: state.params.ledsPerFace,
     cf: state.params.connectorFaceIdx, r: state.rootFace,
     panel: state.params.panel, dr: state.params.designRules,
-    tab: state.params.connectorTab,
+    tab: state.params.connectorTab, rt: state.params.routing,
     b: state.prefs.showBridges, sl: state.prefs.showLEDs, sc: state.prefs.showConnector,
+    tr: state.prefs.showTraces,
     theme: state.prefs.theme,
   }),
   () => { needsRebuild = true; },
@@ -445,6 +590,10 @@ onBeforeUnmount(() => {
       <span class="pct">{{ Math.round(foldT * 100) }}%</span>
     </div>
     <div class="hint3d">drag to rotate · scroll to zoom</div>
+    <div class="export3d">
+      <button @click="exportGLB" :disabled="exporting" title="Folded model with flex-PCB materials">Export GLB</button>
+      <button @click="exportSTL" title="Folded model as a printable mesh">Export STL</button>
+    </div>
   </div>
 </template>
 
@@ -461,4 +610,8 @@ onBeforeUnmount(() => {
 .fold-ctl .lbl { font: 400 0.68rem 'DM Mono', monospace; color: var(--sub); }
 .fold-ctl .pct { font: 500 0.72rem 'DM Mono', monospace; color: var(--t); min-width: 4ch; text-align: right; }
 .hint3d { position: absolute; top: 10px; left: 12px; z-index: 2; font: 400 0.68rem 'DM Mono', monospace; color: var(--sub); opacity: 0.7; pointer-events: none; }
+.export3d { position: absolute; top: 10px; right: 12px; z-index: 2; display: flex; gap: 6px; }
+.export3d button { background: var(--s); color: var(--t); border: 1px solid var(--bd); border-radius: 6px; padding: 6px 10px; font: 500 0.72rem 'DM Sans', sans-serif; cursor: pointer; }
+.export3d button:hover { border-color: var(--ac2); }
+.export3d button:disabled { opacity: 0.5; cursor: default; }
 </style>
