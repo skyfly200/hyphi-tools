@@ -3,6 +3,8 @@
 // All inputs are in normalized-edge-length units (the unfolder's output);
 // the caller scales to millimeters by multiplying by edgeLengthMm.
 
+import polygonClipping from 'polygon-clipping';
+
 export function centroid2D(pts) {
   let x = 0, y = 0;
   for (const p of pts) { x += p[0]; y += p[1]; }
@@ -385,61 +387,170 @@ export function bridgesForNet(net, panel, widthMm, edgeLengthMm) {
 export function connectorTabGeometry(net, params, spec, edgeLengthMm) {
   const ct = params?.connectorTab;
   if (!ct?.enabled || !spec) return null;
-  const face = net.faces[params.connectorFaceIdx];
+  const fi0 = params.connectorFaceIdx;
+  const face = net.faces[fi0];
   if (!face) return null;
   const poly = face.polygon2D;
   const c = centroid2D(poly);
   const n = poly.length;
-  const ei = ((ct.edge % n) + n) % n;
-  const a = poly[ei], b = poly[(ei + 1) % n];
-  const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-  const ex = b[0] - a[0], ey = b[1] - a[1];
-  const el = Math.hypot(ex, ey) || 1;
-  const ux = ex / el, uy = ey / el;      // along the edge
-  let nx = -uy, ny = ux;                  // edge normal
-  // Flip to point away from the face centroid (outward).
-  if (Math.hypot(mid[0] + nx - c[0], mid[1] + ny - c[1]) < Math.hypot(mid[0] - c[0], mid[1] - c[1])) {
-    nx = -nx; ny = -ny;
-  }
-
   const M = Math.max(edgeLengthMm, 0.001);
-  const tabW = spec.tabWMm / M, tabL = spec.tabLMm / M;
-  const gap = ct.attach === 'bridge' ? (ct.offsetMm ?? 6) / M : 0;
-  const innerC = [mid[0] + nx * gap, mid[1] + ny * gap];
-  const outerC = [innerC[0] + nx * tabL, innerC[1] + ny * tabL];
-  const hw = tabW / 2;
-  const tab = [
-    [innerC[0] + ux * hw, innerC[1] + uy * hw],
-    [outerC[0] + ux * hw, outerC[1] + uy * hw],
-    [outerC[0] - ux * hw, outerC[1] - uy * hw],
-    [innerC[0] - ux * hw, innerC[1] - uy * hw],
-  ];
 
-  // Pad row, centered across the tab, ~60% of the way out.
-  const padC = [innerC[0] + nx * tabL * 0.6, innerC[1] + ny * tabL * 0.6];
-  const pitch = spec.pitchMm / M;
-  const strip = pitch * (spec.pins - 1);
-  const pads = Array.from({ length: spec.pins }, (_, i) => {
-    const tt = -strip / 2 + pitch * i;
-    return [padC[0] + ux * tt, padC[1] + uy * tt];
-  });
-
-  // Flex bridge from the face edge to the tab when attaching by bridge.
-  let bridge = null;
-  if (ct.attach === 'bridge' && gap > 1e-6) {
-    const bhw = ((spec.bridgeWidthMm ?? Math.min(spec.tabWMm, 6)) / M) / 2;
-    bridge = [
-      [mid[0] + ux * bhw, mid[1] + uy * bhw],
-      [innerC[0] + ux * bhw, innerC[1] + uy * bhw],
-      [innerC[0] - ux * bhw, innerC[1] - uy * bhw],
-      [mid[0] - ux * bhw, mid[1] - uy * bhw],
-    ];
+  // Obstacles the tab must clear: every OTHER face's panel outline plus
+  // the panels of the connector face's own neighbors (approximated as
+  // their full face polygons — a superset, so the tab clears the real
+  // inscribed shapes too).
+  const obstacles = [];
+  for (let i = 0; i < net.faces.length; i++) {
+    if (i === fi0 || !net.faces[i]) continue;
+    obstacles.push(shapeToPolygon(panelOutline(net.faces[i].polygon2D, params.panel, edgeLengthMm)));
   }
 
-  return {
-    tab, pads, padW: spec.padWMm / M, padH: spec.padHMm / M,
-    bridge, dir: [nx, ny], along: [ux, uy], faceIdx: params.connectorFaceIdx,
+  // Build the tab (and bridge) for a given edge + standoff.
+  function buildAt(ei, gapUnits) {
+    const a = poly[ei], b = poly[(ei + 1) % n];
+    const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    const ex = b[0] - a[0], ey = b[1] - a[1];
+    const el = Math.hypot(ex, ey) || 1;
+    const ux = ex / el, uy = ey / el;
+    let nx = -uy, ny = ux;
+    if (Math.hypot(mid[0] + nx - c[0], mid[1] + ny - c[1]) < Math.hypot(mid[0] - c[0], mid[1] - c[1])) {
+      nx = -nx; ny = -ny;
+    }
+    const tabW = spec.tabWMm / M, tabL = spec.tabLMm / M;
+    const innerC = [mid[0] + nx * gapUnits, mid[1] + ny * gapUnits];
+    const outerC = [innerC[0] + nx * tabL, innerC[1] + ny * tabL];
+    const hw = tabW / 2;
+    const tab = [
+      [innerC[0] + ux * hw, innerC[1] + uy * hw],
+      [outerC[0] + ux * hw, outerC[1] + uy * hw],
+      [outerC[0] - ux * hw, outerC[1] - uy * hw],
+      [innerC[0] - ux * hw, innerC[1] - uy * hw],
+    ];
+    const padC = [innerC[0] + nx * tabL * 0.6, innerC[1] + ny * tabL * 0.6];
+    const pitch = spec.pitchMm / M;
+    const strip = pitch * (spec.pins - 1);
+    const pads = Array.from({ length: spec.pins }, (_, i) => {
+      const tt = -strip / 2 + pitch * i;
+      return [padC[0] + ux * tt, padC[1] + uy * tt];
+    });
+    let bridge = null;
+    if (ct.attach === 'bridge' && gapUnits > 1e-6) {
+      const bhw = ((spec.bridgeWidthMm ?? Math.min(spec.tabWMm, 6)) / M) / 2;
+      bridge = [
+        [mid[0] + ux * bhw, mid[1] + uy * bhw],
+        [innerC[0] + ux * bhw, innerC[1] + uy * bhw],
+        [innerC[0] - ux * bhw, innerC[1] - uy * bhw],
+        [mid[0] - ux * bhw, mid[1] - uy * bhw],
+      ];
+    }
+    return { tab, pads, padW: spec.padWMm / M, padH: spec.padHMm / M,
+             bridge, dir: [nx, ny], along: [ux, uy], faceIdx: fi0, edge: ei, gapMm: gapUnits * M };
+  }
+
+  const clears = (g) => !obstacles.some(o =>
+    polysIntersect(g.tab, o) || (g.bridge && polysIntersect(g.bridge, o)));
+
+  const baseGap = ct.attach === 'bridge' ? (ct.offsetMm ?? 6) / M : 0.5 / M;
+  // Candidate edges: the requested one first (unless 'auto'), then the
+  // rest — so a manual choice wins when it already clears.
+  const order = [];
+  if (ct.edge !== 'auto' && Number.isFinite(ct.edge)) order.push(((ct.edge % n) + n) % n);
+  for (let i = 0; i < n; i++) if (!order.includes(i)) order.push(i);
+
+  // For each candidate edge, push the tab outward until it clears the
+  // other segments (bridge mode can grow the standoff; direct mode
+  // gets a small search too). First fully-clear placement wins.
+  let fallback = buildAt(order[0], baseGap);
+  const maxGap = baseGap + 40 / M;
+  for (const ei of order) {
+    for (let gap = baseGap; gap <= maxGap; gap += 2 / M) {
+      const g = buildAt(ei, gap);
+      if (clears(g)) return g;
+      if (gap === baseGap && ei === order[0]) fallback = g;
+    }
+  }
+  return fallback; // nothing perfectly clear — return the requested placement
+}
+
+// Merge every board piece (panels + bridges + connector tab + its flex
+// bridge) into clean, non-overlapping closed rings via a polygon union.
+//
+// This is what the exporters must use for the board outline: emitting
+// each panel and bridge as its own loop leaves overlapping / coincident
+// edges (bridges bond over panel edges; touching panels share edges),
+// which downstream tools (KiCad → STEP/Blender) reject as a malformed
+// outline. The union produces a single manifold silhouette instead.
+//
+// Returns an array of rings (each a closed polygon in normalized
+// units); outer boundaries and any interior holes are all included.
+export function boardOutlineRings(net, params, { widthMm, tabSpec, edgeLengthMm }) {
+  const closeRing = (pts) => {
+    const r = pts.map(p => [p[0], p[1]]);
+    if (r.length && (r[0][0] !== r[r.length - 1][0] || r[0][1] !== r[r.length - 1][1])) r.push([r[0][0], r[0][1]]);
+    return r;
   };
+  const polys = [];
+  for (let i = 0; i < net.faces.length; i++) {
+    if (!net.faces[i]) continue;
+    polys.push([closeRing(shapeToPolygon(panelOutline(net.faces[i].polygon2D, params.panel, edgeLengthMm)))]);
+  }
+  if (params.panel?.bridge?.enabled && widthMm > 0) {
+    for (const b of bridgesForNet(net, params.panel, widthMm, edgeLengthMm)) polys.push([closeRing(b.points)]);
+  }
+  if (params.connectorTab?.enabled && tabSpec) {
+    const g = connectorTabGeometry(net, params, tabSpec, edgeLengthMm);
+    if (g) { polys.push([closeRing(g.tab)]); if (g.bridge) polys.push([closeRing(g.bridge)]); }
+  }
+  if (!polys.length) return [];
+  let merged;
+  try {
+    merged = polygonClipping.union(polys[0], ...polys.slice(1));
+  } catch {
+    return polys.map(p => p[0]); // degenerate input — fall back to raw rings
+  }
+  const rings = [];
+  for (const poly of merged) for (const ring of poly) rings.push(ring);
+  return rings;
+}
+
+// Convert a panelOutline result into a plain polygon (tessellating a
+// circle) for intersection tests.
+function shapeToPolygon(shape) {
+  if (shape.kind === 'circle') {
+    return Array.from({ length: 24 }, (_, i) => {
+      const a = (2 * Math.PI * i) / 24;
+      return [shape.cx + Math.cos(a) * shape.r, shape.cy + Math.sin(a) * shape.r];
+    });
+  }
+  return shape.points;
+}
+
+// Do two simple polygons overlap? True if any edges cross or either
+// contains a vertex of the other.
+function polysIntersect(A, B) {
+  for (let i = 0; i < A.length; i++) {
+    const a1 = A[i], a2 = A[(i + 1) % A.length];
+    for (let j = 0; j < B.length; j++) {
+      const b1 = B[j], b2 = B[(j + 1) % B.length];
+      if (segsCross(a1, a2, b1, b2)) return true;
+    }
+  }
+  if (pointInPolygon(A[0], B) || pointInPolygon(B[0], A)) return true;
+  return false;
+}
+function segsCross(p1, p2, p3, p4) {
+  const d = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+  const d1 = d(p3, p4, p1), d2 = d(p3, p4, p2), d3 = d(p1, p2, p3), d4 = d(p1, p2, p4);
+  return ((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0));
+}
+function pointInPolygon(p, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i], [xj, yj] = poly[j];
+    if ((yi > p[1]) !== (yj > p[1]) &&
+        p[0] < (xj - xi) * (p[1] - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
 }
 
 // Point-in-shape test for a panelOutline result (normalized units).
@@ -733,49 +844,46 @@ export function planRouting({
     traces.push({ signal: sig, color: color[sig] || '#888', points });
   }
 
-  // Per-face lane spread direction: perpendicular to the line from the
-  // face centroid toward the connector face. Every signal crosses a
-  // face as a parallel track offset by `lane(sig)` along this direction
-  // — including at the LED pads — so no two signals ever collapse onto
-  // the same point (which used to make them cross / short at the LED
-  // and the face centroid).
-  const connCn = connFace ? centroid2D(connFace.polygon2D) : [0, 0];
-  function faceDirOf(fi) {
-    const c = centroid2D(net.faces[fi].polygon2D);
-    let dx = c[0] - connCn[0], dy = c[1] - connCn[1];
-    const l = Math.hypot(dx, dy);
-    return l < 1e-6 ? [1, 0] : [-dy / l, dx / l];
-  }
-  // Waypoints for a signal on a face: each LED (in chain order), or the
-  // centroid if the face has none, each offset by the signal's lane.
-  function faceWaypoints(fi, sig) {
-    const dir = faceDirOf(fi);
-    const off = lane(laneOf(sig));
-    const leds = ledsByFace.get(fi) || [];
-    if (!leds.length) {
-      const c = centroid2D(net.faces[fi].polygon2D);
-      return [[c[0] * edgeLengthMm + dir[0] * off, -c[1] * edgeLengthMm + dir[1] * off]];
-    }
-    return leds.map(p => [p[0] + dir[0] * off, p[1] + dir[1] * off]);
+  // Extend a lane polyline a short stub past each end along its own
+  // direction, so the copper visibly terminates just past the segment
+  // edge / bridge rather than stopping exactly on the boundary.
+  const stub = Math.min(1.2, (designRules?.edgeMarginMm ?? 0.5) + 0.7); // mm
+  function withStubs(path) {
+    if (path.length < 2) return path;
+    const a0 = path[0], a1 = path[1];
+    const b1 = path[path.length - 2], b0 = path[path.length - 1];
+    const ext = (from, to) => {
+      const dx = from[0] - to[0], dy = from[1] - to[1];
+      const l = Math.hypot(dx, dy) || 1;
+      return [from[0] + (dx / l) * stub, from[1] + (dy / l) * stub];
+    };
+    return [ext(a0, a1), ...path, ext(b0, b1)];
   }
 
-  // Route every signal as its own parallel lane along the spanning-tree
-  // DFS walk from the connector. Power (VCC/GND) and clock/data lanes
-  // all stay separated the whole way.
-  const walk = chainWalkFromConnector(net, connectorFaceIdx);
-  function busPolyline(sig) {
-    const pts = [connEntryPoint(sig)];
-    let prev = connectorFaceIdx;
-    pts.push(...faceWaypoints(connectorFaceIdx, sig));
-    for (const fi of walk) {
-      if (fi === prev) continue;
-      pts.push(...lanePathAcross(prev, fi, sig));
-      pts.push(...faceWaypoints(fi, sig));
-      prev = fi;
+  // The bridge lanes already run from just past one segment edge to just
+  // past the other (they are built from the trimmed bridge centerline,
+  // which carries the bonded overlap). Emit one trace per bridge per
+  // signal — the copper lives on the bridge + a small stub onto each
+  // segment, and ends there instead of crossing the whole panel.
+  for (const e of net.foldEdges) {
+    if (!net.faces[e.faceA] || !net.faces[e.faceB]) continue;
+    for (const sig of signals) {
+      const path = bridgeLanePath.get(`${e.faceA}-${e.faceB}/${sig}`);
+      if (path && path.length >= 2) pushPolyline(sig, withStubs(path));
     }
-    pushPolyline(sig, pts);
   }
-  for (const sig of signals) busPolyline(sig);
+
+  // Short connector fan-out: a stub from each connector pad to the first
+  // bridge lane on the connector face, so the wire entry is shown
+  // reaching the copper (still ending near the segment edge).
+  const firstBridge = net.foldEdges.find(e => e.faceA === connectorFaceIdx || e.faceB === connectorFaceIdx);
+  if (firstBridge) {
+    for (const sig of signals) {
+      const lp = lanePathAcross(connectorFaceIdx,
+        firstBridge.faceA === connectorFaceIdx ? firstBridge.faceB : firstBridge.faceA, sig);
+      if (lp && lp.length) pushPolyline(sig, [connEntryPoint(sig), lp[0]]);
+    }
+  }
 
   return { traces, widthMm };
 }

@@ -22,6 +22,7 @@ import {
   mountingHolePositions, ledPositions, centroid2D, panelOutline,
   bridgesForNet, bridgeTraceCount, computeBridgeWidthMm,
   chainOrderFromConnector, planRouting, connectorTabGeometry,
+  boardOutlineRings,
 } from './layout.js';
 import { resolveTabSpec } from './connectors.js';
 
@@ -235,48 +236,21 @@ export function buildKiCadPCB({
     lines.push(`  (net ${idx} "${name}")`);
   }
 
-  // Edge.Cuts: panel-clipped outline of every face. With panel.shape
-  // === 'face' and zero corner radius this matches the raw polygon —
-  // identical to the previous behavior.
-  for (const face of net.faces) {
-    if (!face) continue;
-    const shape = panelOutline(face.polygon2D, panel || { shape: 'face' }, edgeLengthMm);
-    if (shape.kind === 'circle') {
-      const cx = shape.cx * edgeLengthMm, cy = -shape.cy * edgeLengthMm;
-      const r = shape.r * edgeLengthMm;
-      lines.push(`  (gr_circle (center ${n(cx)} ${n(cy)}) (end ${n(cx + r)} ${n(cy)}) (layer "Edge.Cuts") (width ${LINE_W}) (fill none))`);
-    } else if (shape.cornerRadius > 0) {
-      // Rounded polygon: emit straight segments and gr_arc fillets.
-      const pts = shape.points.map(([x, y]) => [x * edgeLengthMm, -y * edgeLengthMm]);
-      const rPx = shape.cornerRadius * edgeLengthMm;
-      const corners = roundedCornerSegments(pts, rPx);
-      for (let i = 0; i < corners.length; i++) {
-        const c = corners[i];
-        const next = corners[(i + 1) % corners.length];
-        // straight from this corner's `end` to next corner's `start`
-        lines.push(`  (gr_line (start ${n(c.end[0])} ${n(c.end[1])}) (end ${n(next.start[0])} ${n(next.start[1])}) (layer "Edge.Cuts") (width ${LINE_W}))`);
-        // fillet arc from `start` to `end` around `center` at `next` corner
-        const nc = next;
-        lines.push(`  (gr_arc (start ${n(nc.start[0])} ${n(nc.start[1])}) (mid ${n(nc.mid[0])} ${n(nc.mid[1])}) (end ${n(nc.end[0])} ${n(nc.end[1])}) (layer "Edge.Cuts") (width ${LINE_W}))`);
-      }
-    } else {
-      const pts = shape.points.map(([x, y]) => [x * edgeLengthMm, -y * edgeLengthMm]);
-      for (let i = 0; i < pts.length; i++) {
-        const a = pts[i], b = pts[(i + 1) % pts.length];
-        lines.push(`  (gr_line (start ${n(a[0])} ${n(a[1])}) (end ${n(b[0])} ${n(b[1])}) (layer "Edge.Cuts") (width ${LINE_W}))`);
-      }
-    }
-  }
-
-  // Bridges along each fold edge — auto-sized for the routing they
-  // carry. Width derives from design rules + LED wire count, so the
-  // bridge is exactly as wide as the traces need.
+  // Edge.Cuts: ONE merged board outline. Panels, bridges and the
+  // connector tab are unioned into non-overlapping closed rings so the
+  // outline is a clean manifold contour (per-face + per-bridge loops
+  // used to overlap, which KiCad → STEP/Blender rejects as malformed).
   const bridgeWidthMm = computeBridgeWidthMm(bridgeTraceCount(wireCount), designRules || {});
-  for (const b of bridgesForNet(net, panel, bridgeWidthMm, edgeLengthMm)) {
-    const pts = b.points.map(([x, y]) => [x * edgeLengthMm, -y * edgeLengthMm]);
-    for (let i = 0; i < pts.length; i++) {
-      const a = pts[i], c = pts[(i + 1) % pts.length];
-      lines.push(`  (gr_line (start ${n(a[0])} ${n(a[1])}) (end ${n(c[0])} ${n(c[1])}) (layer "Edge.Cuts") (width ${LINE_W}))`);
+  const rings = boardOutlineRings(net, { panel, connectorTab }, {
+    widthMm: bridgeWidthMm,
+    tabSpec: connectorTab?.enabled ? resolveTabSpec(connectorTab) : null,
+    edgeLengthMm,
+  });
+  for (const ring of rings) {
+    const pts = ring.map(([x, y]) => [x * edgeLengthMm, -y * edgeLengthMm]);
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1];
+      lines.push(`  (gr_line (start ${n(a[0])} ${n(a[1])}) (end ${n(b[0])} ${n(b[1])}) (layer "Edge.Cuts") (width ${LINE_W}))`);
     }
   }
 
@@ -364,20 +338,11 @@ export function buildKiCadPCB({
     }
   }
 
-  // Connector tab: Edge.Cuts outline for the tab (and its flex bridge)
-  // plus SMD pads on B.Cu wired to the same net table.
+  // Connector-tab pads on B.Cu (the tab + bridge outline is already in
+  // the merged Edge.Cuts silhouette above).
   if (connectorTab?.enabled) {
     const g = connectorTabGeometry(net, { connectorTab, connectorFaceIdx }, resolveTabSpec(connectorTab), edgeLengthMm);
     if (g) {
-      const edgeLoop = (poly) => {
-        const p = poly.map(([x, y]) => [x * edgeLengthMm, -y * edgeLengthMm]);
-        for (let i = 0; i < p.length; i++) {
-          const a = p[i], b = p[(i + 1) % p.length];
-          lines.push(`  (gr_line (start ${n(a[0])} ${n(a[1])}) (end ${n(b[0])} ${n(b[1])}) (layer "Edge.Cuts") (width ${LINE_W}))`);
-        }
-      };
-      edgeLoop(g.tab);
-      if (g.bridge) edgeLoop(g.bridge);
       const padSig = wireSignals(led, wireCount);
       g.pads.forEach((p, i) => {
         const cx = p[0] * edgeLengthMm, cy = -p[1] * edgeLengthMm;

@@ -1,7 +1,7 @@
 import {
   mountingHolePositions, panelOutline,
   bridgesForNet, bridgeTraceCount, computeBridgeWidthMm,
-  planRouting, connectorTabGeometry,
+  planRouting, connectorTabGeometry, boardOutlineRings,
 } from './layout.js';
 import { resolveTabSpec } from './connectors.js';
 
@@ -134,30 +134,18 @@ function circle(cx, cy, r, layer) {
 export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorFaceIdx, wireCount = 3, solderPad = null, mountingHole = null, panel = null, designRules = null, routing = null, connectorTab = null, scale = 1 }) {
   let body = '';
 
-  // Outline: each face's panel-clipped boundary. The "OUTLINE" layer
-  // is the actual cut path — circle, rounded-rect, or polygon. With
-  // panel.shape === 'face' and zero corner radius, this matches the
-  // raw face polygon, preserving the original behavior.
-  for (const face of net.faces) {
-    if (!face) continue;
-    const shape = panelOutline(face.polygon2D, panel || { shape: 'face' }, scale);
-    if (shape.kind === 'circle') {
-      body += circle(shape.cx * scale, shape.cy * scale, shape.r * scale, 'OUTLINE');
-    } else {
-      // Corner-rounded polygons: emit as a flat polyline at higher
-      // segmentation rather than spec-compliant DXF arcs (keeps the
-      // writer minimal; CAM tools resample anyway).
-      const pts = polygonOutlineToPoints(shape, scale);
-      body += polyline(pts, 'OUTLINE', true);
-    }
-  }
-
-  // Bridges along each fold edge — auto-sized for the routing they
-  // carry. Width is derived from design rules + LED wire count so
-  // the bridge is exactly as wide as the traces need.
+  // Outline: ONE merged silhouette (panels ∪ bridges ∪ connector tab),
+  // emitted as clean closed OUTLINE polylines. Unioning avoids the
+  // overlapping per-face + per-bridge loops that break board-outline
+  // import downstream.
   const bridgeWidthMm = computeBridgeWidthMm(bridgeTraceCount(wireCount), designRules || {});
-  for (const b of bridgesForNet(net, panel, bridgeWidthMm, scale)) {
-    const pts = b.points.map(([x, y]) => [x * scale, y * scale]);
+  const rings = boardOutlineRings(net, { panel, connectorTab }, {
+    widthMm: bridgeWidthMm,
+    tabSpec: connectorTab?.enabled ? resolveTabSpec(connectorTab) : null,
+    edgeLengthMm: scale,
+  });
+  for (const ring of rings) {
+    const pts = ring.slice(0, -1).map(([x, y]) => [x * scale, y * scale]); // drop closing dup
     body += polyline(pts, 'OUTLINE', true);
   }
 
@@ -256,13 +244,11 @@ export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorF
     }
   }
 
-  // Connector tab: extra board outline on OUTLINE (tab + optional flex
-  // bridge) with the pad row on CONN_B.
+  // Connector-tab pads on CONN_B (the tab outline is already merged
+  // into the OUTLINE silhouette above).
   if (connectorTab?.enabled) {
     const g = connectorTabGeometry(net, { connectorTab, connectorFaceIdx }, resolveTabSpec(connectorTab), scale);
     if (g) {
-      body += polyline(g.tab.map(([x, y]) => [x * scale, y * scale]), 'OUTLINE', true);
-      if (g.bridge) body += polyline(g.bridge.map(([x, y]) => [x * scale, y * scale]), 'OUTLINE', true);
       for (const [x, y] of g.pads) {
         body += rect(x * scale, y * scale, g.padW * scale, g.padH * scale, 'CONN_B');
       }

@@ -15,7 +15,7 @@
 import {
   mountingHolePositions, ledPositions, centroid2D, panelOutline,
   bridgesForNet, bridgeTraceCount, computeBridgeWidthMm,
-  planRouting, connectorTabGeometry,
+  planRouting, connectorTabGeometry, boardOutlineRings,
 } from './layout.js';
 import { resolveTabSpec } from './connectors.js';
 
@@ -166,15 +166,22 @@ export function buildSVGLayers({
 }) {
   const viewBox = bboxForNet(net, edgeLengthMm);
   const out = {};
-  let outline = outlineLayer(net, panel, designRules, wireCount, edgeLengthMm);
 
-  // Append the connector tab (and its flex bridge) to the outline layer.
+  // Outline: ONE merged silhouette (panels ∪ bridges ∪ tab) as clean
+  // closed polygons, so the imported board outline is a valid contour.
+  const bridgeWidthMm = computeBridgeWidthMm(bridgeTraceCount(wireCount), designRules || {});
+  const rings = boardOutlineRings(net, { panel, connectorTab }, {
+    widthMm: bridgeWidthMm,
+    tabSpec: connectorTab?.enabled ? resolveTabSpec(connectorTab) : null,
+    edgeLengthMm,
+  });
+  const outline = rings.map(ring =>
+    `    <polygon points="${ring.slice(0, -1).map(([x, y]) => `${fmt(x * edgeLengthMm)},${fmt(-y * edgeLengthMm)}`).join(' ')}" fill="none" stroke="black" stroke-width="0.05" />`
+  ).join('\n');
+
   if (connectorTab?.enabled) {
     const g = connectorTabGeometry(net, { connectorTab, connectorFaceIdx }, resolveTabSpec(connectorTab), edgeLengthMm);
     if (g) {
-      const poly = (pts) => `    <polygon points="${pts.map(([x, y]) => `${fmt(x * edgeLengthMm)},${fmt(-y * edgeLengthMm)}`).join(' ')}" fill="none" stroke="black" stroke-width="0.05" />`;
-      outline += '\n' + poly(g.tab);
-      if (g.bridge) outline += '\n' + poly(g.bridge);
       const padStr = g.pads.map(([x, y]) =>
         `    <rect x="${fmt(x * edgeLengthMm - g.padW * edgeLengthMm / 2)}" y="${fmt(-y * edgeLengthMm - g.padH * edgeLengthMm / 2)}" width="${fmt(g.padW * edgeLengthMm)}" height="${fmt(g.padH * edgeLengthMm)}" fill="green" />`).join('\n');
       out['tab_pads_back.svg'] = svgWrap('B.Fab.TabPads', viewBox, padStr);

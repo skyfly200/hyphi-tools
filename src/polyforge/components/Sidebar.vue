@@ -236,7 +236,8 @@ const derivedBridgeWidth = computed(() =>
           </label>
           <label>Face edge
             <select :value="state.params.connectorTab.edge"
-                    @change="state.params.connectorTab.edge = Number($event.target.value)">
+                    @change="state.params.connectorTab.edge = $event.target.value === 'auto' ? 'auto' : Number($event.target.value)">
+              <option value="auto">Auto (avoid other segments)</option>
               <option v-for="i in connFaceEdges" :key="i" :value="i">Edge {{ i }}</option>
             </select>
           </label>

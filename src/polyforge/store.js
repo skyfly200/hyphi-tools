@@ -22,7 +22,7 @@ const DEFAULT_PARAMS = {
     enabled: false,
     preset: 'led3',         // led3 | led4 | fpc4 | pads | custom
     attach: 'bridge',       // 'direct' (abuts the edge) | 'bridge' (flex link)
-    edge: 0,                // which edge of the connector face to tab off
+    edge: 'auto',           // 'auto' picks a face edge that clears other segments; or a fixed index
     offsetMm: 6,            // gap to the tab when attach === 'bridge'
     // custom overrides (used only when preset === 'custom'):
     pins: 4, pitchMm: 2.0, padWMm: 1.6, padHMm: 3.0,
