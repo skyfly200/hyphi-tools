@@ -79,7 +79,6 @@ const DEFAULT_PARAMS = {
     traceWidthMm: 0.25,
     clearanceMm: 0.2,
     edgeMarginMm: 0.5,
-    signalsPerTrace: 1,
     // Flex vendors quote ~6–10 × stack thickness for static bends;
     // 3mm is a safe default for a 0.11mm 1-layer polyimide stack
     // with copper + coverlay.

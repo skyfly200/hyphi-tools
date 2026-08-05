@@ -333,11 +333,6 @@ const derivedBridgeWidth = computed(() =>
                :value="state.params.designRules.edgeMarginMm"
                @input="state.params.designRules.edgeMarginMm = Number($event.target.value) || 0" />
       </label>
-      <label>Signals per trace
-        <input type="number" min="1" max="8" step="1"
-               :value="state.params.designRules.signalsPerTrace"
-               @input="state.params.designRules.signalsPerTrace = Math.max(1, Number($event.target.value) || 1)" />
-      </label>
       <label>Min bend radius (mm)
         <input type="number" min="0.1" max="30" step="0.1"
                :value="state.params.designRules.minBendRadiusMm"
