@@ -176,6 +176,14 @@ const derivedBridgeWidth = computed(() =>
           <option v-for="p in placements" :key="p.id" :value="p.id">{{ p.label }}</option>
         </select>
       </label>
+      <label class="inline">
+        <input type="checkbox" v-model="state.params.connectorDataOut" />
+        Data-out pass-through
+      </label>
+      <div v-if="state.params.connectorDataOut" class="hint-row">
+        Adds {{ requiredWireCount === 4 ? 'COUT + DOUT pads' : 'a DOUT pad' }} on the
+        connector so the chain's data-out can feed a downstream fixture.
+      </div>
 
       <!-- Solder-pad sub-section: only meaningful for PAD_ONLY -->
       <fieldset v-if="state.params.connectorId === 'PAD_ONLY'" class="subsec">

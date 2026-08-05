@@ -96,6 +96,12 @@ export function listConnectorTabs() {
   return Object.values(CONNECTOR_TABS).map(c => ({ id: c.id, label: c.label }));
 }
 
+// Data-out pass-through signals for a given LED wire count: single-data
+// parts return DOUT; clocked parts (4-wire APA102) return COUT + DOUT.
+export function outSignalsFor(wireCount) {
+  return wireCount === 4 ? ['COUT', 'DOUT'] : ['DOUT'];
+}
+
 // Merge a preset with the custom overrides carried on the tab params.
 export function resolveTabSpec(tab) {
   const preset = CONNECTOR_TABS[tab?.preset] || CONNECTOR_TABS.pads;

@@ -24,7 +24,7 @@ import {
   chainOrderFromConnector, planRouting, connectorTabGeometry,
   boardOutlineRings,
 } from './layout.js';
-import { resolveTabSpec } from './connectors.js';
+import { resolveTabSpec, outSignalsFor } from './connectors.js';
 
 const LINE_W = 0.05; // mm, KiCad's typical Edge.Cuts hairline
 
@@ -132,10 +132,11 @@ function mountingHoleFootprint(cxMm, cyMm, diaMm, refName) {
 // KiCad mirrors the footprint visually when placed on B.Cu; we still
 // write the local pad X coordinates as-is and KiCad handles the flip.
 function padOnlyFootprint(sp, wireCount, cxMm, cyMm, refName, signals, nets) {
+  const nPads = signals.length;
   const onePadW = sp.shape === 'circle' ? sp.padDiaMm : sp.padWMm;
   const onePadH = sp.shape === 'circle' ? sp.padDiaMm : sp.padHMm;
-  const stripW = sp.pitchMm * (wireCount - 1);
-  const padBlocks = Array.from({ length: wireCount }, (_, i) => {
+  const stripW = sp.pitchMm * (nPads - 1);
+  const padBlocks = Array.from({ length: nPads }, (_, i) => {
     const x = -stripW / 2 + sp.pitchMm * i;
     const sig = signals[i] || `P${i + 1}`;
     const netIdx = nets[sig] ?? 0;
@@ -201,14 +202,18 @@ export function buildKiCadPCB({
   mountingHole,
   panel,
   connectorTab,
+  connectorDataOut = false,
   designRules,
   routing,
 }) {
   const lines = [];
 
-  const padSignals = (connector?.id === 'PAD_ONLY' && solderPad)
-    ? wireSignals(led, wireCount)
-    : [];
+  // Wire-entry signals, plus the optional data-out pass-through.
+  const inSignals = wireSignals(led, wireCount);
+  const outSignals = connectorDataOut ? outSignalsFor(wireCount) : [];
+  const connSignals = [...inSignals, ...outSignals];
+  const tabExtraPads = outSignals.length;
+  const padSignals = (connector?.id === 'PAD_ONLY' && solderPad) ? connSignals : [];
   const nets = buildNetTable(led, wireCount, padSignals);
 
   // Header / setup
@@ -243,7 +248,7 @@ export function buildKiCadPCB({
   const bridgeWidthMm = computeBridgeWidthMm(bridgeTraceCount(wireCount), designRules || {});
   const rings = boardOutlineRings(net, { panel, connectorTab }, {
     widthMm: bridgeWidthMm,
-    tabSpec: connectorTab?.enabled ? resolveTabSpec(connectorTab) : null,
+    tabSpec: connectorTab?.enabled ? { ...resolveTabSpec(connectorTab), extraPads: tabExtraPads } : null,
     edgeLengthMm,
   });
   for (const ring of rings) {
@@ -341,9 +346,9 @@ export function buildKiCadPCB({
   // Connector-tab pads on B.Cu (the tab + bridge outline is already in
   // the merged Edge.Cuts silhouette above).
   if (connectorTab?.enabled) {
-    const g = connectorTabGeometry(net, { connectorTab, connectorFaceIdx }, resolveTabSpec(connectorTab), edgeLengthMm);
+    const g = connectorTabGeometry(net, { connectorTab, connectorFaceIdx }, { ...resolveTabSpec(connectorTab), extraPads: tabExtraPads }, edgeLengthMm);
     if (g) {
-      const padSig = wireSignals(led, wireCount);
+      const padSig = connSignals;
       g.pads.forEach((p, i) => {
         const cx = p[0] * edgeLengthMm, cy = -p[1] * edgeLengthMm;
         const sig = padSig[i] || `P${i + 1}`;

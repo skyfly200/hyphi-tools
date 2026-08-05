@@ -17,7 +17,7 @@ import {
   bridgesForNet, bridgeTraceCount, computeBridgeWidthMm,
   planRouting, connectorTabGeometry, boardOutlineRings,
 } from './layout.js';
-import { resolveTabSpec } from './connectors.js';
+import { resolveTabSpec, outSignalsFor } from './connectors.js';
 
 function svgWrap(name, viewBox, body) {
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -118,7 +118,7 @@ function ledsLayer(net, led, ledsPerFace, edgeLengthMm) {
   return parts.join('\n');
 }
 
-function connLayer(net, connector, connectorFaceIdx, wireCount, solderPad, edgeLengthMm) {
+function connLayer(net, connector, connectorFaceIdx, padCount, solderPad, edgeLengthMm) {
   if (!connector || connectorFaceIdx == null) return '';
   const face = net.faces[connectorFaceIdx];
   if (!face) return '';
@@ -126,9 +126,9 @@ function connLayer(net, connector, connectorFaceIdx, wireCount, solderPad, edgeL
   const cx = c[0] * edgeLengthMm, cy = -c[1] * edgeLengthMm;
   const parts = [];
   if (connector.id === 'PAD_ONLY' && solderPad) {
-    const stripW = solderPad.pitchMm * (wireCount - 1);
+    const stripW = solderPad.pitchMm * (padCount - 1);
     const x0 = cx - stripW / 2;
-    for (let i = 0; i < wireCount; i++) {
+    for (let i = 0; i < padCount; i++) {
       const px = x0 + solderPad.pitchMm * i;
       if (solderPad.shape === 'circle') {
         parts.push(`    <circle cx="${fmt(px)}" cy="${fmt(cy)}" r="${fmt(solderPad.padDiaMm/2)}" fill="green" />`);
@@ -162,17 +162,18 @@ export function buildSVGLayers({
   net, edgeLengthMm,
   led, ledsPerFace,
   connector, connectorFaceIdx, wireCount, solderPad,
-  mountingHole, panel, connectorTab, designRules, routing,
+  mountingHole, panel, connectorTab, connectorDataOut = false, designRules, routing,
 }) {
   const viewBox = bboxForNet(net, edgeLengthMm);
   const out = {};
+  const tabExtraPads = connectorDataOut ? outSignalsFor(wireCount).length : 0;
 
   // Outline: ONE merged silhouette (panels ∪ bridges ∪ tab) as clean
   // closed polygons, so the imported board outline is a valid contour.
   const bridgeWidthMm = computeBridgeWidthMm(bridgeTraceCount(wireCount), designRules || {});
   const rings = boardOutlineRings(net, { panel, connectorTab }, {
     widthMm: bridgeWidthMm,
-    tabSpec: connectorTab?.enabled ? resolveTabSpec(connectorTab) : null,
+    tabSpec: connectorTab?.enabled ? { ...resolveTabSpec(connectorTab), extraPads: tabExtraPads } : null,
     edgeLengthMm,
   });
   const outline = rings.map(ring =>
@@ -180,7 +181,7 @@ export function buildSVGLayers({
   ).join('\n');
 
   if (connectorTab?.enabled) {
-    const g = connectorTabGeometry(net, { connectorTab, connectorFaceIdx }, resolveTabSpec(connectorTab), edgeLengthMm);
+    const g = connectorTabGeometry(net, { connectorTab, connectorFaceIdx }, { ...resolveTabSpec(connectorTab), extraPads: tabExtraPads }, edgeLengthMm);
     if (g) {
       const padStr = g.pads.map(([x, y]) =>
         `    <rect x="${fmt(x * edgeLengthMm - g.padW * edgeLengthMm / 2)}" y="${fmt(-y * edgeLengthMm - g.padH * edgeLengthMm / 2)}" width="${fmt(g.padW * edgeLengthMm)}" height="${fmt(g.padH * edgeLengthMm)}" fill="green" />`).join('\n');
@@ -206,7 +207,7 @@ export function buildSVGLayers({
   if (folds) out['folds.svg'] = svgWrap('Dwgs.User', viewBox, folds);
   const leds = ledsLayer(net, led, ledsPerFace, edgeLengthMm);
   if (leds) out['leds.svg'] = svgWrap('F.Fab.LEDs', viewBox, leds);
-  const conn = connLayer(net, connector, connectorFaceIdx, wireCount, solderPad, edgeLengthMm);
+  const conn = connLayer(net, connector, connectorFaceIdx, wireCount + tabExtraPads, solderPad, edgeLengthMm);
   // Connector + pads live on the BACK of the PCB → B.Fab layer.
   // KiCad's Import Graphics drops the file on the back-side layer.
   if (conn) out['connector_back.svg'] = svgWrap('B.Fab.Connector', viewBox, conn);

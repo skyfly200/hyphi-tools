@@ -16,7 +16,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
-import { state, geometry, currentLED, currentConnector, requiredWireCount } from '../store.js';
+import { state, geometry, currentLED, currentConnector, requiredWireCount, connectorOutSignals } from '../store.js';
 import {
   centroid2D, panelOutline, ledPositions, insidePanelShape,
   bridgesForNet, bridgeTraceCount, computeBridgeWidthMm,
@@ -431,7 +431,8 @@ function rebuild() {
   // Connector tab: tab board + optional flex bridge ride the connector
   // face's fold transform; a connector body block sits on the tab.
   if (state.prefs.showConnector && state.params.connectorTab.enabled) {
-    const g = connectorTabGeometry(net, state.params, resolveTabSpec(state.params.connectorTab), s);
+    const tabSpec = { ...resolveTabSpec(state.params.connectorTab), extraPads: connectorOutSignals.value.length };
+    const g = connectorTabGeometry(net, state.params, tabSpec, s);
     if (g) {
       const fi = g.faceIdx;
       emitConvexPrism(g.tab, fi, -boardH / 2, boardH / 2, t, sign, panelTris);

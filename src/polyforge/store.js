@@ -16,6 +16,7 @@ const DEFAULT_PARAMS = {
   connectorId: 'PAD_ONLY',
   connectorFaceIdx: 0,      // face that hosts the wire entry connector
   connectorPlacement: 'edge',
+  connectorDataOut: false,  // add a DOUT pass-through pad on the connector
   // Optional connector tab: move the wire-entry connector off the
   // panel onto a small board protruding from the chosen face edge.
   connectorTab: {
@@ -156,6 +157,19 @@ export const currentConnector = computed(() => CONNECTORS[state.params.connector
 // (WS2812 family, SK6812, SK6805), 4 wires for clocked parts (APA102).
 // The connector list filters by this, and PAD_ONLY auto-scales.
 export const requiredWireCount = computed(() => currentLED.value?.wireCount || 3);
+
+// Data-out pass-through: the chain's DOUT (and COUT for clocked LEDs)
+// brought back to the connector so a downstream fixture can be daisy-
+// chained. Adds pad(s) to the connector / tab.
+export const connectorOutSignals = computed(() =>
+  state.params.connectorDataOut
+    ? (requiredWireCount.value === 4 ? ['COUT', 'DOUT'] : ['DOUT'])
+    : []);
+
+// Total pads on the wire-entry connector: the LED's wires in, plus any
+// data-out pass-through pads.
+export const connectorPadCount = computed(() =>
+  requiredWireCount.value + connectorOutSignals.value.length);
 
 export function compatibleConnectors() {
   const want = requiredWireCount.value;

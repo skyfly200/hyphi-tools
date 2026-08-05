@@ -3,7 +3,7 @@ import {
   bridgesForNet, bridgeTraceCount, computeBridgeWidthMm,
   planRouting, connectorTabGeometry, boardOutlineRings,
 } from './layout.js';
-import { resolveTabSpec } from './connectors.js';
+import { resolveTabSpec, outSignalsFor } from './connectors.js';
 
 // Minimal DXF writer for PolyForge.
 //
@@ -131,7 +131,8 @@ function circle(cx, cy, r, layer) {
   return s;
 }
 
-export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorFaceIdx, wireCount = 3, solderPad = null, mountingHole = null, panel = null, designRules = null, routing = null, connectorTab = null, scale = 1 }) {
+export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorFaceIdx, wireCount = 3, solderPad = null, mountingHole = null, panel = null, designRules = null, routing = null, connectorTab = null, connectorDataOut = false, scale = 1 }) {
+  const tabExtraPads = connectorDataOut ? outSignalsFor(wireCount).length : 0;
   let body = '';
 
   // Outline: ONE merged silhouette (panels ∪ bridges ∪ connector tab),
@@ -141,7 +142,7 @@ export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorF
   const bridgeWidthMm = computeBridgeWidthMm(bridgeTraceCount(wireCount), designRules || {});
   const rings = boardOutlineRings(net, { panel, connectorTab }, {
     widthMm: bridgeWidthMm,
-    tabSpec: connectorTab?.enabled ? resolveTabSpec(connectorTab) : null,
+    tabSpec: connectorTab?.enabled ? { ...resolveTabSpec(connectorTab), extraPads: tabExtraPads } : null,
     edgeLengthMm: scale,
   });
   for (const ring of rings) {
@@ -205,9 +206,10 @@ export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorF
     if (face) {
       const c = centroid(face.polygon2D).map(v => v * scale);
       if (connector.id === 'PAD_ONLY' && solderPad) {
+        const nPads = wireCount + (connectorDataOut ? outSignalsFor(wireCount).length : 0);
         const onePadW = solderPad.shape === 'circle' ? solderPad.padDiaMm : solderPad.padWMm;
         const onePadH = solderPad.shape === 'circle' ? solderPad.padDiaMm : solderPad.padHMm;
-        const stripW = solderPad.pitchMm * (wireCount - 1);
+        const stripW = solderPad.pitchMm * (nPads - 1);
         // Surrounding keepout strip.
         body += rect(c[0], c[1],
           stripW + onePadW + solderPad.keepoutMm * 2,
@@ -216,7 +218,7 @@ export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorF
         // Per-pad geometry, also on the CONN layer so KiCad can pick
         // them up as PCB pad outlines.
         const x0 = c[0] - stripW / 2;
-        for (let i = 0; i < wireCount; i++) {
+        for (let i = 0; i < nPads; i++) {
           const px = x0 + solderPad.pitchMm * i;
           if (solderPad.shape === 'circle') {
             body += circle(px, c[1], solderPad.padDiaMm / 2, 'CONN_B');
@@ -247,7 +249,7 @@ export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorF
   // Connector-tab pads on CONN_B (the tab outline is already merged
   // into the OUTLINE silhouette above).
   if (connectorTab?.enabled) {
-    const g = connectorTabGeometry(net, { connectorTab, connectorFaceIdx }, resolveTabSpec(connectorTab), scale);
+    const g = connectorTabGeometry(net, { connectorTab, connectorFaceIdx }, { ...resolveTabSpec(connectorTab), extraPads: tabExtraPads }, scale);
     if (g) {
       for (const [x, y] of g.pads) {
         body += rect(x * scale, y * scale, g.padW * scale, g.padH * scale, 'CONN_B');

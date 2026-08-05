@@ -57,6 +57,7 @@ function doExportDXF() {
     mountingHole: state.params.mountingHole,
     panel: state.params.panel,
     connectorTab: state.params.connectorTab,
+    connectorDataOut: state.params.connectorDataOut,
     designRules: state.params.designRules,
     routing: state.params.routing,
     scale,
@@ -77,6 +78,7 @@ function doExportKiCad() {
     mountingHole: state.params.mountingHole,
     panel: state.params.panel,
     connectorTab: state.params.connectorTab,
+    connectorDataOut: state.params.connectorDataOut,
     designRules: state.params.designRules,
     routing: state.params.routing,
   });
@@ -96,6 +98,7 @@ function doExportSVGZip() {
     mountingHole: state.params.mountingHole,
     panel: state.params.panel,
     connectorTab: state.params.connectorTab,
+    connectorDataOut: state.params.connectorDataOut,
     designRules: state.params.designRules,
     routing: state.params.routing,
   });
@@ -141,6 +144,7 @@ const bendCheck = computed(() => {
     net: geometry.value.net,
     panel: state.params.panel,
     connectorTab: state.params.connectorTab,
+    connectorDataOut: state.params.connectorDataOut,
     wireCount: requiredWireCount.value,
     designRules: state.params.designRules,
     edgeLengthMm: state.params.edgeLengthMm,

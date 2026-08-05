@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
-import { state, geometry, currentLED, currentConnector, requiredWireCount } from '../store.js';
+import { state, geometry, currentLED, currentConnector, requiredWireCount, connectorPadCount, connectorOutSignals } from '../store.js';
 import {
   mountingHolePositions,
   ledPositions as ledPositionsLib,
@@ -166,7 +166,7 @@ const connBox = computed(() => {
   if (!c) return null;
   if (c.id === 'PAD_ONLY') {
     const sp = state.params.solderPad;
-    const n = requiredWireCount.value;
+    const n = connectorPadCount.value;
     const onePadW = sp.shape === 'circle' ? sp.padDiaMm : sp.padWMm;
     const onePadH = sp.shape === 'circle' ? sp.padDiaMm : sp.padHMm;
     return {
@@ -177,13 +177,13 @@ const connBox = computed(() => {
   return { w: c.body.w + c.keepout * 2, h: c.body.h + c.keepout * 2 };
 });
 
-// Per-pad positions for PAD_ONLY rendering.
+// Per-pad positions for PAD_ONLY rendering (includes any data-out pad).
 const padPositions = computed(() => {
   if (!isPadOnly.value) return [];
   const pos = connPos();
   if (!pos) return [];
   const sp = state.params.solderPad;
-  const n = requiredWireCount.value;
+  const n = connectorPadCount.value;
   const stripW = sp.pitchMm * (n - 1);
   const x0 = pos[0] - stripW / 2;
   return Array.from({ length: n }, (_, i) => [x0 + sp.pitchMm * i, pos[1]]);
@@ -198,7 +198,8 @@ function holePositionsPx(face) {
 // Connector tab in canvas pixel space.
 const tabGeom = computed(() => {
   const s = state.params.edgeLengthMm;
-  const g = connectorTabGeometry(geometry.value.net, state.params, resolveTabSpec(state.params.connectorTab), s);
+  const spec = { ...resolveTabSpec(state.params.connectorTab), extraPads: connectorOutSignals.value.length };
+  const g = connectorTabGeometry(geometry.value.net, state.params, spec, s);
   if (!g) return null;
   const px = ([x, y]) => [x * s, -y * s];
   return {

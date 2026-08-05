@@ -428,8 +428,9 @@ export function connectorTabGeometry(net, params, spec, edgeLengthMm) {
     ];
     const padC = [innerC[0] + nx * tabL * 0.6, innerC[1] + ny * tabL * 0.6];
     const pitch = spec.pitchMm / M;
-    const strip = pitch * (spec.pins - 1);
-    const pads = Array.from({ length: spec.pins }, (_, i) => {
+    const nPads = spec.pins + (spec.extraPads || 0); // + data-out pass-through
+    const strip = pitch * (nPads - 1);
+    const pads = Array.from({ length: nPads }, (_, i) => {
       const tt = -strip / 2 + pitch * i;
       return [padC[0] + ux * tt, padC[1] + uy * tt];
     });
