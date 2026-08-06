@@ -16,7 +16,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
-import { state, geometry, currentLED, currentConnector, requiredWireCount, connectorOutSignals } from '../store.js';
+import { state, geometry, currentLED, currentConnector, requiredWireCount, connectorOutSignals, connectorPadCount } from '../store.js';
 import {
   centroid2D, panelOutline, ledPositions, insidePanelShape,
   bridgesForNet, bridgeTraceCount, computeBridgeWidthMm,
@@ -270,21 +270,69 @@ function emitBox(cx, cy, fi, zBot, zTop, w, h, t, sign, out) {
 
 function pushV(arr, v) { arr.push(v[0], v[1], v[2]); }
 
-// Emit a curved bridge substrate prism: each cross-section rides a
-// partial fold (blend f), so the strip sweeps a smooth arc across the
-// gap instead of a hard crease.
-function emitCurvedBridge(bd, zBot, zTop, t, sign, out) {
-  const { faceA, e, center, prof, nrm, blend } = bd;
+// Small 3D vector helpers.
+const v3sub = (a, b) => [a[0]-b[0], a[1]-b[1], a[2]-b[2]];
+const v3add = (a, b) => [a[0]+b[0], a[1]+b[1], a[2]+b[2]];
+const v3mul = (a, s) => [a[0]*s, a[1]*s, a[2]*s];
+const v3len = (a) => Math.hypot(a[0], a[1], a[2]);
+const v3norm = (a) => { const l = v3len(a) || 1; return [a[0]/l, a[1]/l, a[2]/l]; };
+const v3lerp = (a, b, u) => [a[0]+(b[0]-a[0])*u, a[1]+(b[1]-a[1])*u, a[2]+(b[2]-a[2])*u];
+
+// Per-index folded frame for a bridge: centre position P, across-width
+// unit W, and surface-normal unit N. The bonded ends ride their panels
+// rigidly; the FREE span is a straight chord between the two bonded
+// ends plus a small INWARD bulge, so the bend stays within the folded
+// faces' envelope instead of bowing out past them.
+function bridgeFrames(bd, t, sign) {
+  const { faceA, e, center, nrm, blend } = bd;
   const n = center.length;
+  const eps = 0.002;
+  const P = new Array(n), W = new Array(n), N = new Array(n);
+  let iA = 0, iB = n - 1;
+  for (let i = 0; i < n; i++) { if (blend[i] === 0) iA = i; else break; }
+  for (let i = n - 1; i >= 0; i--) { if (blend[i] === 1) iB = i; else break; }
+
+  const rigid = (i) => {
+    const f = blend[i];
+    const c3 = transformBridgePoint([center[i][0], center[i][1], 0], faceA, e, f, t, sign);
+    const w3 = transformBridgePoint([center[i][0] + nrm[i][0] * eps, center[i][1] + nrm[i][1] * eps, 0], faceA, e, f, t, sign);
+    const n3 = transformBridgePoint([center[i][0], center[i][1], eps], faceA, e, f, t, sign);
+    P[i] = c3; W[i] = v3norm(v3sub(w3, c3)); N[i] = v3norm(v3sub(n3, c3));
+  };
+  // Bonded ends (and, temporarily, the two boundary frames).
+  for (let i = 0; i <= iA; i++) rigid(i);
+  for (let i = iB; i < n; i++) rigid(i);
+
+  if (iB > iA) {
+    // Inward direction = away from the two panels' outward normals.
+    const inward = v3norm(v3mul(v3add(N[iA], N[iB]), -1));
+    const chord = v3len(v3sub(P[iB], P[iA]));
+    let flatLen = 0;
+    for (let i = iA; i < iB; i++) flatLen += Math.hypot(center[i+1][0]-center[i][0], center[i+1][1]-center[i][1]);
+    const slack = Math.max(0, flatLen - chord);
+    const sag = Math.min(0.5 * chord, 0.5 * Math.sqrt(slack * chord));
+    for (let i = iA + 1; i < iB; i++) {
+      const u = (i - iA) / (iB - iA);
+      P[i] = v3add(v3lerp(P[iA], P[iB], u), v3mul(inward, sag * Math.sin(Math.PI * u)));
+      W[i] = v3norm(v3lerp(W[iA], W[iB], u));
+      N[i] = v3norm(v3lerp(N[iA], N[iB], u));
+    }
+  }
+  return { P, W, N };
+}
+
+// Emit the bridge substrate prism using precomputed contained frames.
+function emitCurvedBridge(bd, frames, zBot, zTop, out) {
+  const { prof } = bd;
+  const { P, W, N } = frames;
+  const n = P.length;
   const lT = [], rT = [], lB = [], rB = [];
   for (let i = 0; i < n; i++) {
     const hw = prof[i];
-    const lx = center[i][0] + nrm[i][0] * hw, ly = center[i][1] + nrm[i][1] * hw;
-    const rx = center[i][0] - nrm[i][0] * hw, ry = center[i][1] - nrm[i][1] * hw;
-    lT.push(transformBridgePoint([lx, ly, zTop], faceA, e, blend[i], t, sign));
-    rT.push(transformBridgePoint([rx, ry, zTop], faceA, e, blend[i], t, sign));
-    lB.push(transformBridgePoint([lx, ly, zBot], faceA, e, blend[i], t, sign));
-    rB.push(transformBridgePoint([rx, ry, zBot], faceA, e, blend[i], t, sign));
+    lT.push(v3add(v3add(P[i], v3mul(W[i], hw)), v3mul(N[i], zTop)));
+    rT.push(v3add(v3add(P[i], v3mul(W[i], -hw)), v3mul(N[i], zTop)));
+    lB.push(v3add(v3add(P[i], v3mul(W[i], hw)), v3mul(N[i], zBot)));
+    rB.push(v3add(v3add(P[i], v3mul(W[i], -hw)), v3mul(N[i], zBot)));
   }
   const tri = (a, b, c) => { pushV(out, a); pushV(out, b); pushV(out, c); };
   for (let i = 0; i < n - 1; i++) {
@@ -298,16 +346,15 @@ function emitCurvedBridge(bd, zBot, zTop, t, sign, out) {
   tri(lT[e2], rT[e2], lB[e2]); tri(rT[e2], rB[e2], lB[e2]);
 }
 
-// Emit a thin copper lane ribbon on a bridge, offset `off` across the
-// strip, following the same curved fold so it stays bonded.
-function emitCurvedLane(bd, off, halfW, z, t, sign, out) {
-  const { faceA, e, center, nrm, blend } = bd;
-  const n = center.length;
+// Copper lane ribbon following the same contained frames.
+function emitCurvedLane(frames, off, halfW, z, out) {
+  const { P, W, N } = frames;
+  const n = P.length;
   const L = [], R = [];
   for (let i = 0; i < n; i++) {
-    const cx = center[i][0] + nrm[i][0] * off, cy = center[i][1] + nrm[i][1] * off;
-    L.push(transformBridgePoint([cx + nrm[i][0] * halfW, cy + nrm[i][1] * halfW, z], faceA, e, blend[i], t, sign));
-    R.push(transformBridgePoint([cx - nrm[i][0] * halfW, cy - nrm[i][1] * halfW, z], faceA, e, blend[i], t, sign));
+    const c = v3add(P[i], v3mul(W[i], off));
+    L.push(v3add(v3add(c, v3mul(W[i], halfW)), v3mul(N[i], z)));
+    R.push(v3add(v3add(c, v3mul(W[i], -halfW)), v3mul(N[i], z)));
   }
   for (let i = 0; i < n - 1; i++) {
     pushV(out, L[i]); pushV(out, R[i]); pushV(out, L[i + 1]);
@@ -390,11 +437,12 @@ function rebuild() {
   const cl = (state.params.designRules.clearanceMm ?? 0.2);
   const pitchN = (tw + cl) / s;
   for (const bd of bd3d) {
-    emitCurvedBridge(bd, -boardH / 2, boardH / 2, t, sign, bridgeTris);
+    const frames = bridgeFrames(bd, t, sign);
+    emitCurvedBridge(bd, frames, -boardH / 2, boardH / 2, bridgeTris);
     if (showTraces3d) {
       for (let k = 0; k < tc; k++) {
         const off = (k - (tc - 1) / 2) * pitchN;
-        emitCurvedLane(bd, off, traceHalf, laneZ, t, sign, copperTris);
+        emitCurvedLane(frames, off, traceHalf, laneZ, copperTris);
       }
     }
   }
@@ -421,10 +469,25 @@ function rebuild() {
     const face = net.faces[fi];
     if (face) {
       const c = centroid2D(face.polygon2D);
-      const cw = conn.body.w / s, ch = conn.body.h / s;
-      const bodyH = 2.0 / s;
-      const back = -boardH / 2;
-      emitBox(c[0], c[1], fi, back - bodyH, back, cw, ch, t, sign, connTris);
+      if (conn.id === 'PAD_ONLY') {
+        // Solder pads render as flat copper pads on the back surface,
+        // just like the traces — not a raised connector body.
+        const sp = state.params.solderPad;
+        const n = connectorPadCount.value;
+        const pw = (sp.shape === 'circle' ? sp.padDiaMm : sp.padWMm) / s;
+        const ph = (sp.shape === 'circle' ? sp.padDiaMm : sp.padHMm) / s;
+        const pitch = sp.pitchMm / s;
+        const x0 = c[0] - (pitch * (n - 1)) / 2;
+        const back = -boardH / 2;
+        for (let i = 0; i < n; i++) {
+          emitBox(x0 + pitch * i, c[1], fi, back - 0.02 / s, back, pw, ph, t, sign, padTris);
+        }
+      } else {
+        const cw = conn.body.w / s, ch = conn.body.h / s;
+        const bodyH = 2.0 / s;
+        const back = -boardH / 2;
+        emitBox(c[0], c[1], fi, back - bodyH, back, cw, ch, t, sign, connTris);
+      }
     }
   }
 
