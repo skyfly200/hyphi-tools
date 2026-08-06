@@ -12,95 +12,107 @@ let harnessGroup = null;
 
 const CORE = 0x5b6b82;
 const POWER = 0xf5a623;
+const GND = 0x9aa7ba;
 const DATA = 0x4fd1e8;
+const CLK = 0x7bd88f;
 
 const V = (p) => new THREE.Vector3(p.x, p.y, p.z || 0);
 
-function tube(a, b, radius, color) {
-  const curve = new THREE.LineCurve3(V(a), V(b));
-  const geo = new THREE.TubeGeometry(curve, 1, radius, 10, false);
-  return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.1 }));
+// colour for conductor k in an N-wire bundle: 5V, GND, Data, (Clk)
+function wireColor(k) {
+  return k === 0 ? POWER : k === 1 ? GND : k === 2 ? DATA : CLK;
 }
 
-// A helical tube wound around the axis a->b, used to show twisted data pairs.
-function helix(a, b, radius, turns, wireRadius, color) {
+function mat(color) { return new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.1 }); }
+
+function straightTube(a, b, radius, color) {
+  const curve = new THREE.LineCurve3(V(a), V(b));
+  return new THREE.Mesh(new THREE.TubeGeometry(curve, 1, radius, 10, false), mat(color));
+}
+
+function node3d(radius, color) {
+  return new THREE.Mesh(new THREE.SphereGeometry(radius, 16, 12), mat(color));
+}
+
+// One conductor following a helix around the axis a->b at the given radius,
+// phase, and number of turns. turns=0 gives a straight offset wire.
+function wireHelix(a, b, radius, turns, phase, wireRadius, color) {
   const A = V(a), B = V(b);
   const axis = new THREE.Vector3().subVectors(B, A);
   const len = axis.length();
   if (len < 1e-3) return null;
   axis.normalize();
-  // perpendicular basis
   const ref = Math.abs(axis.y) < 0.99 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
   const u = new THREE.Vector3().crossVectors(axis, ref).normalize();
   const v = new THREE.Vector3().crossVectors(axis, u).normalize();
-  const segs = Math.max(8, Math.ceil(Math.abs(turns) * 24));
+  const segs = Math.max(2, Math.ceil(Math.abs(turns) * 24) || 2);
   const pts = [];
   for (let i = 0; i <= segs; i++) {
     const t = i / segs;
-    const ang = 2 * Math.PI * turns * t;
-    const center = new THREE.Vector3().copy(A).addScaledVector(axis, len * t);
-    center.addScaledVector(u, radius * Math.cos(ang));
-    center.addScaledVector(v, radius * Math.sin(ang));
-    pts.push(center);
+    const ang = 2 * Math.PI * turns * t + phase;
+    const c = new THREE.Vector3().copy(A).addScaledVector(axis, len * t);
+    c.addScaledVector(u, radius * Math.cos(ang));
+    c.addScaledVector(v, radius * Math.sin(ang));
+    pts.push(c);
   }
   const curve = new THREE.CatmullRomCurve3(pts);
-  const geo = new THREE.TubeGeometry(curve, segs, wireRadius, 6, false);
-  return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.1 }));
+  return new THREE.Mesh(new THREE.TubeGeometry(curve, segs, wireRadius, 6, false), mat(color));
 }
 
-function node3d(radius, color) {
-  return new THREE.Mesh(new THREE.SphereGeometry(radius, 16, 12), new THREE.MeshStandardMaterial({ color, roughness: 0.5 }));
+// A twisted bundle of `count` conductors along a->b. If coreR > 0 a central
+// core is drawn and the wires wind around it; otherwise the wires twist
+// directly together at `radius`.
+function bundle(group, a, b, { count, radius, coreR, twistPerMm, wireRadius }) {
+  const len = V(a).distanceTo(V(b));
+  const turns = twistPerMm * len;
+  if (coreR > 0) group.add(straightTube(a, b, coreR, CORE));
+  for (let k = 0; k < count; k++) {
+    const w = wireHelix(a, b, radius, turns, (2 * Math.PI * k) / count, wireRadius, wireColor(k));
+    if (w) group.add(w);
+  }
+}
+
+function disposeGroup(g) {
+  g.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
 }
 
 function build() {
   if (harnessGroup) { scene.remove(harnessGroup); disposeGroup(harnessGroup); }
   harnessGroup = new THREE.Group();
   const m = props.model;
-  const twistTurnsPerMm = (m.twist || 0) / 1000;
-  const bundleR = Math.max(0.8, (m.bundleDia || 4) / 2);
+  const twistPerMm = (m.twist || 0) / 1000;
+  const N = m.conductors || 3;
+  const coreR = m.coreRadius || 2;
+  const stemR = m.stemRadius || 1;
+  const wR = Math.max(0.25, (m.wireRadius || 0.8) * 0.9);
+  const coreCenterR = Math.max(0.4, coreR - (m.wireRadius || 0.8));
 
   const cp = m.corePts;
-  // core segments as thick tubes; data helix wound around each if twisted
+  // core segments: bundle wound around a central core
   for (let i = 1; i < cp.length; i++) {
-    harnessGroup.add(tube(cp[i - 1], cp[i], bundleR, CORE));
-    if (twistTurnsPerMm > 0) {
-      const segLen = V(cp[i]).distanceTo(V(cp[i - 1]));
-      const turns = twistTurnsPerMm * segLen;
-      const h = helix(cp[i - 1], cp[i], bundleR + 0.6, turns, 0.35, DATA);
-      if (h) harnessGroup.add(h);
-    }
+    bundle(harnessGroup, cp[i - 1], cp[i], { count: N, radius: coreR, coreR: coreCenterR, twistPerMm, wireRadius: wR });
   }
 
   // driver box
-  const d = cp[0];
   const driver = new THREE.Mesh(new THREE.BoxGeometry(14, 8, 10), new THREE.MeshStandardMaterial({ color: 0x101826, roughness: 0.8 }));
-  driver.position.copy(V(d));
+  driver.position.copy(V(cp[0]));
   harnessGroup.add(driver);
 
-  // stem branches
+  // stems: wires twisted directly together (no central core)
   m.nodes.forEach((n) => {
-    const nd = node3d(1.4, CORE);
-    nd.position.copy(V(n.base));
-    harnessGroup.add(nd);
-    if (n.powerTap) harnessGroup.add(tube(n.base, n.tip, 1.0, POWER));
-    if (n.hasData) harnessGroup.add(tube(n.base, n.tip, 0.5, DATA));
-    const tip = node3d(2.2, POWER); tip.position.copy(V(n.tip)); harnessGroup.add(tip);
+    const nd = node3d(coreR * 0.9, CORE); nd.position.copy(V(n.base)); harnessGroup.add(nd);
+    bundle(harnessGroup, n.base, n.tip, { count: N, radius: stemR, coreR: 0, twistPerMm, wireRadius: wR });
+    const tip = node3d(stemR + wR, POWER); tip.position.copy(V(n.tip)); harnessGroup.add(tip);
   });
 
   // fork
   if (m.fork) {
     const last = cp[cp.length - 1];
-    harnessGroup.add(tube(last, m.fork.point, bundleR, CORE));
-    if (twistTurnsPerMm > 0) {
-      const segLen = V(m.fork.point).distanceTo(V(last));
-      const h = helix(last, m.fork.point, bundleR + 0.6, twistTurnsPerMm * segLen, 0.35, DATA);
-      if (h) harnessGroup.add(h);
-    }
-    const fpNode = node3d(1.4, CORE); fpNode.position.copy(V(m.fork.point)); harnessGroup.add(fpNode);
+    bundle(harnessGroup, last, m.fork.point, { count: N, radius: coreR, coreR: coreCenterR, twistPerMm, wireRadius: wR });
+    const fpNode = node3d(coreR * 0.9, CORE); fpNode.position.copy(V(m.fork.point)); harnessGroup.add(fpNode);
     m.fork.arms.forEach((arm) => {
-      if (arm.powerTap) harnessGroup.add(tube(arm.base, arm.tip, 1.0, POWER));
-      if (arm.hasData) harnessGroup.add(tube(arm.base, arm.tip, 0.5, DATA));
-      const t = node3d(2.2, arm.powerTap ? POWER : DATA); t.position.copy(V(arm.tip)); harnessGroup.add(t);
+      bundle(harnessGroup, arm.base, arm.tip, { count: N, radius: stemR, coreR: 0, twistPerMm, wireRadius: wR });
+      const t = node3d(stemR + wR, arm.powerTap ? POWER : DATA); t.position.copy(V(arm.tip)); harnessGroup.add(t);
     });
   }
 
@@ -119,13 +131,6 @@ function frameCamera() {
   camera.far = maxDim * 20;
   camera.updateProjectionMatrix();
   controls.update();
-}
-
-function disposeGroup(g) {
-  g.traverse((o) => {
-    if (o.geometry) o.geometry.dispose();
-    if (o.material) o.material.dispose();
-  });
 }
 
 function init() {

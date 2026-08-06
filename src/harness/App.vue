@@ -50,15 +50,35 @@ const taper = ref(0);
 const jitter = ref(0);
 const scaleBranches = ref(true); // scale branch lengths along with core segments
 
-// Twisting: helically twisted pairs are longer than their straight run.
-// A wire wound n turns/mm around a bundle of diameter d gains length by
-// sqrt(1 + (pi*d*n)^2) per unit of axial run.
-const twist = ref(0);       // turns per meter
-const bundleDia = ref(4);   // twisted-bundle diameter, mm
-const twistMult = computed(() => {
-  const n = twist.value / 1000; // turns per mm
-  return Math.sqrt(1 + Math.pow(Math.PI * bundleDia.value * n, 2));
-});
+// Twisting: each conductor follows a helix, so its cut length exceeds the
+// straight axial run by sqrt(1 + (2*pi*R*n)^2), where n is turns per unit
+// length and R is the helix radius of that conductor.
+//  - Core bundle wires twist AROUND a central core -> larger radius.
+//  - Stem wires twist directly together -> radius set by wire packing.
+const twist = ref(80);        // turns per meter (default higher)
+const conductors = ref(3);    // wires per stem/LED run (3 or 4)
+const wireDia = ref(1.6);     // single conductor Ø incl. insulation, mm
+const coreDia = ref(4);       // central core Ø the bundle twists around, mm
+
+const jointOverlap = ref(5);  // solder/crimp overlap added per joint, mm
+const ledStripe = ref(4);     // wire stripped/served per LED solder, mm
+
+const conductorItems = [
+  { title: '3-wire (5V / GND / Data)', value: 3 },
+  { title: '4-wire (5V / GND / Data / Clk)', value: 4 },
+];
+
+// N wires twisted directly together sit at radius wireR / sin(pi/N).
+const stemRadius = computed(() => (wireDia.value / 2) / Math.sin(Math.PI / Math.max(2, conductors.value)));
+// Bundle wound around a central core sits one wire-radius off the core surface.
+const coreRadius = computed(() => coreDia.value / 2 + wireDia.value / 2);
+
+function helixFactor(turnsPerM, radiusMm) {
+  const n = turnsPerM / 1000; // turns per mm
+  return Math.sqrt(1 + Math.pow(2 * Math.PI * radiusMm * n, 2));
+}
+const coreTwist = computed(() => helixFactor(twist.value, coreRadius.value));
+const stemTwist = computed(() => helixFactor(twist.value, stemRadius.value));
 
 const view = ref('2d');
 const spread3d = ref(1); // 0 = flat (planar 2D layout) .. 1 = full 3D winding
@@ -193,36 +213,42 @@ const groups = computed(() => {
   const power = [];
   const data = [];
   const sn = scaledNodes.value;
-  const tw = twistMult.value;
-  // A run's cut length: twisted geometric path + straight joint slack.
-  const mk = (label, detail, geo) => ({ label, detail, qty: 2, geo, length: geo * tw + slack.value });
+  const cT = coreTwist.value, sT = stemTwist.value;
+  // A run's cut length: core wire runs twist at the core radius, stem wire
+  // runs twist directly together, plus overlap at each solder/crimp joint,
+  // wire served at each LED solder, and general slack.
+  const mk = (label, detail, { core = 0, stem = 0, joints = 0, leds = 0 }) => {
+    const geo = core * cT + stem * sT;
+    const length = geo + joints * jointOverlap.value + leds * ledStripe.value + slack.value;
+    return { label, detail, qty: 2, geo, length };
+  };
 
   sn.forEach((n, i) => {
-    if (n.powerTap) power.push(mk(`Stem ${i + 1}`, 'power + ground', n.branchLen));
+    if (n.powerTap) power.push(mk(`Stem ${i + 1}`, 'power + ground', { stem: n.branchLen, joints: 1, leds: 1 }));
   });
 
   if (sn.length > 0) {
-    data.push(mk('Driver → stem 1', 'lead-in, send + return', leadIn.value + sn[0].branchLen));
+    data.push(mk('Driver → stem 1', 'lead-in, send + return', { core: leadIn.value, stem: sn[0].branchLen, joints: 1, leds: 1 }));
   }
   for (let i = 0; i < sn.length - 1; i++) {
     const a = sn[i], b = sn[i + 1];
-    data.push(mk(`Stem ${i + 1} → stem ${i + 2}`, 'send + return', a.branchLen + b.segLen + b.branchLen));
+    data.push(mk(`Stem ${i + 1} → stem ${i + 2}`, 'send + return', { core: b.segLen, stem: a.branchLen + b.branchLen, leds: 2 }));
   }
 
   if (forkEnabled.value && sn.length > 0) {
     const last = sn[sn.length - 1];
     const fA = scaledForkA.value, fB = scaledForkB.value;
     const fd = scaledForkDistance.value;
-    if (fA.powerTap) power.push(mk('Fork A', 'power + ground', fA.branchLen));
-    if (fB.powerTap) power.push(mk('Fork B', 'power + ground', fB.branchLen));
+    if (fA.powerTap) power.push(mk('Fork A', 'power + ground', { stem: fA.branchLen, joints: 1, leds: 1 }));
+    if (fB.powerTap) power.push(mk('Fork B', 'power + ground', { stem: fB.branchLen, joints: 1, leds: 1 }));
     if (fA.hasData && fA.dataSource === 'chain') {
-      data.push(mk(`Stem ${sn.length} → fork A`, 'send + return', last.branchLen + fd + fA.branchLen));
+      data.push(mk(`Stem ${sn.length} → fork A`, 'send + return', { core: fd, stem: last.branchLen + fA.branchLen, leds: 2 }));
     }
     if (fB.hasData) {
       if (fB.dataSource === 'chain') {
-        data.push(mk(`Stem ${sn.length} → fork B`, fB.powerTap ? 'send + return' : 'data only — no power tap', last.branchLen + fd + fB.branchLen));
+        data.push(mk(`Stem ${sn.length} → fork B`, fB.powerTap ? 'send + return' : 'data only — no power tap', { core: fd, stem: last.branchLen + fB.branchLen, leds: 2 }));
       } else {
-        data.push(mk('Fork A → fork B', fB.powerTap ? 'send + return' : 'data only — no power tap', fA.branchLen + forkGap.value + fB.branchLen));
+        data.push(mk('Fork A → fork B', fB.powerTap ? 'send + return' : 'data only — no power tap', { core: forkGap.value, stem: fA.branchLen + fB.branchLen, leds: 2 }));
       }
     }
   }
@@ -309,7 +335,9 @@ const model3d = computed(() => {
 
   return {
     corePts, nodes: nodeMeta, fork,
-    twist: twist.value, bundleDia: bundleDia.value,
+    twist: twist.value, conductors: conductors.value,
+    coreRadius: coreRadius.value, stemRadius: stemRadius.value,
+    wireRadius: wireDia.value / 2,
   };
 });
 
@@ -485,18 +513,25 @@ function exportGLB() {
 
               <!-- twist -->
               <v-divider class="my-4" />
-              <div class="section-label mb-2">TWIST</div>
+              <div class="section-label mb-2">TWIST &amp; WIRE</div>
               <v-row dense align="center">
                 <v-col cols="12" sm="6">
-                  <v-slider label="Twist" v-model="twist" :min="0" :max="120" :step="5" color="primary" thumb-label hide-details density="compact">
+                  <v-slider label="Twist" v-model="twist" :min="0" :max="200" :step="5" color="primary" thumb-label hide-details density="compact">
                     <template #append><span class="unit">{{ twist }} t/m</span></template>
                   </v-slider>
                 </v-col>
-                <v-col cols="6" sm="3">
-                  <v-text-field label="bundle Ø (mm)" type="number" step="0.5" density="compact" hide-details variant="outlined" v-model.number="bundleDia" />
+                <v-col cols="12" sm="6">
+                  <v-select label="conductors per stem" :items="conductorItems" density="compact" hide-details variant="outlined" v-model="conductors" />
                 </v-col>
                 <v-col cols="6" sm="3">
-                  <div class="twist-mult">&times;{{ twistMult.toFixed(3) }}<span class="unit"> length</span></div>
+                  <v-text-field label="wire Ø (mm)" type="number" step="0.1" density="compact" hide-details variant="outlined" v-model.number="wireDia" />
+                </v-col>
+                <v-col cols="6" sm="3">
+                  <v-text-field label="core Ø (mm)" type="number" step="0.5" density="compact" hide-details variant="outlined" v-model.number="coreDia" />
+                </v-col>
+                <v-col cols="12" sm="6" class="d-flex align-center ga-4">
+                  <div class="twist-mult">core &times;{{ coreTwist.toFixed(3) }}</div>
+                  <div class="twist-mult">stem &times;{{ stemTwist.toFixed(3) }}</div>
                 </v-col>
               </v-row>
 
@@ -507,6 +542,12 @@ function exportGLB() {
                 </v-col>
                 <v-col cols="6" sm="3">
                   <v-text-field label="driver lead-in (mm)" type="number" density="compact" hide-details variant="outlined" v-model.number="leadIn" />
+                </v-col>
+                <v-col cols="6" sm="3">
+                  <v-text-field label="solder/crimp overlap (mm)" type="number" step="0.5" density="compact" hide-details variant="outlined" v-model.number="jointOverlap" />
+                </v-col>
+                <v-col cols="6" sm="3">
+                  <v-text-field label="LED strip/serve (mm)" type="number" step="0.5" density="compact" hide-details variant="outlined" v-model.number="ledStripe" />
                 </v-col>
               </v-row>
 
@@ -575,7 +616,8 @@ function exportGLB() {
               </div>
               <p class="note mt-3">
                 Each row is a pair &mdash; power counts pwr + gnd, data counts send + return.
-                Twisted runs are scaled &times;{{ twistMult.toFixed(3) }} over their straight path; joint slack is added afterwards.
+                Core runs are scaled &times;{{ coreTwist.toFixed(3) }} (wires twisting around the core), stem runs &times;{{ stemTwist.toFixed(3) }}
+                (wires twisted directly together); solder/crimp overlap, LED serve, and slack are added on top.
                 Diagram segment/branch spacing and bend angle are proportional but clamped for readability, not exact scale.
               </p>
             </v-card>
