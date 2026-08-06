@@ -394,7 +394,9 @@ function exportGLB() {
 
               <template v-if="view === '3d'">
                 <Harness3D ref="three" :model="model3d" />
-                <v-slider label="3D spread" v-model="spread3d" :min="0" :max="1" :step="0.05" color="primary" thumb-label hide-details density="compact" class="mt-3" />
+                <v-slider label="3D spread" v-model="spread3d" :min="0" :max="1" :step="0.05" color="primary" thumb-label hide-details density="compact" class="mt-3">
+                  <template #append><span class="unit">{{ Math.round(spread3d * 100) }}%</span></template>
+                </v-slider>
               </template>
 
               <svg v-else :viewBox="`0 0 ${diagram.width} ${diagram.totalHeight}`" style="width:100%;height:auto;display:block">
