@@ -61,6 +61,7 @@ const twistMult = computed(() => {
 });
 
 const view = ref('2d');
+const spread3d = ref(1); // 0 = flat (planar 2D layout) .. 1 = full 3D winding
 
 const dataSourceItems = [
   { title: 'core chain', value: 'chain' },
@@ -246,30 +247,41 @@ const dataTotal = computed(() => groups.value.find((g) => g.name === 'Data links
 const forks = [forkA, forkB];
 
 // ---- 3D model description (real mm coordinates, Y up) ----
+// Each joint's jog and branch are rotated around the core (Y) axis so the
+// harness winds through all three dimensions instead of lying flat. The
+// spread slider dials how far each successive joint turns; at 0 it collapses
+// back to the planar 2D layout.
 const BASE_JOG_MM = 30;
+const GOLDEN = Math.PI * (3 - Math.sqrt(5)); // ~137.5°, organic azimuth step
+
 const model3d = computed(() => {
   const sn = scaledNodes.value;
   const mult = multipliers.value;
+  const sp = spread3d.value;
   const corePts = [];
-  let x = 0, y = 0;
-  corePts.push({ x, y, z: 0, driver: true });
+  let y = 0;
+  corePts.push({ x: 0, y, z: 0, driver: true });
   y += leadIn.value; // straight lead-in
   const nodeMeta = [];
+  let lastAz = 0;
 
   for (let i = 0; i < sn.length; i++) {
-    if (i > 0) {
-      x = (i % 2 === 0 ? 1 : -1) * BASE_JOG_MM * mult[i];
-      y += sn[i].segLen;
-    }
-    const p = { x, y, z: 0 };
+    // azimuth around the core: golden-angle steps scaled by spread, with a
+    // planar zig-zag as the baseline so spread=0 matches the 2D diagram.
+    const planar = (i % 2 === 0 ? 0 : Math.PI);
+    const az = planar * (1 - sp) + i * GOLDEN * sp;
+    const cosA = Math.cos(az), sinA = Math.sin(az);
+    const off = i === 0 ? 0 : BASE_JOG_MM * mult[i];
+    if (i > 0) y += sn[i].segLen;
+    const p = { x: off * cosA, y, z: off * sinA };
     corePts.push(p);
-    // branch direction: outward in X, up in Y, normalized to branchLen
-    const dir = x >= 0 ? 1 : -1;
-    const vx = dir * 0.6, vy = 1, len = Math.hypot(vx, vy);
+    lastAz = az;
+    // branch fans outward radially (node's azimuth) plus up
     const bl = sn[i].branchLen;
+    const vx = cosA * 0.6, vz = sinA * 0.6, vy = 1, len = Math.hypot(vx, vy, vz);
     nodeMeta.push({
       base: p,
-      tip: { x: p.x + (vx / len) * bl, y: p.y + (vy / len) * bl, z: 0 },
+      tip: { x: p.x + (vx / len) * bl, y: p.y + (vy / len) * bl, z: p.z + (vz / len) * bl },
       powerTap: sn[i].powerTap, hasData: true, num: i + 1,
     });
   }
@@ -277,14 +289,18 @@ const model3d = computed(() => {
   let fork = null;
   if (forkEnabled.value && sn.length > 0) {
     const base = corePts[corePts.length - 1];
-    const fp = { x: base.x, y: base.y + scaledForkDistance.value, z: 0 };
+    const fp = { x: base.x, y: base.y + scaledForkDistance.value, z: base.z };
+    // arm plane is perpendicular to the last joint azimuth so the two arms
+    // splay into depth rather than always along X.
+    const armAz = lastAz + Math.PI / 2;
+    const cosA = Math.cos(armAz), sinA = Math.sin(armAz);
     const arms = [scaledForkA.value, scaledForkB.value].map((f, idx) => {
-      const dir = idx === 0 ? -1 : 1;
-      const vx = dir * 0.7, vy = 1, len = Math.hypot(vx, vy);
+      const s = idx === 0 ? -1 : 1;
+      const vx = s * cosA * 0.7, vz = s * sinA * 0.7, vy = 1, len = Math.hypot(vx, vy, vz);
       return {
         label: idx === 0 ? 'A' : 'B',
         base: fp,
-        tip: { x: fp.x + (vx / len) * f.branchLen, y: fp.y + (vy / len) * f.branchLen, z: 0 },
+        tip: { x: fp.x + (vx / len) * f.branchLen, y: fp.y + (vy / len) * f.branchLen, z: fp.z + (vz / len) * f.branchLen },
         powerTap: f.powerTap, hasData: f.hasData,
       };
     });
@@ -348,7 +364,10 @@ function exportGLB() {
                 <v-btn v-if="view === '3d'" size="small" variant="tonal" color="primary" prepend-icon="mdi-download" @click="exportGLB">GLB</v-btn>
               </div>
 
-              <Harness3D v-if="view === '3d'" ref="three" :model="model3d" />
+              <template v-if="view === '3d'">
+                <Harness3D ref="three" :model="model3d" />
+                <v-slider label="3D spread" v-model="spread3d" :min="0" :max="1" :step="0.05" color="primary" thumb-label hide-details density="compact" class="mt-3" />
+              </template>
 
               <svg v-else :viewBox="`0 0 ${diagram.width} ${diagram.totalHeight}`" style="width:100%;height:auto;display:block">
                 <!-- driver -->
