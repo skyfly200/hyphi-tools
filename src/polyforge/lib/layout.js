@@ -739,13 +739,19 @@ export function chainOrderFromConnector(net, connectorFaceIdx) {
 // represent that as a tiny stub inside the LED footprint.
 //
 // Coordinates are in mm with Y-down (KiCad / screen convention).
+// mode: 'bridges' — one spaced lane per bridge, ending just past each
+//         segment edge (copper on the flex, user fills the rest).
+//       'full'    — every signal routed as a parallel lane all the way
+//         from the connector through the LEDs in chain order.
+//       'none'    — no traces (bridges are still auto-sized elsewhere).
 export function planRouting({
   net, connectorFaceIdx, led, ledsPerFace,
   connector, panel, wireCount, designRules,
-  edgeLengthMm,
+  edgeLengthMm, mode = 'bridges',
 }) {
   const tc = bridgeTraceCount(wireCount);
   const widthMm = computeBridgeWidthMm(tc, designRules);
+  if (mode === 'none') return { traces: [], widthMm };
   if (!panel?.bridge?.enabled || !led || ledsPerFace <= 0) return { traces: [], widthMm };
 
   // Lane offsets across the bridge width, centered on the fold edge.
@@ -861,23 +867,54 @@ export function planRouting({
     return [ext(a0, a1), ...path, ext(b0, b1)];
   }
 
-  // The bridge lanes already run from just past one segment edge to just
-  // past the other (they are built from the trimmed bridge centerline,
-  // which carries the bonded overlap). Emit one trace per bridge per
-  // signal — the copper lives on the bridge + a small stub onto each
-  // segment, and ends there instead of crossing the whole panel.
-  for (const e of net.foldEdges) {
-    if (!net.faces[e.faceA] || !net.faces[e.faceB]) continue;
+  if (mode === 'full') {
+    // Full route: each signal is its own parallel lane, threaded from
+    // the connector through every LED in chain order. Each face's
+    // waypoints are the LED pad positions offset by the signal's lane
+    // (perpendicular to the face→connector direction), so the lanes
+    // stay separated and visibly reach every LED.
+    const connCn = connFace ? centroid2D(connFace.polygon2D) : [0, 0];
+    const faceDirOf = (fi) => {
+      const c = centroid2D(net.faces[fi].polygon2D);
+      const dx = c[0] - connCn[0], dy = c[1] - connCn[1];
+      const l = Math.hypot(dx, dy);
+      return l < 1e-6 ? [1, 0] : [-dy / l, dx / l];
+    };
+    const faceWaypoints = (fi, sig) => {
+      const dir = faceDirOf(fi);
+      const off = lane(laneOf(sig));
+      const leds = ledsByFace.get(fi) || [];
+      if (!leds.length) {
+        const c = centroid2D(net.faces[fi].polygon2D);
+        return [[c[0] * edgeLengthMm + dir[0] * off, -c[1] * edgeLengthMm + dir[1] * off]];
+      }
+      return leds.map(p => [p[0] + dir[0] * off, p[1] + dir[1] * off]);
+    };
+    const walk = chainWalkFromConnector(net, connectorFaceIdx);
     for (const sig of signals) {
-      const path = bridgeLanePath.get(`${e.faceA}-${e.faceB}/${sig}`);
-      if (path && path.length >= 2) pushPolyline(sig, withStubs(path));
+      const pts = [connEntryPoint(sig)];
+      let prev = connectorFaceIdx;
+      pts.push(...faceWaypoints(connectorFaceIdx, sig));
+      for (const fi of walk) {
+        if (fi === prev) continue;
+        pts.push(...lanePathAcross(prev, fi, sig));
+        pts.push(...faceWaypoints(fi, sig));
+        prev = fi;
+      }
+      pushPolyline(sig, pts);
+    }
+  } else {
+    // 'bridges' — one spaced lane per bridge, ending just past each
+    // segment edge (built from the trimmed bridge centerline + a short
+    // stub). The wire-up to the connector / LED pads is left to fab.
+    for (const e of net.foldEdges) {
+      if (!net.faces[e.faceA] || !net.faces[e.faceB]) continue;
+      for (const sig of signals) {
+        const path = bridgeLanePath.get(`${e.faceA}-${e.faceB}/${sig}`);
+        if (path && path.length >= 2) pushPolyline(sig, withStubs(path));
+      }
     }
   }
-
-  // No connector fan-out: bringing every signal to a single wire-entry
-  // point pinched the lanes together. The traces are left as the spaced
-  // parallel bridge lanes, ending just past each segment edge — the
-  // wire-up to the connector / LED pads is left to the fab step.
 
   return { traces, widthMm };
 }

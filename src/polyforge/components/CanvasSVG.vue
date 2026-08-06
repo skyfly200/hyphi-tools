@@ -234,7 +234,7 @@ const bridgePolys = computed(() => {
 
 // Routed copper traces (in mm space). One polyline per signal.
 const routedTraces = computed(() => {
-  if (!state.params.routing?.enabled) return [];
+  if ((state.params.routing?.mode || 'bridges') === 'none') return [];
   const plan = planRouting({
     net: geometry.value.net,
     connectorFaceIdx: state.params.connectorFaceIdx,
@@ -245,6 +245,7 @@ const routedTraces = computed(() => {
     wireCount: requiredWireCount.value,
     designRules: state.params.designRules,
     edgeLengthMm: state.params.edgeLengthMm,
+    mode: state.params.routing.mode,
   });
   return plan.traces.map(t => ({
     ...t,
@@ -378,7 +379,7 @@ function connPos() {
       </g>
 
       <!-- Routed copper traces — only meaningful when routing is on -->
-      <g v-if="state.prefs.showTraces && state.params.routing.enabled" class="traces">
+      <g v-if="state.prefs.showTraces && state.params.routing.mode !== 'none'" class="traces">
         <path v-for="(t, i) in routedTraces" :key="`trace-${i}`"
               :d="t.d" :stroke="t.color" fill="none"
               :stroke-width="state.params.designRules.traceWidthMm" />

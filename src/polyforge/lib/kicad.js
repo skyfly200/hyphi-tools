@@ -325,11 +325,11 @@ export function buildKiCadPCB({
   // (segment ...) entries on F.Cu with the design-rules trace width.
   // Net id comes from the same table the pads use, so the ratsnest
   // collapses to nothing when these traces are present.
-  if (routing?.enabled) {
+  if (routing?.mode && routing.mode !== 'none') {
     const plan = planRouting({
       net, connectorFaceIdx, led, ledsPerFace,
       connector, panel, wireCount, designRules: designRules || {},
-      edgeLengthMm,
+      edgeLengthMm, mode: routing.mode,
     });
     const tw = designRules?.traceWidthMm ?? 0.25;
     for (const t of plan.traces) {

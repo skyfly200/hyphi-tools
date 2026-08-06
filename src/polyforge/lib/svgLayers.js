@@ -190,11 +190,11 @@ export function buildSVGLayers({
   }
   out['outline.svg'] = svgWrap('Edge.Cuts', viewBox, outline);
 
-  if (routing?.enabled) {
+  if (routing?.mode && routing.mode !== 'none') {
     const plan = planRouting({
       net, connectorFaceIdx, led, ledsPerFace,
       connector, panel, wireCount, designRules: designRules || {},
-      edgeLengthMm,
+      edgeLengthMm, mode: routing.mode,
     });
     const tw = designRules?.traceWidthMm ?? 0.25;
     const traceParts = plan.traces.map(t => {

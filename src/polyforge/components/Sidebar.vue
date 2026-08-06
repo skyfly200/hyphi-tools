@@ -132,14 +132,26 @@ const derivedBridgeWidth = computed(() =>
 
       <fieldset class="subsec">
         <legend>Routing</legend>
-        <label class="inline">
-          <input type="checkbox" v-model="state.params.routing.enabled" />
-          Auto-route VCC / GND / DATA
+        <label>Mode
+          <select v-model="state.params.routing.mode">
+            <option value="bridges">Bridges only — you fill the rest</option>
+            <option value="full">Full auto-route to LED pads</option>
+            <option value="none">None — spaced bridges only</option>
+          </select>
         </label>
-        <div v-if="state.params.routing.enabled" class="hint-row">
-          One pass of VCC + GND rails through every bridge, plus
-          DIN / DOUT along the chain. Design-rule values control trace
-          width + spacing.
+        <div class="hint-row">
+          <template v-if="state.params.routing.mode === 'bridges'">
+            Spaced copper lanes cross each bridge and stop just past the
+            segment edges — the on-panel wiring is left to you.
+          </template>
+          <template v-else-if="state.params.routing.mode === 'full'">
+            Every signal is routed from the connector through the LEDs in
+            chain order. Design-rule width + clearance set the spacing.
+          </template>
+          <template v-else>
+            No traces drawn, but the bridges stay sized wide enough for
+            the traces you'll add.
+          </template>
         </div>
       </fieldset>
     </section>

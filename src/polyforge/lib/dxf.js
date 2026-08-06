@@ -151,11 +151,11 @@ export function buildDXF({ net, ledFootprint, ledsPerFace, connector, connectorF
   }
 
   // Optional routed traces on a TRACE layer for CAM to pick up.
-  if (routing?.enabled) {
+  if (routing?.mode && routing.mode !== 'none') {
     const plan = planRouting({
       net, connectorFaceIdx, led: ledFootprint, ledsPerFace,
       connector, panel, wireCount, designRules: designRules || {},
-      edgeLengthMm: scale,
+      edgeLengthMm: scale, mode: routing.mode,
     });
     for (const t of plan.traces) {
       const pts = t.points;

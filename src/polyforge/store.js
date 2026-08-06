@@ -51,11 +51,12 @@ const DEFAULT_PARAMS = {
       overlapMm: 1.2,       // bonded overlap past each panel edge
     },
   },
-  // Copper routing through the bridges.
+  // Copper routing.
+  //   'bridges' — spaced lanes across each bridge, user fills the rest
+  //   'full'    — fully routed to the LED pads in chain order
+  //   'none'    — no traces, but bridges still sized for them
   routing: {
-    enabled: true,
-    // signalsPerFace is informational — for chained 3-wire LEDs each
-    // bridge carries VCC + GND + DIN-forward + DOUT-back.
+    mode: 'bridges',
   },
   // Solder-pad parameters used only when connectorId === 'PAD_ONLY'.
   // Pads sit in a row at the configured pitch; the strip length scales
@@ -238,6 +239,11 @@ export function applyPatchObject(patch) {
   delete params.panel.bridge.widthMm;
   delete params.panel.bridge.marginMm;
   params.routing = { ...DEFAULT_PARAMS.routing, ...(patch.routing || {}) };
+  // Migrate the older boolean routing.enabled → mode.
+  if (patch.routing && 'enabled' in patch.routing && !patch.routing.mode) {
+    params.routing.mode = patch.routing.enabled ? 'bridges' : 'none';
+  }
+  delete params.routing.enabled;
   if (patch.panelShape && !patch.panel) params.panel.shape = patch.panelShape;
   delete params.panelShape;
   if (!POLYHEDRA[params.polyhedronId]) params.polyhedronId = 'tetra';

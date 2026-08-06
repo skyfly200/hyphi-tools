@@ -384,7 +384,7 @@ function rebuild() {
   const bd3d = curvedBridges();
   const traceHalf = ((state.params.designRules.traceWidthMm ?? 0.25) / 2) / s;
   const laneZ = boardH / 2 + 0.02 / s;
-  const showTraces3d = state.prefs.showTraces && state.params.routing.enabled;
+  const showTraces3d = state.prefs.showTraces && state.params.routing.mode !== 'none';
   const tc = bridgeTraceCount(requiredWireCount.value);
   const tw = (state.params.designRules.traceWidthMm ?? 0.25);
   const cl = (state.params.designRules.clearanceMm ?? 0.2);
