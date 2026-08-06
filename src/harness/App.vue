@@ -1,5 +1,8 @@
 <script setup>
-import { reactive, ref, computed } from 'vue';
+import { reactive, ref, computed, defineAsyncComponent } from 'vue';
+
+// Lazy-load the Three.js 3D view so its bundle only loads when opened.
+const Harness3D = defineAsyncComponent(() => import('./Harness3D.vue'));
 
 // ---- palette ----
 const POWER = '#F5A623';
@@ -46,6 +49,18 @@ const forkB = reactive({ ...defaultFork('B'), powerTap: false, dataSource: 'sibl
 const taper = ref(0);
 const jitter = ref(0);
 const scaleBranches = ref(true); // scale branch lengths along with core segments
+
+// Twisting: helically twisted pairs are longer than their straight run.
+// A wire wound n turns/mm around a bundle of diameter d gains length by
+// sqrt(1 + (pi*d*n)^2) per unit of axial run.
+const twist = ref(0);       // turns per meter
+const bundleDia = ref(4);   // twisted-bundle diameter, mm
+const twistMult = computed(() => {
+  const n = twist.value / 1000; // turns per mm
+  return Math.sqrt(1 + Math.pow(Math.PI * bundleDia.value * n, 2));
+});
+
+const view = ref('2d');
 
 const dataSourceItems = [
   { title: 'core chain', value: 'chain' },
@@ -177,33 +192,36 @@ const groups = computed(() => {
   const power = [];
   const data = [];
   const sn = scaledNodes.value;
+  const tw = twistMult.value;
+  // A run's cut length: twisted geometric path + straight joint slack.
+  const mk = (label, detail, geo) => ({ label, detail, qty: 2, geo, length: geo * tw + slack.value });
 
   sn.forEach((n, i) => {
-    if (n.powerTap) power.push({ label: `Stem ${i + 1}`, detail: 'power + ground', qty: 2, length: n.branchLen + slack.value });
+    if (n.powerTap) power.push(mk(`Stem ${i + 1}`, 'power + ground', n.branchLen));
   });
 
   if (sn.length > 0) {
-    data.push({ label: 'Driver → stem 1', detail: 'lead-in, send + return', qty: 2, length: leadIn.value + sn[0].branchLen + slack.value });
+    data.push(mk('Driver → stem 1', 'lead-in, send + return', leadIn.value + sn[0].branchLen));
   }
   for (let i = 0; i < sn.length - 1; i++) {
     const a = sn[i], b = sn[i + 1];
-    data.push({ label: `Stem ${i + 1} → stem ${i + 2}`, detail: 'send + return', qty: 2, length: a.branchLen + b.segLen + b.branchLen + slack.value });
+    data.push(mk(`Stem ${i + 1} → stem ${i + 2}`, 'send + return', a.branchLen + b.segLen + b.branchLen));
   }
 
   if (forkEnabled.value && sn.length > 0) {
     const last = sn[sn.length - 1];
     const fA = scaledForkA.value, fB = scaledForkB.value;
     const fd = scaledForkDistance.value;
-    if (fA.powerTap) power.push({ label: 'Fork A', detail: 'power + ground', qty: 2, length: fA.branchLen + slack.value });
-    if (fB.powerTap) power.push({ label: 'Fork B', detail: 'power + ground', qty: 2, length: fB.branchLen + slack.value });
+    if (fA.powerTap) power.push(mk('Fork A', 'power + ground', fA.branchLen));
+    if (fB.powerTap) power.push(mk('Fork B', 'power + ground', fB.branchLen));
     if (fA.hasData && fA.dataSource === 'chain') {
-      data.push({ label: `Stem ${sn.length} → fork A`, detail: 'send + return', qty: 2, length: last.branchLen + fd + fA.branchLen + slack.value });
+      data.push(mk(`Stem ${sn.length} → fork A`, 'send + return', last.branchLen + fd + fA.branchLen));
     }
     if (fB.hasData) {
       if (fB.dataSource === 'chain') {
-        data.push({ label: `Stem ${sn.length} → fork B`, detail: fB.powerTap ? 'send + return' : 'data only — no power tap', qty: 2, length: last.branchLen + fd + fB.branchLen + slack.value });
+        data.push(mk(`Stem ${sn.length} → fork B`, fB.powerTap ? 'send + return' : 'data only — no power tap', last.branchLen + fd + fB.branchLen));
       } else {
-        data.push({ label: 'Fork A → fork B', detail: fB.powerTap ? 'send + return' : 'data only — no power tap', qty: 2, length: fA.branchLen + forkGap.value + fB.branchLen + slack.value });
+        data.push(mk('Fork A → fork B', fB.powerTap ? 'send + return' : 'data only — no power tap', fA.branchLen + forkGap.value + fB.branchLen));
       }
     }
   }
@@ -226,6 +244,86 @@ const powerTotal = computed(() => groups.value.find((g) => g.name === 'Power tap
 const dataTotal = computed(() => groups.value.find((g) => g.name === 'Data links')?.length || 0);
 
 const forks = [forkA, forkB];
+
+// ---- 3D model description (real mm coordinates, Y up) ----
+const BASE_JOG_MM = 30;
+const model3d = computed(() => {
+  const sn = scaledNodes.value;
+  const mult = multipliers.value;
+  const corePts = [];
+  let x = 0, y = 0;
+  corePts.push({ x, y, z: 0, driver: true });
+  y += leadIn.value; // straight lead-in
+  const nodeMeta = [];
+
+  for (let i = 0; i < sn.length; i++) {
+    if (i > 0) {
+      x = (i % 2 === 0 ? 1 : -1) * BASE_JOG_MM * mult[i];
+      y += sn[i].segLen;
+    }
+    const p = { x, y, z: 0 };
+    corePts.push(p);
+    // branch direction: outward in X, up in Y, normalized to branchLen
+    const dir = x >= 0 ? 1 : -1;
+    const vx = dir * 0.6, vy = 1, len = Math.hypot(vx, vy);
+    const bl = sn[i].branchLen;
+    nodeMeta.push({
+      base: p,
+      tip: { x: p.x + (vx / len) * bl, y: p.y + (vy / len) * bl, z: 0 },
+      powerTap: sn[i].powerTap, hasData: true, num: i + 1,
+    });
+  }
+
+  let fork = null;
+  if (forkEnabled.value && sn.length > 0) {
+    const base = corePts[corePts.length - 1];
+    const fp = { x: base.x, y: base.y + scaledForkDistance.value, z: 0 };
+    const arms = [scaledForkA.value, scaledForkB.value].map((f, idx) => {
+      const dir = idx === 0 ? -1 : 1;
+      const vx = dir * 0.7, vy = 1, len = Math.hypot(vx, vy);
+      return {
+        label: idx === 0 ? 'A' : 'B',
+        base: fp,
+        tip: { x: fp.x + (vx / len) * f.branchLen, y: fp.y + (vy / len) * f.branchLen, z: 0 },
+        powerTap: f.powerTap, hasData: f.hasData,
+      };
+    });
+    fork = { point: fp, arms };
+  }
+
+  return {
+    corePts, nodes: nodeMeta, fork,
+    twist: twist.value, bundleDia: bundleDia.value,
+  };
+});
+
+// ---- exports ----
+function download(name, mime, content) {
+  const blob = content instanceof Blob ? content : new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function exportCSV() {
+  const lines = [['group', 'run', 'detail', 'qty', 'length_mm']];
+  groups.value.forEach((g) => {
+    g.rows.forEach((r) => lines.push([g.name, r.label, r.detail, r.qty, r.length.toFixed(1)]));
+  });
+  const csv = lines.map((row) => row.map((c) => {
+    const s = String(c);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  }).join(',')).join('\n');
+  download('harness-cutlist.csv', 'text/csv', csv);
+}
+
+const three = ref(null); // Harness3D component instance
+function exportGLB() {
+  if (three.value?.exportGLB) three.value.exportGLB();
+}
 </script>
 
 <template>
@@ -242,7 +340,17 @@ const forks = [forkA, forkB];
           <!-- diagram -->
           <v-col cols="12" md="4">
             <v-card class="pa-4 diagram-card" variant="flat">
-              <svg :viewBox="`0 0 ${diagram.width} ${diagram.totalHeight}`" style="width:100%;height:auto;display:block">
+              <div class="d-flex align-center justify-space-between mb-3">
+                <v-btn-toggle v-model="view" mandatory density="compact" variant="outlined" divided>
+                  <v-btn value="2d" size="small">2D</v-btn>
+                  <v-btn value="3d" size="small">3D</v-btn>
+                </v-btn-toggle>
+                <v-btn v-if="view === '3d'" size="small" variant="tonal" color="primary" prepend-icon="mdi-download" @click="exportGLB">GLB</v-btn>
+              </div>
+
+              <Harness3D v-if="view === '3d'" ref="three" :model="model3d" />
+
+              <svg v-else :viewBox="`0 0 ${diagram.width} ${diagram.totalHeight}`" style="width:100%;height:auto;display:block">
                 <!-- driver -->
                 <g>
                   <rect :x="diagram.driver.x - 22" :y="diagram.driver.y - 14" width="44" height="28" rx="3" :fill="PANEL" :stroke="LINE" />
@@ -356,6 +464,23 @@ const forks = [forkA, forkB];
                 <span v-for="(m, i) in multipliers" :key="i" class="mult-chip">stem {{ i + 1 }} &times;{{ m.toFixed(2) }}</span>
               </div>
 
+              <!-- twist -->
+              <v-divider class="my-4" />
+              <div class="section-label mb-2">TWIST</div>
+              <v-row dense align="center">
+                <v-col cols="12" sm="6">
+                  <v-slider label="Twist" v-model="twist" :min="0" :max="120" :step="5" color="primary" thumb-label hide-details density="compact">
+                    <template #append><span class="unit">{{ twist }} t/m</span></template>
+                  </v-slider>
+                </v-col>
+                <v-col cols="6" sm="3">
+                  <v-text-field label="bundle Ø (mm)" type="number" step="0.5" density="compact" hide-details variant="outlined" v-model.number="bundleDia" />
+                </v-col>
+                <v-col cols="6" sm="3">
+                  <div class="twist-mult">&times;{{ twistMult.toFixed(3) }}<span class="unit"> length</span></div>
+                </v-col>
+              </v-row>
+
               <v-divider class="my-4" />
               <v-row dense>
                 <v-col cols="6" sm="3">
@@ -395,7 +520,10 @@ const forks = [forkA, forkB];
 
             <!-- precut list -->
             <v-card class="pa-4" variant="flat">
-              <div class="section-label mb-3">PRECUT LIST</div>
+              <div class="d-flex align-center justify-space-between mb-3">
+                <div class="section-label">PRECUT LIST</div>
+                <v-btn size="small" variant="tonal" color="primary" prepend-icon="mdi-download" @click="exportCSV">CSV</v-btn>
+              </div>
 
               <div v-for="g in groups" :key="g.name" class="mb-4">
                 <div class="group-head">
@@ -428,6 +556,7 @@ const forks = [forkA, forkB];
               </div>
               <p class="note mt-3">
                 Each row is a pair &mdash; power counts pwr + gnd, data counts send + return.
+                Twisted runs are scaled &times;{{ twistMult.toFixed(3) }} over their straight path; joint slack is added afterwards.
                 Diagram segment/branch spacing and bend angle are proportional but clamped for readability, not exact scale.
               </p>
             </v-card>
@@ -465,4 +594,7 @@ const forks = [forkA, forkB];
 .harness-root .cut-table .len { font-family: monospace; font-size: 14px; color: #DCE6F2; text-align: right; width: 90px; }
 .harness-root .grand-total { font-family: monospace; font-size: 16px; color: #DCE6F2; font-weight: 600; }
 .harness-root .note { font-size: 11px; color: #7A8AA0; line-height: 1.6; }
+.harness-root .unit { font-family: monospace; font-size: 11px; color: #7A8AA0; }
+.harness-root .twist-mult { font-family: monospace; font-size: 15px; color: #F5A623; }
+.harness-root .harness-3d { width: 100%; height: 420px; border-radius: 6px; overflow: hidden; background: #0D1420; }
 </style>
