@@ -81,16 +81,15 @@ function build() {
   harnessGroup = new THREE.Group();
   const m = props.model;
   const twistPerMm = (m.twist || 0) / 1000;
-  const N = m.conductors || 3;
+  const coreN = m.coreWires || 4;
   const coreR = m.coreRadius || 2;
-  const stemR = m.stemRadius || 1;
   const wR = Math.max(0.25, (m.wireRadius || 0.8) * 0.9);
   const coreCenterR = Math.max(0.4, coreR - (m.wireRadius || 0.8));
 
   const cp = m.corePts;
   // core segments: bundle wound around a central core
   for (let i = 1; i < cp.length; i++) {
-    bundle(harnessGroup, cp[i - 1], cp[i], { count: N, radius: coreR, coreR: coreCenterR, twistPerMm, wireRadius: wR });
+    bundle(harnessGroup, cp[i - 1], cp[i], { count: coreN, radius: coreR, coreR: coreCenterR, twistPerMm, wireRadius: wR });
   }
 
   // driver box
@@ -101,8 +100,8 @@ function build() {
   // stems: wires twisted directly together (no central core)
   m.nodes.forEach((n) => {
     const nd = node3d(coreR * 0.9, CORE); nd.position.copy(V(n.base)); harnessGroup.add(nd);
-    bundle(harnessGroup, n.base, n.tip, { count: N, radius: stemR, coreR: 0, twistPerMm, wireRadius: wR });
-    const tip = node3d(stemR + wR, POWER); tip.position.copy(V(n.tip)); harnessGroup.add(tip);
+    bundle(harnessGroup, n.base, n.tip, { count: n.wires, radius: n.radius, coreR: 0, twistPerMm, wireRadius: wR });
+    const tip = node3d(n.radius + wR, POWER); tip.position.copy(V(n.tip)); harnessGroup.add(tip);
   });
 
   // fork
@@ -111,8 +110,8 @@ function build() {
     bundle(harnessGroup, last, m.fork.point, { count: N, radius: coreR, coreR: coreCenterR, twistPerMm, wireRadius: wR });
     const fpNode = node3d(coreR * 0.9, CORE); fpNode.position.copy(V(m.fork.point)); harnessGroup.add(fpNode);
     m.fork.arms.forEach((arm) => {
-      bundle(harnessGroup, arm.base, arm.tip, { count: N, radius: stemR, coreR: 0, twistPerMm, wireRadius: wR });
-      const t = node3d(stemR + wR, arm.powerTap ? POWER : DATA); t.position.copy(V(arm.tip)); harnessGroup.add(t);
+      bundle(harnessGroup, arm.base, arm.tip, { count: arm.wires, radius: arm.radius, coreR: 0, twistPerMm, wireRadius: wR });
+      const t = node3d(arm.radius + wR, arm.powerTap ? POWER : DATA); t.position.copy(V(arm.tip)); harnessGroup.add(t);
     });
   }
 

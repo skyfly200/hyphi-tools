@@ -68,8 +68,15 @@ const conductorItems = [
   { title: '4-wire (5V / GND / Data / Clk)', value: 4 },
 ];
 
+// An N-wire LED needs (N-2) data lines beyond 5V/GND. A pass-through stem
+// carries send + return for each data line so the chain can continue; the
+// terminal branch only needs the sends. So a 3-wire LED gives 4-wire stems
+// (5V, GND, data send, data return), and 3 wires (no return) at the last LED.
+const dataPins = computed(() => Math.max(1, conductors.value - 2));
+const branchWires = (passThrough) => 2 + dataPins.value * (passThrough ? 2 : 1);
+
 // N wires twisted directly together sit at radius wireR / sin(pi/N).
-const stemRadius = computed(() => (wireDia.value / 2) / Math.sin(Math.PI / Math.max(2, conductors.value)));
+const packRadius = (n) => (wireDia.value / 2) / Math.sin(Math.PI / Math.max(2, n));
 // Bundle wound around a central core sits one wire-radius off the core surface.
 const coreRadius = computed(() => coreDia.value / 2 + wireDia.value / 2);
 
@@ -78,7 +85,18 @@ function helixFactor(turnsPerM, radiusMm) {
   return Math.sqrt(1 + Math.pow(2 * Math.PI * radiusMm * n, 2));
 }
 const coreTwist = computed(() => helixFactor(twist.value, coreRadius.value));
-const stemTwist = computed(() => helixFactor(twist.value, stemRadius.value));
+const stemTwistPass = computed(() => helixFactor(twist.value, packRadius(branchWires(true))));
+const stemTwistTerm = computed(() => helixFactor(twist.value, packRadius(branchWires(false))));
+
+// Which branches carry data onward (send + return) vs terminate the chain.
+const topology = computed(() => {
+  const N = nodes.length;
+  const fork = forkEnabled.value;
+  const nodePass = nodes.map((_, i) => (fork ? true : i < N - 1));
+  const forkAPass = fork && forkB.hasData && forkB.dataSource === 'sibling';
+  const forkBPass = false;
+  return { nodePass, forkAPass, forkBPass };
+});
 
 const view = ref('2d');
 const spread3d = ref(1); // 0 = flat (planar 2D layout) .. 1 = full 3D winding
@@ -213,42 +231,50 @@ const groups = computed(() => {
   const power = [];
   const data = [];
   const sn = scaledNodes.value;
-  const cT = coreTwist.value, sT = stemTwist.value;
+  const cT = coreTwist.value, mPT = stemTwistPass.value, mTerm = stemTwistTerm.value;
+  const { nodePass, forkAPass, forkBPass } = topology.value;
   // A run's cut length: core wire runs twist at the core radius, stem wire
-  // runs twist directly together, plus overlap at each solder/crimp joint,
-  // wire served at each LED solder, and general slack.
-  const mk = (label, detail, { core = 0, stem = 0, joints = 0, leds = 0 }) => {
-    const geo = core * cT + stem * sT;
+  // runs twist directly together (pass-through vs terminal use different
+  // radii), plus overlap at each solder/crimp joint, wire served at each LED
+  // solder, and general slack.
+  const mk = (label, detail, { core = 0, stemPass = 0, stemTerm = 0, joints = 0, leds = 0 }) => {
+    const geo = core * cT + stemPass * mPT + stemTerm * mTerm;
     const length = geo + joints * jointOverlap.value + leds * ledStripe.value + slack.value;
     return { label, detail, qty: 2, geo, length };
   };
+  const stemBucket = (len, pass) => (pass ? { stemPass: len } : { stemTerm: len });
+  const combine = (...parts) => parts.reduce((o, p) => {
+    for (const k in p) o[k] = (o[k] || 0) + p[k];
+    return o;
+  }, {});
 
   sn.forEach((n, i) => {
-    if (n.powerTap) power.push(mk(`Stem ${i + 1}`, 'power + ground', { stem: n.branchLen, joints: 1, leds: 1 }));
+    if (n.powerTap) power.push(mk(`Stem ${i + 1}`, 'power + ground', combine(stemBucket(n.branchLen, nodePass[i]), { joints: 1, leds: 1 })));
   });
 
   if (sn.length > 0) {
-    data.push(mk('Driver → stem 1', 'lead-in, send + return', { core: leadIn.value, stem: sn[0].branchLen, joints: 1, leds: 1 }));
+    data.push(mk('Driver → stem 1', 'lead-in, send + return', combine({ core: leadIn.value, joints: 1, leds: 1 }, stemBucket(sn[0].branchLen, nodePass[0]))));
   }
   for (let i = 0; i < sn.length - 1; i++) {
     const a = sn[i], b = sn[i + 1];
-    data.push(mk(`Stem ${i + 1} → stem ${i + 2}`, 'send + return', { core: b.segLen, stem: a.branchLen + b.branchLen, leds: 2 }));
+    data.push(mk(`Stem ${i + 1} → stem ${i + 2}`, 'send + return', combine({ core: b.segLen, leds: 2 }, stemBucket(a.branchLen, nodePass[i]), stemBucket(b.branchLen, nodePass[i + 1]))));
   }
 
   if (forkEnabled.value && sn.length > 0) {
+    const lastPass = nodePass[sn.length - 1];
     const last = sn[sn.length - 1];
     const fA = scaledForkA.value, fB = scaledForkB.value;
     const fd = scaledForkDistance.value;
-    if (fA.powerTap) power.push(mk('Fork A', 'power + ground', { stem: fA.branchLen, joints: 1, leds: 1 }));
-    if (fB.powerTap) power.push(mk('Fork B', 'power + ground', { stem: fB.branchLen, joints: 1, leds: 1 }));
+    if (fA.powerTap) power.push(mk('Fork A', 'power + ground', combine(stemBucket(fA.branchLen, forkAPass), { joints: 1, leds: 1 })));
+    if (fB.powerTap) power.push(mk('Fork B', 'power + ground', combine(stemBucket(fB.branchLen, forkBPass), { joints: 1, leds: 1 })));
     if (fA.hasData && fA.dataSource === 'chain') {
-      data.push(mk(`Stem ${sn.length} → fork A`, 'send + return', { core: fd, stem: last.branchLen + fA.branchLen, leds: 2 }));
+      data.push(mk(`Stem ${sn.length} → fork A`, 'send + return', combine({ core: fd, leds: 2 }, stemBucket(last.branchLen, lastPass), stemBucket(fA.branchLen, forkAPass))));
     }
     if (fB.hasData) {
       if (fB.dataSource === 'chain') {
-        data.push(mk(`Stem ${sn.length} → fork B`, fB.powerTap ? 'send + return' : 'data only — no power tap', { core: fd, stem: last.branchLen + fB.branchLen, leds: 2 }));
+        data.push(mk(`Stem ${sn.length} → fork B`, fB.powerTap ? 'send + return' : 'data only — no power tap', combine({ core: fd, leds: 2 }, stemBucket(last.branchLen, lastPass), stemBucket(fB.branchLen, forkBPass))));
       } else {
-        data.push(mk('Fork A → fork B', fB.powerTap ? 'send + return' : 'data only — no power tap', { core: forkGap.value, stem: fA.branchLen + fB.branchLen, leds: 2 }));
+        data.push(mk('Fork A → fork B', fB.powerTap ? 'send + return' : 'data only — no power tap', combine({ core: forkGap.value, leds: 2 }, stemBucket(fA.branchLen, forkAPass), stemBucket(fB.branchLen, forkBPass))));
       }
     }
   }
@@ -284,6 +310,7 @@ const model3d = computed(() => {
   const sn = scaledNodes.value;
   const mult = multipliers.value;
   const sp = spread3d.value;
+  const { nodePass, forkAPass, forkBPass } = topology.value;
   const corePts = [];
   let y = 0;
   corePts.push({ x: 0, y, z: 0, driver: true });
@@ -305,10 +332,12 @@ const model3d = computed(() => {
     // branch fans outward radially (node's azimuth) plus up
     const bl = sn[i].branchLen;
     const vx = cosA * 0.6, vz = sinA * 0.6, vy = 1, len = Math.hypot(vx, vy, vz);
+    const wires = branchWires(nodePass[i]);
     nodeMeta.push({
       base: p,
       tip: { x: p.x + (vx / len) * bl, y: p.y + (vy / len) * bl, z: p.z + (vz / len) * bl },
       powerTap: sn[i].powerTap, hasData: true, num: i + 1,
+      wires, radius: packRadius(wires),
     });
   }
 
@@ -323,11 +352,13 @@ const model3d = computed(() => {
     const arms = [scaledForkA.value, scaledForkB.value].map((f, idx) => {
       const s = idx === 0 ? -1 : 1;
       const vx = s * cosA * 0.7, vz = s * sinA * 0.7, vy = 1, len = Math.hypot(vx, vy, vz);
+      const wires = branchWires(idx === 0 ? forkAPass : forkBPass);
       return {
         label: idx === 0 ? 'A' : 'B',
         base: fp,
         tip: { x: fp.x + (vx / len) * f.branchLen, y: fp.y + (vy / len) * f.branchLen, z: fp.z + (vz / len) * f.branchLen },
         powerTap: f.powerTap, hasData: f.hasData,
+        wires, radius: packRadius(wires),
       };
     });
     fork = { point: fp, arms };
@@ -335,9 +366,8 @@ const model3d = computed(() => {
 
   return {
     corePts, nodes: nodeMeta, fork,
-    twist: twist.value, conductors: conductors.value,
-    coreRadius: coreRadius.value, stemRadius: stemRadius.value,
-    wireRadius: wireDia.value / 2,
+    twist: twist.value, coreWires: branchWires(true),
+    coreRadius: coreRadius.value, wireRadius: wireDia.value / 2,
   };
 });
 
@@ -618,8 +648,9 @@ function exportGLB() {
               </div>
               <p class="note mt-3">
                 Each row is a pair &mdash; power counts pwr + gnd, data counts send + return.
-                Core runs are scaled &times;{{ coreTwist.toFixed(3) }} (wires twisting around the core), stem runs &times;{{ stemTwist.toFixed(3) }}
-                (wires twisted directly together); solder/crimp overlap, LED serve, and slack are added on top.
+                Core runs are scaled &times;{{ coreTwist.toFixed(3) }} (wires twisting around the core). Stem runs twist directly together:
+                &times;{{ stemTwistPass.toFixed(3) }} for pass-through stems ({{ branchWires(true) }}-wire, send + return) and &times;{{ stemTwistTerm.toFixed(3) }}
+                for the terminal branch ({{ branchWires(false) }}-wire, send only); solder/crimp overlap, LED serve, and slack are added on top.
                 Diagram segment/branch spacing and bend angle are proportional but clamped for readability, not exact scale.
               </p>
             </v-card>
