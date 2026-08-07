@@ -2,9 +2,38 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import qrCodeGenerator from "qrcode-generator";
 
+const UTM_KEYS = [
+  ["utm_source",   "utmSource"],
+  ["utm_medium",   "utmMedium"],
+  ["utm_campaign", "utmCampaign"],
+  ["utm_term",     "utmTerm"],
+  ["utm_content",  "utmContent"],
+];
+
+// Append Google Analytics UTM campaign parameters to a URL. The website's
+// server ignores the extra query string; GA4 (gtag.js) reads the utm_* tags
+// from the browser address bar and attributes the session's source/medium/
+// campaign. Values are trimmed so a stray space never bloats the QR pattern.
+function appendUtm(url, fields) {
+  if (!fields.utmEnabled) return url;
+  const params = UTM_KEYS
+    .map(([param, key]) => [param, (fields[key] || "").trim()])
+    .filter(([, v]) => v);
+  if (!params.length) return url;
+  try {
+    const u = new URL(url);
+    params.forEach(([k, v]) => u.searchParams.set(k, v));
+    return u.toString();
+  } catch {
+    // Partial / relative URLs that URL() can't parse — append manually.
+    const qs = params.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+    return url + (url.includes("?") ? "&" : "?") + qs;
+  }
+}
+
 function buildQRData(type, fields) {
   switch (type) {
-    case "url":      return fields.url || "https://example.com";
+    case "url":      return appendUtm(fields.url || "https://example.com", fields);
     case "text":     return fields.text || "Hello World";
     case "wifi":     return `WIFI:T:${fields.wifiSec||"WPA"};S:${fields.wifiSSID||""};P:${fields.wifiPass||""};H:${fields.wifiHidden?"true":"false"};;`;
     case "contact":  return `BEGIN:VCARD\nVERSION:3.0\nFN:${fields.vcName||""}\nTEL:${fields.vcPhone||""}\nEMAIL:${fields.vcEmail||""}\nORG:${fields.vcOrg||""}\nURL:${fields.vcUrl||""}\nEND:VCARD`;
@@ -523,7 +552,7 @@ const CTABS = [
 export default function QRForge() {
   const [mainTab,     setMainTab]     = useState("Design");
   const [ctab,        setCtab]        = useState("url");
-  const [fields,      setFields]      = useState({url:"https://hyphi.art",text:"",wifiSSID:"",wifiPass:"",wifiSec:"WPA",wifiHidden:false,vcName:"",vcPhone:"",vcEmail:"",vcOrg:"",vcUrl:"",btAddress:"",intent:"",smsPhone:"",smsMsg:"",emailTo:"",emailSubj:"",emailBody:"",phone:"",geoLat:"",geoLng:"",geoLabel:"",calTitle:"",calStart:"",calEnd:"",calLoc:"",calDesc:"",cryptoCoin:"bitcoin",cryptoAddr:"",cryptoAmt:"",appUrl:""});
+  const [fields,      setFields]      = useState({url:"https://hyphi.art",text:"",wifiSSID:"",wifiPass:"",wifiSec:"WPA",wifiHidden:false,vcName:"",vcPhone:"",vcEmail:"",vcOrg:"",vcUrl:"",btAddress:"",intent:"",smsPhone:"",smsMsg:"",emailTo:"",emailSubj:"",emailBody:"",phone:"",geoLat:"",geoLng:"",geoLabel:"",calTitle:"",calStart:"",calEnd:"",calLoc:"",calDesc:"",cryptoCoin:"bitcoin",cryptoAddr:"",cryptoAmt:"",appUrl:"",utmEnabled:false,utmSource:"",utmMedium:"qr",utmCampaign:"",utmTerm:"",utmContent:""});
   const [ecLevel,     setEcLevel]     = useState("H");
   const [size,        setSize]        = useState(380);
   const [dotStyle,    setDotStyle]    = useState("square");
@@ -679,6 +708,9 @@ export default function QRForge() {
   useEffect(() => { buildMatrix(); }, [buildMatrix]);
 
   const ff = (k,v) => setFields(p=>({...p,[k]:v}));
+
+  const utmUrl = appendUtm(fields.url || "", fields);
+  const utmPreview = (fields.utmEnabled && utmUrl !== (fields.url || "")) ? utmUrl : null;
 
   const buildSVG = useCallback(() => {
     if (!qrMatrix) return "";
@@ -881,6 +913,12 @@ export default function QRForge() {
     .track-btn{padding:4px 10px;background:var(--acd);border:1px solid var(--ac);border-radius:6px;color:var(--ac);font-family:inherit;font-size:.72rem;font-weight:700;text-decoration:none;cursor:pointer}
     .track-clear{padding:4px 10px;background:none;border:1px solid var(--bd);border-radius:6px;color:var(--mu);font-family:inherit;font-size:.72rem;cursor:pointer}
     .track-clear:hover{border-color:var(--rd);color:var(--rd)}
+    .utm-box{display:flex;flex-direction:column;gap:9px;margin-top:9px;padding:11px;background:var(--s);border:1px solid var(--bd);border-radius:8px}
+    .utm-field{display:flex;flex-direction:column;gap:6px}
+    .utm-chips{display:flex;flex-wrap:wrap;gap:5px}
+    .utm-chips .chip{padding:3px 9px;font-size:.66rem}
+    .utm-preview{display:flex;flex-direction:column;gap:4px;padding:9px 11px;background:var(--acd);border:1px solid var(--ac);border-radius:8px}
+    .utm-preview-url{font-size:.7rem;color:var(--t);word-break:break-all;line-height:1.5}
     .notice{font-size:.7rem;color:var(--mu);line-height:1.5;padding:8px 10px;background:var(--s);border-left:2px solid var(--ac);border-radius:0 6px 6px 0}
     .stlmsg{font-family:'DM Mono',monospace;font-size:.75rem;color:var(--ac);text-align:center;min-height:18px}
     .icon-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:4px}
@@ -967,6 +1005,45 @@ export default function QRForge() {
                       window.location.href=`https://l.hyphi.art/new?url=${encodeURIComponent(fields.url)}&callback=${cb}`;
                     }}>↗ Shorten &amp; Track</button>
                 }
+                {!shortUrl && (
+                  <div className="utm-box">
+                    <label className="toggle-row" onClick={()=>ff("utmEnabled",!fields.utmEnabled)}>
+                      <span style={{display:"flex",alignItems:"center",gap:0,pointerEvents:"none"}}>
+                        <span className="lbl">UTM Campaign Tracking</span>
+                      </span>
+                      <span className="pill-switch">
+                        <span className={`pill-track${fields.utmEnabled?" on":""}`}><span className="pill-thumb"/></span>
+                      </span>
+                    </label>
+                    {fields.utmEnabled && <>
+                      <div className="notice">Appends Google Analytics UTM parameters to your link. Your site ignores them, but GA4 reads them to attribute the visit's source, medium &amp; campaign. Keep values lowercase &amp; short so the QR pattern stays easy to scan.</div>
+                      <div className="utm-field">
+                        <input type="text" placeholder="utm_source — where the code lives (flyer, poster…)" value={fields.utmSource} onChange={e=>ff("utmSource",e.target.value)}/>
+                        <div className="utm-chips">{["flyer","poster","business_card","print","booth"].map(s=>(
+                          <button key={s} className={"chip"+(fields.utmSource===s?" on":"")} onClick={()=>ff("utmSource",s)}>{s}</button>
+                        ))}</div>
+                      </div>
+                      <div className="utm-field">
+                        <input type="text" placeholder="utm_medium — groups all QR traffic (qr)" value={fields.utmMedium} onChange={e=>ff("utmMedium",e.target.value)}/>
+                        <div className="utm-chips">{["qr","qr_code","print","offline"].map(s=>(
+                          <button key={s} className={"chip"+(fields.utmMedium===s?" on":"")} onClick={()=>ff("utmMedium",s)}>{s}</button>
+                        ))}</div>
+                      </div>
+                      <input type="text" placeholder="utm_campaign — the promo or event (spring_event)" value={fields.utmCampaign} onChange={e=>ff("utmCampaign",e.target.value)}/>
+                      <div className="r2">
+                        <input type="text" placeholder="utm_term (optional)" value={fields.utmTerm} onChange={e=>ff("utmTerm",e.target.value)}/>
+                        <input type="text" placeholder="utm_content (optional)" value={fields.utmContent} onChange={e=>ff("utmContent",e.target.value)}/>
+                      </div>
+                      {utmPreview
+                        ? <div className="utm-preview">
+                            <span className="track-label">encoded ↓</span>
+                            <span className="mono utm-preview-url">{utmPreview}</span>
+                          </div>
+                        : <div className="sub">Fill in at least one parameter to tag your link.</div>}
+                      <div className="sub">View in GA4 under Reports → Acquisition → Traffic acquisition, primary dimension “Session source/medium”.</div>
+                    </>}
+                  </div>
+                )}
               </>}
               {ctab==="text"      && <textarea placeholder="Enter any text…" value={fields.text} onChange={e=>ff("text",e.target.value)}/>}
               {ctab==="appstore"  && <><input type="url" placeholder="App Store or Play Store URL" value={fields.appUrl} onChange={e=>ff("appUrl",e.target.value)}/><div className="notice">Paste the full URL from the App Store, Google Play, or F-Droid listing page.</div></>}
