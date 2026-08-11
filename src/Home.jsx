@@ -50,11 +50,11 @@ const TOOLS = [
     icon: '⌥',
   },
   {
-    href: '/links',
-    internal: true,
+    href: 'https://l.hyphi.art',
+    internal: false,
     name: 'Link Shortener',
-    tagline: 'l.hyphi.art admin',
-    desc: 'Short URLs under l.hyphi.art. Edit links.json in the repo to add new ones; view click stats with sparklines on the admin dashboard.',
+    tagline: 'l.hyphi.art',
+    desc: 'Short URLs under l.hyphi.art. Create links and view click stats with sparklines on the shortener admin.',
     icon: '↗',
   },
 ]
