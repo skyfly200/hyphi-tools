@@ -49,14 +49,6 @@ const TOOLS = [
     desc: 'Plan LED stem wiring harnesses: lay out core bends, power taps, and data links with optional tip forks, then get a precut wire list with total power and data lengths.',
     icon: '⌥',
   },
-  {
-    href: '/links',
-    internal: true,
-    name: 'Link Shortener',
-    tagline: 'l.hyphi.art admin',
-    desc: 'Short URLs under l.hyphi.art. Edit links.json in the repo to add new ones; view click stats with sparklines on the admin dashboard.',
-    icon: '↗',
-  },
 ]
 
 const css = `
