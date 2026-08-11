@@ -277,6 +277,8 @@ const v3mul = (a, s) => [a[0]*s, a[1]*s, a[2]*s];
 const v3len = (a) => Math.hypot(a[0], a[1], a[2]);
 const v3norm = (a) => { const l = v3len(a) || 1; return [a[0]/l, a[1]/l, a[2]/l]; };
 const v3lerp = (a, b, u) => [a[0]+(b[0]-a[0])*u, a[1]+(b[1]-a[1])*u, a[2]+(b[2]-a[2])*u];
+const v3dot = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+const v3cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
 
 // Per-index folded frame for a bridge: centre position P, across-width
 // unit W, and surface-normal unit N. The bonded ends ride their panels
@@ -304,18 +306,43 @@ function bridgeFrames(bd, t, sign) {
   for (let i = iB; i < n; i++) rigid(i);
 
   if (iB > iA) {
-    // Inward direction = away from the two panels' outward normals.
-    const inward = v3norm(v3mul(v3add(N[iA], N[iB]), -1));
-    const chord = v3len(v3sub(P[iB], P[iA]));
-    let flatLen = 0;
-    for (let i = iA; i < iB; i++) flatLen += Math.hypot(center[i+1][0]-center[i][0], center[i+1][1]-center[i][1]);
-    const slack = Math.max(0, flatLen - chord);
-    const sag = Math.min(0.5 * chord, 0.5 * Math.sqrt(slack * chord));
+    // Free span: a circular arc — a true bend radius — that leaves each
+    // segment tangentially and connects to the other, curving OUTWARD
+    // but never past the segment faces. The arc's centre is where the
+    // two segment surface-normals meet; sampling around it keeps the
+    // bend a constant radius tangent to both panels.
+    const tangentAt = (i, f) => {
+      const j0 = Math.max(0, i - 1), j1 = Math.min(n - 1, i + 1);
+      const a = transformBridgePoint([center[j0][0], center[j0][1], 0], faceA, e, f, t, sign);
+      const b = transformBridgePoint([center[j1][0], center[j1][1], 0], faceA, e, f, t, sign);
+      return v3norm(v3sub(b, a));
+    };
+    const pA = P[iA], pB = P[iB], NA = N[iA], NB = N[iB], tA = tangentAt(iA, 0);
+    // Solve for the arc centre C on the inner side: C = pA − a·NA = pB − b·NB.
+    const d = v3sub(pA, pB);
+    const dtA = v3dot(d, tA), NBtA = v3dot(NB, tA);
+    const straight = () => {
+      for (let i = iA + 1; i < iB; i++) {
+        const u = (i - iA) / (iB - iA);
+        P[i] = v3lerp(pA, pB, u); W[i] = v3norm(v3lerp(W[iA], W[iB], u)); N[i] = v3norm(v3lerp(NA, NB, u));
+      }
+    };
+    if (Math.abs(NBtA) < 1e-6) { straight(); return { P, W, N }; }
+    const b = -dtA / NBtA;
+    const a = v3dot(d, NA) + b * v3dot(NB, NA);
+    const R = Math.abs(a);
+    if (!(R > 1e-6) || !isFinite(R)) { straight(); return { P, W, N }; }
+    const C = v3sub(pA, v3mul(NA, a));
+    const vA = v3sub(pA, C), vB = v3sub(pB, C);
+    const axis = v3norm(v3cross(vA, vB)); // arc plane normal
+    let Phi = Math.acos(Math.max(-1, Math.min(1, v3dot(v3norm(vA), v3norm(vB)))));
     for (let i = iA + 1; i < iB; i++) {
       const u = (i - iA) / (iB - iA);
-      P[i] = v3add(v3lerp(P[iA], P[iB], u), v3mul(inward, sag * Math.sin(Math.PI * u)));
+      const ang = Phi * u;
+      const q = rotAboutAxis(pA, C, axis, Math.cos(ang), Math.sin(ang));
+      P[i] = q;
+      N[i] = v3norm(v3sub(q, C));   // radial → outward surface normal
       W[i] = v3norm(v3lerp(W[iA], W[iB], u));
-      N[i] = v3norm(v3lerp(N[iA], N[iB], u));
     }
   }
   return { P, W, N };
