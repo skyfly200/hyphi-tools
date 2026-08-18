@@ -216,10 +216,34 @@ export function buildKiCadPCB({
   const padSignals = (connector?.id === 'PAD_ONLY' && solderPad) ? connSignals : [];
   const nets = buildNetTable(led, wireCount, padSignals);
 
+  // Board outline + a page sized to fit it, so the board opens centred
+  // on the sheet with a margin instead of straddling the origin corner.
+  const bridgeWidthMm = computeBridgeWidthMm(bridgeTraceCount(wireCount), designRules || {});
+  const rings = boardOutlineRings(net, { panel, connectorTab }, {
+    widthMm: bridgeWidthMm,
+    tabSpec: connectorTab?.enabled ? { ...resolveTabSpec(connectorTab), extraPads: tabExtraPads } : null,
+    edgeLengthMm,
+  });
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const ring of rings) for (const [x, y] of ring) {
+    const px = x * edgeLengthMm, py = -y * edgeLengthMm;
+    if (px < minX) minX = px; if (px > maxX) maxX = px;
+    if (py < minY) minY = py; if (py > maxY) maxY = py;
+  }
+  const boardW = isFinite(minX) ? maxX - minX : 100;
+  const boardH = isFinite(minY) ? maxY - minY : 100;
+  const MARGIN = 25;
+  const pageW = Math.max(210, boardW + 2 * MARGIN);
+  const pageH = Math.max(148, boardH + 2 * MARGIN);
+  const OX = pageW / 2 - (isFinite(minX) ? (minX + maxX) / 2 : 0);
+  const OY = pageH / 2 - (isFinite(minY) ? (minY + maxY) / 2 : 0);
+  const X = (v) => n(v + OX);
+  const Y = (v) => n(v + OY);
+
   // Header / setup
   lines.push('(kicad_pcb (version 20221018) (generator polyforge)');
   lines.push('  (general (thickness 1.6))');
-  lines.push('  (paper "A4")');
+  lines.push(`  (paper "User" ${n(pageW)} ${n(pageH)})`);
   lines.push('  (layers');
   const layerDefs = [
     [0, 'F.Cu', 'signal'], [31, 'B.Cu', 'signal'],
@@ -241,21 +265,14 @@ export function buildKiCadPCB({
     lines.push(`  (net ${idx} "${name}")`);
   }
 
-  // Edge.Cuts: ONE merged board outline. Panels, bridges and the
-  // connector tab are unioned into non-overlapping closed rings so the
-  // outline is a clean manifold contour (per-face + per-bridge loops
-  // used to overlap, which KiCad → STEP/Blender rejects as malformed).
-  const bridgeWidthMm = computeBridgeWidthMm(bridgeTraceCount(wireCount), designRules || {});
-  const rings = boardOutlineRings(net, { panel, connectorTab }, {
-    widthMm: bridgeWidthMm,
-    tabSpec: connectorTab?.enabled ? { ...resolveTabSpec(connectorTab), extraPads: tabExtraPads } : null,
-    edgeLengthMm,
-  });
+  // Edge.Cuts: ONE merged board outline (computed above), unioned into
+  // non-overlapping closed rings so the outline is a clean manifold
+  // contour, offset to the page centre.
   for (const ring of rings) {
     const pts = ring.map(([x, y]) => [x * edgeLengthMm, -y * edgeLengthMm]);
     for (let i = 0; i < pts.length - 1; i++) {
       const a = pts[i], b = pts[i + 1];
-      lines.push(`  (gr_line (start ${n(a[0])} ${n(a[1])}) (end ${n(b[0])} ${n(b[1])}) (layer "Edge.Cuts") (width ${LINE_W}))`);
+      lines.push(`  (gr_line (start ${X(a[0])} ${Y(a[1])}) (end ${X(b[0])} ${Y(b[1])}) (layer "Edge.Cuts") (width ${LINE_W}))`);
     }
   }
 
@@ -264,7 +281,7 @@ export function buildKiCadPCB({
   for (const e of net.foldEdges) {
     const a = [e.a0[0] * edgeLengthMm, -e.a0[1] * edgeLengthMm];
     const b = [e.a1[0] * edgeLengthMm, -e.a1[1] * edgeLengthMm];
-    lines.push(`  (gr_line (start ${n(a[0])} ${n(a[1])}) (end ${n(b[0])} ${n(b[1])}) (layer "Dwgs.User") (width 0.1))`);
+    lines.push(`  (gr_line (start ${X(a[0])} ${Y(a[1])}) (end ${X(b[0])} ${Y(b[1])}) (layer "Dwgs.User") (width 0.1))`);
   }
 
   // LED footprints, numbered in CHAIN order from the connector face
@@ -277,8 +294,8 @@ export function buildKiCadPCB({
       if (!face) continue;
       const positions = ledPositions(face.polygon2D, led, ledsPerFace, edgeLengthMm);
       for (const [x, y] of positions) {
-        const cx = x * edgeLengthMm;
-        const cy = -y * edgeLengthMm;
+        const cx = x * edgeLengthMm + OX;
+        const cy = -y * edgeLengthMm + OY;
         lines.push('  ' + ledFootprint(led, cx, cy, `D${ledNum++}`, nets));
       }
     }
@@ -289,7 +306,7 @@ export function buildKiCadPCB({
     const face = net.faces[connectorFaceIdx];
     if (face) {
       const c = centroid2D(face.polygon2D);
-      const cx = c[0] * edgeLengthMm, cy = -c[1] * edgeLengthMm;
+      const cx = c[0] * edgeLengthMm + OX, cy = -c[1] * edgeLengthMm + OY;
       if (connector.id === 'PAD_ONLY' && solderPad) {
         lines.push('  ' + padOnlyFootprint(solderPad, wireCount, cx, cy, 'J1', padSignals, nets));
       } else {
@@ -315,7 +332,7 @@ export function buildKiCadPCB({
       if (!face) continue;
       const positions = mountingHolePositions(face.polygon2D, mountingHole, edgeLengthMm);
       for (const [x, y] of positions) {
-        const cx = x * edgeLengthMm, cy = -y * edgeLengthMm;
+        const cx = x * edgeLengthMm + OX, cy = -y * edgeLengthMm + OY;
         lines.push('  ' + mountingHoleFootprint(cx, cy, mountingHole.diameterMm, `MH${mhNum++}`));
       }
     }
@@ -338,7 +355,7 @@ export function buildKiCadPCB({
       for (let i = 1; i < pts.length; i++) {
         const [x1, y1] = pts[i - 1];
         const [x2, y2] = pts[i];
-        lines.push(`  (segment (start ${n(x1)} ${n(y1)}) (end ${n(x2)} ${n(y2)}) (width ${n(tw)}) (layer "F.Cu") (net ${netIdx}))`);
+        lines.push(`  (segment (start ${X(x1)} ${Y(y1)}) (end ${X(x2)} ${Y(y2)}) (width ${n(tw)}) (layer "F.Cu") (net ${netIdx}))`);
       }
     }
   }
@@ -350,7 +367,7 @@ export function buildKiCadPCB({
     if (g) {
       const padSig = connSignals;
       g.pads.forEach((p, i) => {
-        const cx = p[0] * edgeLengthMm, cy = -p[1] * edgeLengthMm;
+        const cx = p[0] * edgeLengthMm + OX, cy = -p[1] * edgeLengthMm + OY;
         const sig = padSig[i] || `P${i + 1}`;
         const netIdx = nets[sig] ?? 0;
         const netStr = netIdx > 0 ? ` (net ${netIdx} "${sig}")` : '';
