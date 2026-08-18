@@ -9,8 +9,6 @@
   },
   "dependencies": {
     "@mdi/font": "^7.4.47",
-    "@netlify/blobs": "^8.1.0",
-    "@netlify/functions": "^2.8.0",
     "@vitejs/plugin-vue": "^5.2.4",
     "polygon-clipping": "^0.15.7",
     "qrcode-generator": "^1.4.4",
