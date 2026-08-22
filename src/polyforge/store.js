@@ -86,8 +86,8 @@ const DEFAULT_PARAMS = {
     // with copper + coverlay.
     minBendRadiusMm: 3,
     // Physical stack thickness — used for the 3D preview and the fold
-    // sim. Rigid LED panels are thicker than the flex hinge material.
-    boardThicknessMm: 1.6,
+    // sim. A single-layer flex PCB is thin; keep the whole sheet slim.
+    boardThicknessMm: 0.6,
     flexThicknessMm: 0.2,
   },
 };

@@ -868,11 +868,12 @@ export function planRouting({
   }
 
   if (mode === 'full') {
-    // Full route: each signal is its own parallel lane, threaded from
-    // the connector through every LED in chain order. Each face's
-    // waypoints are the LED pad positions offset by the signal's lane
-    // (perpendicular to the face→connector direction), so the lanes
-    // stay separated and visibly reach every LED.
+    // Full route:
+    //  · Power rails (VCC / GND) fan out as a bus reaching every LED.
+    //  · Data (DIN, plus CIN for clocked LEDs) is a single serial daisy
+    //    chain — connector → LED1 → LED2 → … → last pixel — routed hop
+    //    by hop along the spanning tree so it physically threads each
+    //    pixel in chain order (DOUT of one feeds DIN of the next).
     const connCn = connFace ? centroid2D(connFace.polygon2D) : [0, 0];
     const faceDirOf = (fi) => {
       const c = centroid2D(net.faces[fi].polygon2D);
@@ -890,8 +891,11 @@ export function planRouting({
       }
       return leds.map(p => [p[0] + dir[0] * off, p[1] + dir[1] * off]);
     };
+
+    // Power bus: one lane per rail through the DFS walk.
     const walk = chainWalkFromConnector(net, connectorFaceIdx);
-    for (const sig of signals) {
+    const powerSigs = signals.filter(s => s === 'VCC' || s === 'GND');
+    for (const sig of powerSigs) {
       const pts = [connEntryPoint(sig)];
       let prev = connectorFaceIdx;
       pts.push(...faceWaypoints(connectorFaceIdx, sig));
@@ -900,6 +904,40 @@ export function planRouting({
         pts.push(...lanePathAcross(prev, fi, sig));
         pts.push(...faceWaypoints(fi, sig));
         prev = fi;
+      }
+      pushPolyline(sig, pts);
+    }
+
+    // Spanning-tree parent + the unique face path between two faces,
+    // used to route each data hop through the flex.
+    const parent = new Map();
+    for (const e of net.foldEdges) parent.set(e.faceB, e.faceA);
+    const ancestry = (fi) => { const a = [fi]; let c = fi; while (parent.has(c)) { c = parent.get(c); a.push(c); } return a; };
+    const treePath = (a, b) => {
+      if (a === b) return [a];
+      const A = ancestry(a), B = ancestry(b);
+      const idxB = new Map(B.map((f, i) => [f, i]));
+      let ai = 0; for (; ai < A.length; ai++) if (idxB.has(A[ai])) break;
+      const lca = A[ai], bi = idxB.get(lca);
+      const path = A.slice(0, ai + 1);          // a … lca
+      for (let i = bi - 1; i >= 0; i--) path.push(B[i]); // lca … b
+      return path;
+    };
+
+    // Data daisy chain. Route to the actual LED positions (the pixels)
+    // in chain order, threading bridges between them.
+    const dataSigs = wireCount === 4 ? ['CIN', 'DIN'] : ['DIN'];
+    const order = chainOrderFromConnector(net, connectorFaceIdx);
+    for (const sig of dataSigs) {
+      const pts = [connEntryPoint(sig)];
+      let prevFace = connectorFaceIdx;
+      for (const fi of order) {
+        if (fi !== prevFace) {
+          const fp = treePath(prevFace, fi);
+          for (let k = 1; k < fp.length; k++) pts.push(...lanePathAcross(fp[k - 1], fp[k], sig));
+        }
+        for (const led of (ledsByFace.get(fi) || [])) pts.push(led);
+        prevFace = fi;
       }
       pushPolyline(sig, pts);
     }
