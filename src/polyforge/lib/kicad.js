@@ -89,11 +89,12 @@ function ledPadLayout(led) {
   }));
 }
 
-function ledFootprint(led, cxMm, cyMm, refName, nets) {
+function ledFootprint(led, cxMm, cyMm, refName, nets, netFor = null) {
   const pads = ledPadLayout(led);
   const padBlocks = pads.map(p => {
-    const netIdx = nets[p.sig] ?? 0;
-    const netStr = netIdx > 0 ? ` (net ${netIdx} "${p.sig}")` : '';
+    const netName = (netFor && netFor[p.sig]) || p.sig;
+    const netIdx = nets[netName] ?? 0;
+    const netStr = netIdx > 0 ? ` (net ${netIdx} "${netName}")` : '';
     return s('pad', `"${p.num}"`, 'smd', 'rect',
       s('at', n(p.x), n(p.y)),
       s('size', n(p.w), n(p.h)),
@@ -131,7 +132,7 @@ function mountingHoleFootprint(cxMm, cyMm, diaMm, refName) {
 // stays clean — wires terminate on the hidden side of the flex PCB.
 // KiCad mirrors the footprint visually when placed on B.Cu; we still
 // write the local pad X coordinates as-is and KiCad handles the flip.
-function padOnlyFootprint(sp, wireCount, cxMm, cyMm, refName, signals, nets) {
+function padOnlyFootprint(sp, wireCount, cxMm, cyMm, refName, signals, nets, netFor = null) {
   const nPads = signals.length;
   const onePadW = sp.shape === 'circle' ? sp.padDiaMm : sp.padWMm;
   const onePadH = sp.shape === 'circle' ? sp.padDiaMm : sp.padHMm;
@@ -139,8 +140,9 @@ function padOnlyFootprint(sp, wireCount, cxMm, cyMm, refName, signals, nets) {
   const padBlocks = Array.from({ length: nPads }, (_, i) => {
     const x = -stripW / 2 + sp.pitchMm * i;
     const sig = signals[i] || `P${i + 1}`;
-    const netIdx = nets[sig] ?? 0;
-    const netStr = netIdx > 0 ? ` (net ${netIdx} "${sig}")` : '';
+    const netName = netFor ? netFor(sig) : sig;
+    const netIdx = nets[netName] ?? 0;
+    const netStr = netIdx > 0 ? ` (net ${netIdx} "${netName}")` : '';
     const shape = sp.shape === 'circle' ? 'circle' : 'rect';
     const size = sp.shape === 'circle'
       ? `${n(sp.padDiaMm)} ${n(sp.padDiaMm)}`
@@ -207,6 +209,7 @@ export function buildKiCadPCB({
   routing,
 }) {
   const lines = [];
+  const full = routing?.mode === 'full';
 
   // Wire-entry signals, plus the optional data-out pass-through.
   const inSignals = wireSignals(led, wireCount);
@@ -214,7 +217,42 @@ export function buildKiCadPCB({
   const connSignals = [...inSignals, ...outSignals];
   const tabExtraPads = outSignals.length;
   const padSignals = (connector?.id === 'PAD_ONLY' && solderPad) ? connSignals : [];
-  const nets = buildNetTable(led, wireCount, padSignals);
+
+  // In full-route mode the data line is a real daisy chain, so each
+  // pixel-to-pixel link is its own net (DAT{i} feeds pixel i; CLK{i}
+  // for clocked parts). Build the per-pixel net map + a net table that
+  // carries every link.
+  const ledOrder = [];
+  if (led && ledsPerFace > 0) {
+    let idx = 0;
+    for (const fi of chainOrderFromConnector(net, connectorFaceIdx ?? 0)) {
+      const face = net.faces[fi];
+      if (!face) continue;
+      for (const [x, y] of ledPositions(face.polygon2D, led, ledsPerFace, edgeLengthMm)) {
+        ledOrder.push({ fi, x, y, idx: idx++ });
+      }
+    }
+  }
+  const ledCount = ledOrder.length;
+  const ledNetFor = (i) => {
+    const m = { VCC: 'VCC', VDD: 'VCC', GND: 'GND', VSS: 'GND',
+      DIN: `DAT${i}`, DOUT: `DAT${i + 1}`, CIN: `CLK${i}`, COUT: `CLK${i + 1}` };
+    return m;
+  };
+  const connNetFor = (sig) => ({
+    VCC: 'VCC', VDD: 'VCC', GND: 'GND', VSS: 'GND',
+    DIN: 'DAT0', CIN: 'CLK0', DOUT: `DAT${ledCount}`, COUT: `CLK${ledCount}`,
+  }[sig] || sig);
+
+  let nets;
+  if (full && ledCount > 0) {
+    const names = new Set(['', 'VCC', 'GND']);
+    for (let i = 0; i <= ledCount; i++) { names.add(`DAT${i}`); if (wireCount === 4) names.add(`CLK${i}`); }
+    nets = {}; let ni = 0;
+    for (const nm of names) nets[nm] = ni++;
+  } else {
+    nets = buildNetTable(led, wireCount, padSignals);
+  }
 
   // Board outline + a page sized to fit it, so the board opens centred
   // on the sheet with a margin instead of straddling the origin corner.
@@ -284,21 +322,13 @@ export function buildKiCadPCB({
     lines.push(`  (gr_line (start ${X(a[0])} ${Y(a[1])}) (end ${X(b[0])} ${Y(b[1])}) (layer "Dwgs.User") (width 0.1))`);
   }
 
-  // LED footprints, numbered in CHAIN order from the connector face
-  // so D1 is the first LED in the data line and D(N) is the last.
-  if (led && ledsPerFace > 0) {
-    let ledNum = 1;
-    const order = chainOrderFromConnector(net, connectorFaceIdx ?? 0);
-    for (const fi of order) {
-      const face = net.faces[fi];
-      if (!face) continue;
-      const positions = ledPositions(face.polygon2D, led, ledsPerFace, edgeLengthMm);
-      for (const [x, y] of positions) {
-        const cx = x * edgeLengthMm + OX;
-        const cy = -y * edgeLengthMm + OY;
-        lines.push('  ' + ledFootprint(led, cx, cy, `D${ledNum++}`, nets));
-      }
-    }
+  // LED footprints, numbered in CHAIN order (D1 = first pixel). In full
+  // mode each LED's DIN/DOUT (and CIN/COUT) get per-link nets so the
+  // ratsnest reflects the real daisy chain.
+  for (const { x, y, idx } of ledOrder) {
+    const cx = x * edgeLengthMm + OX;
+    const cy = -y * edgeLengthMm + OY;
+    lines.push('  ' + ledFootprint(led, cx, cy, `D${idx + 1}`, nets, full ? ledNetFor(idx) : null));
   }
 
   // Connector footprint on the configured face
@@ -308,7 +338,7 @@ export function buildKiCadPCB({
       const c = centroid2D(face.polygon2D);
       const cx = c[0] * edgeLengthMm + OX, cy = -c[1] * edgeLengthMm + OY;
       if (connector.id === 'PAD_ONLY' && solderPad) {
-        lines.push('  ' + padOnlyFootprint(solderPad, wireCount, cx, cy, 'J1', padSignals, nets));
+        lines.push('  ' + padOnlyFootprint(solderPad, wireCount, cx, cy, 'J1', padSignals, nets, full ? connNetFor : null));
       } else {
         // Named connector: keepout-style footprint without specific pads
         // (KiCad already has these in libraries; we just mark the spot).
@@ -350,7 +380,9 @@ export function buildKiCadPCB({
     });
     const tw = designRules?.traceWidthMm ?? 0.25;
     for (const t of plan.traces) {
-      const netIdx = nets[t.signal] ?? 0;
+      // Per-hop data traces carry their own net (DAT{i}/CLK{i}); power
+      // rails fall back to the signal net.
+      const netIdx = nets[t.net] ?? nets[t.signal] ?? 0;
       const pts = t.points;
       for (let i = 1; i < pts.length; i++) {
         const [x1, y1] = pts[i - 1];
@@ -369,8 +401,9 @@ export function buildKiCadPCB({
       g.pads.forEach((p, i) => {
         const cx = p[0] * edgeLengthMm + OX, cy = -p[1] * edgeLengthMm + OY;
         const sig = padSig[i] || `P${i + 1}`;
-        const netIdx = nets[sig] ?? 0;
-        const netStr = netIdx > 0 ? ` (net ${netIdx} "${sig}")` : '';
+        const netName = full ? connNetFor(sig) : sig;
+        const netIdx = nets[netName] ?? 0;
+        const netStr = netIdx > 0 ? ` (net ${netIdx} "${netName}")` : '';
         lines.push(`  (footprint "PolyForge:TabPad" (layer "B.Cu") (at ${n(cx)} ${n(cy)}) (attr smd)`);
         lines.push(`    (pad "${i + 1}" smd rect (at 0 0) (size ${n(g.padW * edgeLengthMm)} ${n(g.padH * edgeLengthMm)}) (layers "B.Cu" "B.Paste" "B.Mask")${netStr})`);
         lines.push('  )');

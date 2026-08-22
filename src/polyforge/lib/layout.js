@@ -846,9 +846,9 @@ export function planRouting({
     return [cl[0] * edgeLengthMm, -cl[1] * edgeLengthMm];
   }
 
-  function pushPolyline(sig, points) {
+  function pushPolyline(sig, points, netName) {
     if (points.length < 2) return;
-    traces.push({ signal: sig, color: color[sig] || '#888', points });
+    traces.push({ signal: sig, color: color[sig] || '#888', points, net: netName });
   }
 
   // Extend a lane polyline a short stub past each end along its own
@@ -925,21 +925,30 @@ export function planRouting({
     };
 
     // Data daisy chain. Route to the actual LED positions (the pixels)
-    // in chain order, threading bridges between them.
+    // in chain order, threading bridges between them. Each hop is its
+    // own polyline tagged with the per-link net (DAT{i} feeds pixel i;
+    // the clock line uses CLK{i}) so the KiCad export nets it correctly
+    // as DOUT(i-1) → DIN(i) rather than shorting the whole chain.
     const dataSigs = wireCount === 4 ? ['CIN', 'DIN'] : ['DIN'];
     const order = chainOrderFromConnector(net, connectorFaceIdx);
     for (const sig of dataSigs) {
-      const pts = [connEntryPoint(sig)];
+      const base = sig === 'CIN' ? 'CLK' : 'DAT';
+      let hop = [connEntryPoint(sig)];
+      let ledIdx = 0;
       let prevFace = connectorFaceIdx;
       for (const fi of order) {
         if (fi !== prevFace) {
           const fp = treePath(prevFace, fi);
-          for (let k = 1; k < fp.length; k++) pts.push(...lanePathAcross(fp[k - 1], fp[k], sig));
+          for (let k = 1; k < fp.length; k++) hop.push(...lanePathAcross(fp[k - 1], fp[k], sig));
         }
-        for (const led of (ledsByFace.get(fi) || [])) pts.push(led);
+        for (const led of (ledsByFace.get(fi) || [])) {
+          hop.push(led);
+          pushPolyline(sig, hop, `${base}${ledIdx}`); // segment feeding pixel ledIdx
+          hop = [led]; // next hop starts at this pixel's output
+          ledIdx++;
+        }
         prevFace = fi;
       }
-      pushPolyline(sig, pts);
     }
   } else {
     // 'bridges' — one spaced lane per bridge, ending just past each
