@@ -5,11 +5,12 @@
 // authenticated request against the project's REST API so the
 // database registers activity and the project stays awake.
 //
-// Schedule: every 3 days (see `config` below). That's comfortably
-// under the 7-day pause window while keeping invocations to a minimum
-// (~10/month). Because the interval is 3 days, even a single missed or
-// failed run still lands the next successful ping at ~6 days — still
-// inside the window — so one hiccup won't let the project sleep.
+// Schedule: once a day (see `config` below). A paused Supabase project
+// cannot be woken by an API ping — the keep-alive only works while the
+// project is still active — so the safe move is to keep the inactivity
+// timer near zero rather than flirt with the 7-day limit. A daily ping
+// is ~30 tiny requests/month (negligible quota) and tolerates several
+// missed runs in a row without ever approaching the pause window.
 //
 // Configuration (Netlify environment variables):
 //   SUPABASE_URL         required, e.g. https://abcdefgh.supabase.co
@@ -59,7 +60,7 @@ export default async () => {
 };
 
 // Netlify scheduled function. Cron runs in UTC.
-// "0 12 */3 * *" = 12:00 UTC, every 3rd day of the month.
+// "0 12 * * *" = 12:00 UTC, every day.
 export const config = {
-  schedule: '0 12 */3 * *',
+  schedule: '0 12 * * *',
 };
