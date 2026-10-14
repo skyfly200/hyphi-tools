@@ -33,9 +33,20 @@ export function modelToFOLD(model, opts = {}) {
     out.faces_vertices = model.faces.map(f => f.slice());
   }
   if (opts.ids) {
-    out['hyphi:vertex_ids'] = model.vertices.map((_, i) => i);
-    out['hyphi:edge_ids'] = model.edges.map((_, i) => i);
+    out['hyphi:vertex_ids'] = model.vertexIds?.length === model.vertices.length
+      ? model.vertexIds.slice() : model.vertices.map((_, i) => i);
+    out['hyphi:edge_ids'] = model.edges.map((e, i) => e.id ?? i);
+    if (model.edges.some(e => e.crease)) {
+      out['hyphi:edge_creases'] = model.edges.map(e => e.crease || e.id || null);
+    }
+    if (model.idAliases) out['hyphi:id_aliases'] = { ...model.idAliases };
+    if (model.idSeq) out['hyphi:id_seq'] = model.idSeq;
     if (model.faces?.length) out['hyphi:face_ids'] = model.faces.map((_, i) => i);
+  }
+  // Folding sequence / physical metadata (src/folding). Namespaced `foldform:`
+  // keys are copied through verbatim so other tools can ignore them safely.
+  if (model.foldform) {
+    for (const [k, v] of Object.entries(model.foldform)) out[`foldform:${k}`] = v;
   }
   return out;
 }
@@ -45,17 +56,31 @@ export function foldToModel(fold) {
   const ev = fold.edges_vertices || [];
   const ea = fold.edges_assignment || ev.map(() => 'U');
   const ef = fold.edges_foldAngle || [];
-  return {
+  const eids = fold['hyphi:edge_ids'];
+  const ecre = fold['hyphi:edge_creases'];
+  const model = {
     vertices: vc.map(v => [v[0], v[1]]),
     edges: ev.map((e, i) => {
       const edge = { v1: e[0], v2: e[1], assignment: (ea[i] || 'U').toUpperCase() };
       if (Number.isFinite(ef[i]) && ef[i] !== defaultFoldAngle(edge.assignment)) {
         edge.foldAngle = ef[i];
       }
+      if (Array.isArray(eids) && typeof eids[i] === 'string') edge.id = eids[i];
+      if (Array.isArray(ecre) && typeof ecre[i] === 'string' && ecre[i] !== edge.id) edge.crease = ecre[i];
       return edge;
     }),
     faces: (fold.faces_vertices || []).map(f => f.slice()),
   };
+  const vids = fold['hyphi:vertex_ids'];
+  if (Array.isArray(vids) && vids.length === model.vertices.length && vids.every(x => typeof x === 'string')) {
+    model.vertexIds = vids.slice();
+  }
+  if (fold['hyphi:id_aliases']) model.idAliases = { ...fold['hyphi:id_aliases'] };
+  if (Number.isFinite(fold['hyphi:id_seq'])) model.idSeq = fold['hyphi:id_seq'];
+  const ff = {};
+  for (const [k, v] of Object.entries(fold)) if (k.startsWith('foldform:')) ff[k.slice(9)] = v;
+  if (Object.keys(ff).length) model.foldform = ff;
+  return model;
 }
 
 export function downloadJSON(filename, obj) {

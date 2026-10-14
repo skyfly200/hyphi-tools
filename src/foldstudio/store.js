@@ -3,7 +3,7 @@
 
 import { reactive, computed, ref, watch } from 'vue';
 import {
-  emptyModel, cloneModel, addEdgeWithSplits, deleteEdges, setEdgeAssignment,
+  emptyModel, cloneModel, ensureIds, addEdgeWithSplits, deleteEdges, setEdgeAssignment,
   History, repeatTransform, repairPlanarGraph, pruneIsolatedVertices,
   cleanupRedundant, addOrFindVertex,
 } from './lib/model.js';
@@ -680,7 +680,7 @@ export function applyCornerRelief(vIdx, opts) {
 }
 
 export function loadModel(newModel) {
-  state.model = cloneModel(newModel);
+  state.model = ensureIds(cloneModel(newModel));
   // Imported / older patterns can have T-junctions where a vertex sits on the
   // interior of an unsplit edge — repair so face computation works.
   repairPlanarGraph(state.model);

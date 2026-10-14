@@ -23,12 +23,66 @@ export function emptyModel() {
   };
 }
 
+// Stable design IDs (folding-engine spec §4.4). Vertex indices and edge indices
+// shift whenever the graph is edited, so persistent references (fold sequences,
+// hinge groups, saved configurations) use these IDs instead:
+//   - model.vertexIds[i]  parallel to model.vertices
+//   - edge.id             unique per physical edge segment
+//   - edge.crease         logical crease ID shared by all segments split from
+//                         one authored crease (defaults to edge.id)
+//   - model.idAliases     retired logical ID -> surviving logical ID
+//   - model.idSeq         monotonic counter; IDs are never reused
+// Everything here is additive: legacy models without IDs keep working, and
+// ensureIds() upgrades them in place.
+function nextId(model, prefix) {
+  model.idSeq = (model.idSeq || 0) + 1;
+  return `${prefix}${model.idSeq}`;
+}
+
+export function ensureIds(model) {
+  if (!Array.isArray(model.vertexIds)) model.vertexIds = [];
+  while (model.vertexIds.length < model.vertices.length) model.vertexIds.push(nextId(model, 'v'));
+  model.vertexIds.length = model.vertices.length;
+  for (const e of model.edges) if (!e.id) e.id = nextId(model, 'e');
+  return model;
+}
+
+// Logical crease ID of an edge segment, following aliases left by merges.
+export function creaseIdOf(model, e) {
+  let id = e.crease || e.id;
+  const seen = new Set();
+  while (id && model.idAliases?.[id] && !seen.has(id)) { seen.add(id); id = model.idAliases[id]; }
+  return id;
+}
+
+function aliasId(model, from, to) {
+  if (!from || !to || from === to) return;
+  if (!model.idAliases) model.idAliases = {};
+  model.idAliases[from] = to;
+}
+
+// New segment inheriting every property (assignment, foldAngle, future
+// physical metadata) from its parent edge.
+function childEdge(model, parent, v1, v2) {
+  const crease = parent.crease || parent.id;
+  const child = { ...parent, v1, v2, id: nextId(model, 'e') };
+  if (crease) child.crease = crease;
+  return child;
+}
+
 export function cloneModel(m) {
-  return {
+  const out = {
     vertices: m.vertices.map(v => [v[0], v[1]]),
     edges: m.edges.map(e => ({ ...e })),
     faces: m.faces.map(f => [...f]),
   };
+  if (m.vertexIds) out.vertexIds = m.vertexIds.slice();
+  if (m.idSeq) out.idSeq = m.idSeq;
+  if (m.idAliases) out.idAliases = { ...m.idAliases };
+  // Opaque extension data (sequence, physical params...) is deep-copied so
+  // undo/redo restores it too.
+  if (m.foldform) out.foldform = JSON.parse(JSON.stringify(m.foldform));
+  return out;
 }
 
 // Find existing vertex within EPS, else add. Returns index.
@@ -37,6 +91,7 @@ export function addOrFindVertex(model, p, eps = EPS) {
     if (eq(model.vertices[i], p, eps)) return i;
   }
   model.vertices.push([p[0], p[1]]);
+  if (Array.isArray(model.vertexIds)) model.vertexIds.push(nextId(model, 'v'));
   return model.vertices.length - 1;
 }
 
@@ -70,8 +125,8 @@ function splitEdgesAtVertex(model, vIdx, tol = EPS * 50) {
   const add = [];
   for (const ei of replacements) {
     const e = model.edges[ei];
-    add.push({ v1: e.v1, v2: vIdx, assignment: e.assignment });
-    add.push({ v1: vIdx, v2: e.v2, assignment: e.assignment });
+    add.push(childEdge(model, e, e.v1, vIdx));
+    add.push(childEdge(model, e, vIdx, e.v2));
   }
   model.edges = model.edges.filter((_, i) => !drop.has(i));
   for (const e of add) model.edges.push(e);
@@ -80,6 +135,7 @@ function splitEdgesAtVertex(model, vIdx, tol = EPS * 50) {
 // Add an edge, splitting at intersections with existing edges so the
 // planar graph remains valid. Removes degenerate / duplicate edges.
 export function addEdgeWithSplits(model, p1, p2, assignment) {
+  ensureIds(model);
   const a = addOrFindVertex(model, p1);
   const b = addOrFindVertex(model, p2);
   if (a === b) return;
@@ -117,8 +173,8 @@ export function addEdgeWithSplits(model, p1, p2, assignment) {
     splits.push({ t: ix.t, vIdx: newV });
     // Split existing edge at u
     edgesToRemove.add(ei);
-    edgesToAdd.push({ v1: e.v1, v2: newV, assignment: e.assignment });
-    edgesToAdd.push({ v1: newV, v2: e.v2, assignment: e.assignment });
+    edgesToAdd.push(childEdge(model, e, e.v1, newV));
+    edgesToAdd.push(childEdge(model, e, newV, e.v2));
   }
   // Apply existing-edge splits.
   if (edgesToRemove.size) {
@@ -132,7 +188,7 @@ export function addEdgeWithSplits(model, p1, p2, assignment) {
     const v1 = splits[i].vIdx, v2 = splits[i + 1].vIdx;
     if (v1 === v2) continue;
     if (!findEdge(model, v1, v2)) {
-      model.edges.push({ v1, v2, assignment });
+      model.edges.push({ v1, v2, assignment, id: nextId(model, 'e') });
     }
   }
   dedupe(model);
@@ -195,8 +251,17 @@ export function cleanupRedundant(model, angleTolDeg = 1.0) {
       // Drop the two edges, add a single edge between the outer endpoints.
       const dropIdx = new Set([adj[v][0], adj[v][1]]);
       const angleA = e1.foldAngle, angleB = e2.foldAngle;
-      const merged = { v1: other1, v2: other2, assignment: e1.assignment };
+      const merged = { ...e1, v1: other1, v2: other2 };
       if (Number.isFinite(angleA) && angleA === angleB) merged.foldAngle = angleA;
+      else delete merged.foldAngle;
+      if (e1.id) {
+        // The merged edge keeps e1's logical crease; e2's logical ID becomes an
+        // alias so sequence references to either still resolve.
+        merged.id = nextId(model, 'e');
+        const keep = creaseIdOf(model, e1);
+        merged.crease = keep;
+        aliasId(model, creaseIdOf(model, e2), keep);
+      }
       model.edges = model.edges.filter((_, i) => !dropIdx.has(i));
       model.edges.push(merged);
       pruneIsolatedVertices(model);
@@ -216,6 +281,7 @@ export function dedupe(model) {
     const k = e.v1 < e.v2 ? `${e.v1}-${e.v2}` : `${e.v2}-${e.v1}`;
     if (seen.has(k)) {
       const prior = keep[seen.get(k)];
+      aliasId(model, creaseIdOf(model, e), creaseIdOf(model, prior));
       // Prefer non-flat assignment; M/V wins over B wins over F wins over U.
       const rank = a => ({ M: 4, V: 4, B: 3, F: 2, U: 1 }[a] || 0);
       if (rank(e.assignment) > rank(prior.assignment)) prior.assignment = e.assignment;
@@ -252,6 +318,9 @@ export function pruneIsolatedVertices(model) {
     }
   }
   model.vertices = newVerts;
+  if (Array.isArray(model.vertexIds)) {
+    model.vertexIds = model.vertexIds.filter((_, i) => used.has(i));
+  }
   for (const e of model.edges) {
     e.v1 = remap.get(e.v1);
     e.v2 = remap.get(e.v2);
