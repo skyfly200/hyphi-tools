@@ -9,6 +9,7 @@
 
 import { evaluatePoses, closureResiduals, maxAbs } from '../kinematics.js';
 import { applyPose, deg, identityPose, sub } from '../math.js';
+import { bandAngleLimit } from '../bends/circular.js';
 import { levenbergMarquardt, numericJacobian, numericalRank } from './levenberg-marquardt.js';
 
 export const DEFAULT_TOLERANCES = Object.freeze({
@@ -63,6 +64,11 @@ export function solveConfiguration(compiled, request = {}) {
       const c = compiled.connIndex.get(id), v = x[compiled.varIndex.get(id)];
       if (Number.isFinite(c.maxAngleDeg) && v > c.maxAngleDeg * Math.PI / 180) limits.push(v - c.maxAngleDeg * Math.PI / 180);
       if (Number.isFinite(c.minAngleDeg) && v < c.minAngleDeg * Math.PI / 180) limits.push(v - c.minAngleDeg * Math.PI / 180);
+      const fr = compiled.frames.get(id);
+      if (fr && fr.lengthMm > 0 && c.minRadiusMm > 0) {
+        const lim = bandAngleLimit(fr.lengthMm, c.minRadiusMm, fr.profile);
+        if (Math.abs(v) > lim) limits.push(Math.abs(v) - lim);
+      }
     }
     return { structural, user, limits, poses };
   };

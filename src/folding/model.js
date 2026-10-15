@@ -15,9 +15,9 @@
 // the fold direction: the axis is canonicalised so region B lies on its left.
 
 import { scale, sub, dot, unit, dist } from './math.js';
-import { bandPose } from './bends/circular.js';
+import { bandPose, bendProfile } from './bends/circular.js';
 
-export const CONNECTION_TYPES = ['idealHinge', 'circularBand', 'rigidJoin'];
+export const CONNECTION_TYPES = ['idealHinge', 'circularBand', 'segmentedBand', 'rigidJoin'];
 
 const centroid2 = poly => {
   let x = 0, y = 0;
@@ -60,8 +60,14 @@ export function compileAssembly(assembly) {
     if (!c.edge || !c.edge.p0 || !c.edge.p1) { err('invalidTopology', `connection ${c.id} needs an edge`, { id: c.id }); continue; }
     const length = dist([...c.edge.p0, 0], [...c.edge.p1, 0]);
     if (length < 1e-9) { err('invalidTopology', `connection ${c.id} has a zero-length edge`, { id: c.id }); continue; }
-    if (c.type === 'circularBand' && !(c.lengthMm > 0)) {
-      err('invalidTopology', `circularBand ${c.id} needs lengthMm > 0`, { id: c.id }); continue;
+    const isBand = c.type === 'circularBand' || c.type === 'segmentedBand';
+    if (isBand && !(c.lengthMm > 0)) {
+      err('invalidTopology', `${c.type} ${c.id} needs lengthMm > 0`, { id: c.id }); continue;
+    }
+    let profile = null;
+    if (c.type === 'segmentedBand') {
+      profile = bendProfile(c.profile, c.segments || 8);
+      if (profile.length < 2) { err('invalidTopology', `segmentedBand ${c.id} needs >= 2 segments`, { id: c.id }); continue; }
     }
     // Canonical orientation: child region B on the left of u (so +angle = valley).
     let p0 = [c.edge.p0[0], c.edge.p0[1], 0], p1 = [c.edge.p1[0], c.edge.p1[1], 0];
@@ -72,7 +78,7 @@ export function compileAssembly(assembly) {
     if (Math.abs(side) < 1e-9) warn('degenerateSide', `connection ${c.id}: child region is on the edge line`, { id: c.id });
     let flipped = false;
     if (side < 0) { u = scale(u, -1); v = scale(v, -1); p0 = p1; flipped = true; }
-    frames.set(c.id, { o: p0, u, v, lengthMm: c.type === 'circularBand' ? c.lengthMm : 0, flipped, edgeLen: length });
+    frames.set(c.id, { o: p0, u, v, lengthMm: isBand ? c.lengthMm : 0, profile, flipped, edgeLen: length });
   }
 
   // Spanning tree (BFS from the anchor). Remaining connections close loops.
@@ -125,7 +131,7 @@ export function geometryHash(assembly) {
   const payload = JSON.stringify({
     u: assembly.units, a: assembly.anchor,
     r: (assembly.regions || []).map(r => [r.id, r.polygon, r.thicknessMm ?? null]),
-    c: (assembly.connections || []).map(c => [c.id, c.type, c.a, c.b, c.edge ?? null, c.lengthMm ?? null]),
+    c: (assembly.connections || []).map(c => [c.id, c.type, c.a, c.b, c.edge ?? null, c.lengthMm ?? null, c.widthMm ?? null, c.profile ?? null, c.segments ?? null]),
   });
   // FNV-1a 64-bit-ish using two 32-bit lanes; deterministic and dependency-free.
   let h1 = 0x811c9dc5, h2 = 0x01000193;
