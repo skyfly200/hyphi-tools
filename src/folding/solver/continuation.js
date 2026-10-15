@@ -18,9 +18,32 @@ const EASING = {
  * @returns { status, completed:boolean, reachedProgress, samples:[{progress, angles}], last, failure? }
  */
 export function solveStepContinuation(compiled, startAngles, step, options = {}) {
+  const it = stepGenerator(compiled, startAngles, step, options);
+  let n = it.next();
+  while (!n.done) n = it.next();
+  return n.value;
+}
+
+/**
+ * Same algorithm as solveStepContinuation, but yields after every accepted sample
+ * ({ progress, angles }) so a host (the Web Worker) can interleave cancellation
+ * and progress messages between bounded solver batches.
+ */
+export function* stepGenerator(compiled, startAngles, step, options = {}) {
   const { initialIncrement = 0.1, minIncrement = 1e-3, maxSamples = 2000, shouldCancel } = options;
   const ease = EASING[step.easing] || EASING.linear;
-  const start = Array.from(startAngles);
+  let start = Array.from(startAngles);
+
+  // The start must be a closed configuration. If it is not, project it onto the closure
+  // manifold (no targets) and say so; if that fails the step cannot begin.
+  const warnings = [];
+  const closed = solveConfiguration(compiled, { initial: start, constraints: [], options: { tolerances: options.tolerances } });
+  if (closed.status === 'invalidTopology' || closed.status === 'staleReferences') return fail(closed.status, 0, [], closed.status, closed);
+  if (!closed.geometryValid) return fail('invalidStart', 0, [], 'the starting configuration does not satisfy the mechanism closure and could not be repaired', closed);
+  if (Math.max(...start.map((v, i) => Math.abs(v - closed.angles[i])), 0) > 1e-6) {
+    warnings.push({ code: 'startProjected', message: 'starting angles were not a closed configuration; projected onto the mechanism' });
+    start = closed.angles;
+  }
 
   // "free" is the default: connections without a control are solved, never auto-held.
   const driven = []; const held = [];
@@ -38,7 +61,7 @@ export function solveStepContinuation(compiled, startAngles, step, options = {})
 
   // Optional branch hint: nudge selected angles off a singular flat state.
   let current = start.slice();
-  for (const [id, a] of Object.entries(options.branchHint || {})) {
+  for (const [id, a] of Object.entries({ ...(step.branchHint || {}), ...(options.branchHint || {}) })) {
     if (compiled.varIndex.has(id)) current[compiled.varIndex.get(id)] += a;
   }
 
@@ -57,6 +80,7 @@ export function solveStepContinuation(compiled, startAngles, step, options = {})
     last = r;
     if (r.status === 'converged') {
       current = r.angles; s = sNext; samples.push({ progress: s, angles: r.angles, validated: true });
+      yield { progress: s, angles: r.angles };
       if (inc < initialIncrement) inc = Math.min(initialIncrement, inc * 1.5);
     } else if (r.status === 'cancelled' || r.status === 'invalidTopology' || r.status === 'staleReferences') {
       return fail(r.status, s, samples, r.status, r);
@@ -69,7 +93,7 @@ export function solveStepContinuation(compiled, startAngles, step, options = {})
       }
     }
   }
-  return { status: 'converged', completed: s >= 1, reachedProgress: s, samples, last, failure: null };
+  return { status: 'converged', completed: s >= 1, reachedProgress: s, samples, last, failure: null, warnings };
 
   function fail(status, reached, smp, message, lastResult) {
     return { status, completed: false, reachedProgress: reached, samples: smp, last: lastResult ?? null, failure: { status, message, worstResiduals: lastResult?.worstResiduals ?? [] } };

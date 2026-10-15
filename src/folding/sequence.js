@@ -35,6 +35,11 @@ export function validateSequence(doc, compiled) {
     if (step.defaultConnectionMode === 'hold') warn('defaultHold', `step ${step.id} holds every unlisted connection; this can lock a coupled mechanism`, { step: step.id });
     if (step.easing && !EASINGS.includes(step.easing)) err('invalidStep', `unknown easing ${step.easing}`, { step: step.id });
     if (step.anchors) for (const a of step.anchors) if (!compiled.regionIndex.has(a.regionId)) err('staleReferences', `step ${step.id} anchors missing region ${a.regionId}`, { step: step.id });
+    // Branch hints nudge the first solve off a singular (e.g. flat) state onto a chosen branch.
+    for (const h of step.branchHint || []) {
+      if (!h.target?.connectionId || !compiled.varIndex.has(h.target.connectionId)) err('staleReferences', `step ${step.id} branchHint references a missing connection`, { step: step.id });
+      else if (!Number.isFinite(h.degrees)) err('invalidControl', 'branchHint needs numeric degrees', { step: step.id });
+    }
     const seen = new Map();
     for (const ctl of step.controls || []) {
       if (!CONTROL_MODES.includes(ctl.mode)) err('invalidControl', `unknown mode ${ctl.mode}`, { step: step.id });
@@ -71,7 +76,9 @@ export function resolveStep(step, doc, compiled) {
   if (step.defaultConnectionMode === 'hold') {
     controls.push({ connIds: compiled.variableConnIds.filter(id => !listed.has(id)), mode: 'hold' });
   }
-  return { controls, easing: step.easing, guides: step.guides };
+  const branchHint = {};
+  for (const h of step.branchHint || []) branchHint[h.target.connectionId] = rad(h.degrees);
+  return { controls, easing: step.easing, guides: step.guides, branchHint };
 }
 
 /**

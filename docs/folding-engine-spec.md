@@ -15,16 +15,19 @@ Run the suite with `npm test` (Node's built-in runner, no extra dependencies).
 | M0 Metadata foundation | **Done** — stable vertex/edge IDs, logical crease IDs, split/merge/dedupe/cleanup preserve metadata, merge aliases, undo/redo carries `foldform`, FOLD round-trip of IDs and `foldform:*` keys | `src/foldstudio/lib/model.js`, `fold-io.js`, `store.js` |
 | M1 Extract kinematics | **Core done**; PolyForge adapter verified numerically equal to the legacy `Folded3D.vue` math. `Folded3D.vue` itself is **not yet switched** to the engine | `src/folding/kinematics.js`, `adapters/polyforge.js` |
 | M2 Finite-length bend | **Done** — circular band derived from length + angle (not fitted afterwards), stable straight limit | `src/folding/bends/circular.js` |
-| M3 Constraint solver | **Done (no worker yet)** — LM with Householder QR, loop closure, drive/hold/point targets, limits, rank/under-constraint warning, physical-unit validation, structured failure codes | `src/folding/solver/` |
-| M4 Sequence engine | **Engine done, no editor UI** — schema validation, group resolution, continuation with adaptive increments, default-free semantics, geometry-hash cache | `src/folding/sequence.js` |
-| M5 FoldStudio integration | **Adapter done** — M/V → hinges, F/J → rigid joins, unassigned `U` edges reported as errors until classified. Lily fixture: 80 edges (16 B, 12 V, 20 M, 32 U) → 32 ambiguity issues; after classifying U as joins, 48 triangles collapse to fewer rigid regions | `src/folding/adapters/foldstudio.js` |
-| M6 Flexible surfaces (segmented bands, petals) | Not started | — |
-| M7 Collision / finite-thickness hinges / sections | Not started | — |
-| M8 Export, Blender importer, UI workspace, Web Worker | Not started | — |
+| M3 Constraint solver | **Done** — LM with Householder QR, loop closure, drive/hold/point targets, angle + min-radius limits, rank/under-constraint warning, physical-unit validation, structured failure codes, Web Worker with cancel + stale-response discard | `src/folding/solver/`, `worker-*.js` |
+| M4 Sequence engine | **Done** — schema validation, groups, branch hints, start-closure projection, continuation with adaptive increments, default-free semantics, geometry-hash cache | `src/folding/sequence.js` |
+| M5 FoldStudio integration | **Adapter + workspace** — M/V → hinges, F/J → rigid joins, `U` edges reported until classified | `adapters/foldstudio.js` |
+| M6 Flexible surfaces | **Done (single-axis bends)** — segmented bands with curvature profile (petal curl), surface grid + stretch diagnostics, strain estimate. Twist and doubly-curved petals are not supported and reported as unsupported | `bends/circular.js`, `bends/surface.js` |
+| M7 Collision / thickness / sections | **Done (geometric)** — triangle-distance collision (intersect and thickness-aware, hinge-local exclusion), swept path check that reports its method, sections, envelope, radial extents, measurements, unit-checked obstacles, finite-width hinges with junction warnings | `collision/`, `hinges.js` |
+| M8 Export, importer | **Done** — mesh builder (stable topology, material UVs), GLB (m), STL (mm), FOLD folded frame, adaptive animation bundle, Blender importer script (shape keys, markers, optional rigid empties). **The importer has not been run inside Blender**; its parsing/scale path is tested with plain Python | `export/`, `tools/blender/` |
 
-Known limits of what exists: solving is geometric only (no collision checking — results report
-`collisionStatus: "notChecked"`); panels are rigid; the lily has not yet been folded end to end because its
-`U` edges need author classification and its sequence has not been authored.
+
+Known limits: solving is geometric only (no stress, fatigue or print-anisotropy prediction); panels are rigid; hinge
+bands that cross at a vertex have no valid band geometry and are reported as `hingeJunction`; a flat degree-4 vertex has
+several kinematic branches, so steps from a flat state need a `branchHint`; collision results over a path are only as
+good as their reported sampling resolution; the lily has not yet been folded end to end because its `U` edges need
+author classification and its sequence has not been authored.
 
 ---
 

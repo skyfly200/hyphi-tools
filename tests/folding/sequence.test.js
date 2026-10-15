@@ -14,7 +14,7 @@ const doc = () => ({
   version: 1,
   groups: [{ id: 'odd', connectionIds: ['h1', 'h3'] }],
   steps: [
-    { id: 's1', title: 'Fold', controls: [{ target: { groupId: 'odd' }, mode: 'drive', quantity: 'angle', toDegrees: 30 }], easing: 'smoothstep' },
+    { id: 's1', title: 'Fold', branchHint: [{ target: { connectionId: 'h0' }, degrees: 3 }, { target: { connectionId: 'h1' }, degrees: -3 }, { target: { connectionId: 'h2' }, degrees: 3 }, { target: { connectionId: 'h3' }, degrees: -3 }], controls: [{ target: { groupId: 'odd' }, mode: 'drive', quantity: 'angle', toDegrees: 30 }], easing: 'smoothstep' },
     { id: 's2', title: 'More', controls: [{ target: { connectionId: 'h1' }, mode: 'drive', toDegrees: 60 }] },
   ],
 });
@@ -33,6 +33,14 @@ test('sequence validation rejects stale refs, duplicate controls and bad quantit
   assert.ok(validateSequence(h, c).issues.some(i => i.code === 'staleGeometry'));
 });
 
+test('branchHint references are validated', () => {
+  const c = compileAssembly(vertex4());
+  const d = doc(); d.steps[0].branchHint = [{ target: { connectionId: 'nope' }, degrees: 3 }];
+  assert.ok(validateSequence(d, c).issues.some(i => i.code === 'staleReferences'));
+  d.steps[0].branchHint = [{ target: { connectionId: 'h1' } }];
+  assert.ok(validateSequence(d, c).issues.some(i => i.code === 'invalidControl'));
+});
+
 test('unlisted connections default to free (and default-hold warns)', () => {
   const c = compileAssembly(vertex4());
   const d = doc(); d.steps[0].defaultConnectionMode = 'hold';
@@ -41,7 +49,7 @@ test('unlisted connections default to free (and default-hold warns)', () => {
 
 test('sequence replays deterministically and the cache is keyed on geometry', () => {
   const c = compileAssembly(vertex4());
-  const opts = { initialAngles: [0.2, -0.2, 0.2, -0.2] };
+  const opts = { initialAngles: [0, 0, 0, 0] };
   const cache = new Map();
   const a = solveSequence(c, doc(), { ...opts, cache });
   assert.equal(a.status, 'converged', JSON.stringify(a.steps.at(-1)?.failure));
@@ -49,6 +57,7 @@ test('sequence replays deterministically and the cache is keyed on geometry', ()
   assert.ok(b.steps.every(s => s.fromCache));
   assert.deepEqual(b.finalAngles, a.finalAngles);
   assert.equal(Math.round(deg(a.finalAngles[1])), 60);
+  assert.ok(a.steps[0].warnings.length === 0);
   // Editing geometry changes the hash, so nothing is reused.
   const moved = vertex4(); moved.regions[1].polygon[2] = [0, 25];
   const c2 = compileAssembly(moved);
@@ -63,7 +72,7 @@ test('a failing step stops the sequence with the failing step named', () => {
     { target: { connectionId: 'h1' }, mode: 'drive', toDegrees: 70 },
     { target: { connectionId: 'h3' }, mode: 'drive', toDegrees: -10 },
   ];
-  const r = solveSequence(c, d, { initialAngles: [0.4, -0.4, 0.4, -0.4] });
+  const r = solveSequence(c, d, { initialAngles: [0, 0, 0, 0] });
   assert.notEqual(r.status, 'converged');
   assert.equal(r.failedStep, 's1');
   assert.equal(r.steps.length, 1);
