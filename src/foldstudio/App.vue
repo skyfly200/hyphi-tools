@@ -6,15 +6,18 @@ import CanvasSVG from './components/CanvasSVG.vue';
 import Sidebar from './components/Sidebar.vue';
 import Inspector from './components/Inspector.vue';
 import Tooltip from './components/Tooltip.vue';
+import FoldingWorkspace from './components/folding/FoldingWorkspace.vue';
 import { state } from './store.js';
+import { fs } from './foldingStore.js';
 </script>
 
 <template>
   <div class="app" :class="`theme-${state.theme}`">
     <TopBar />
-    <Toolbar />
+    <Toolbar v-if="!fs.open" />
 
-    <div class="body" :class="{ 'show-sidebar': state.ui.mobileSidebar, 'show-inspector': state.ui.mobileInspector }">
+    <FoldingWorkspace v-if="fs.open" />
+    <div v-else class="body" :class="{ 'show-sidebar': state.ui.mobileSidebar, 'show-inspector': state.ui.mobileInspector }">
       <div class="backdrop"
            @click="state.ui.mobileSidebar = state.ui.mobileInspector = false"></div>
       <Sidebar />
@@ -22,7 +25,7 @@ import { state } from './store.js';
       <Inspector />
     </div>
 
-    <BottomBar />
+    <BottomBar v-if="!fs.open" />
     <Tooltip />
   </div>
 </template>

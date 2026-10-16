@@ -9,6 +9,17 @@ export const SEQUENCE_VERSION = 1;
 export const CONTROL_MODES = ['drive', 'hold', 'free'];
 export const EASINGS = ['linear', 'smoothstep', 'easeInOut'];
 
+/** Connection IDs for a step/hint target: { groupId } | { creaseId } | { connectionId }. */
+export function targetConnectionIds(target, groups, compiled) {
+  if (target?.groupId) return groups.get(target.groupId)?.connectionIds || null;
+  if (target?.creaseId) {
+    const ids = [...compiled.connIndex.values()].filter(c => c.source?.crease === target.creaseId || c.source?.edgeId === target.creaseId).map(c => c.id);
+    return ids.length ? ids : null;
+  }
+  if (target?.connectionId) return compiled.varIndex.has(target.connectionId) ? [target.connectionId] : null;
+  return undefined;
+}
+
 /**
  * Check a `foldform:` sequence document against a compiled assembly.
  * Rejects unresolved references, incompatible control quantities and ambiguous
@@ -37,7 +48,7 @@ export function validateSequence(doc, compiled) {
     if (step.anchors) for (const a of step.anchors) if (!compiled.regionIndex.has(a.regionId)) err('staleReferences', `step ${step.id} anchors missing region ${a.regionId}`, { step: step.id });
     // Branch hints nudge the first solve off a singular (e.g. flat) state onto a chosen branch.
     for (const h of step.branchHint || []) {
-      if (!h.target?.connectionId || !compiled.varIndex.has(h.target.connectionId)) err('staleReferences', `step ${step.id} branchHint references a missing connection`, { step: step.id });
+      if (!targetConnectionIds(h.target, groups, compiled)) err('staleReferences', `step ${step.id} branchHint references a missing connection`, { step: step.id });
       else if (!Number.isFinite(h.degrees)) err('invalidControl', 'branchHint needs numeric degrees', { step: step.id });
     }
     const seen = new Map();
@@ -45,16 +56,10 @@ export function validateSequence(doc, compiled) {
       if (!CONTROL_MODES.includes(ctl.mode)) err('invalidControl', `unknown mode ${ctl.mode}`, { step: step.id });
       if (ctl.mode === 'drive' && (ctl.quantity ?? 'angle') !== 'angle') err('invalidControl', `quantity ${ctl.quantity} is not supported for drive`, { step: step.id });
       if (ctl.mode === 'drive' && !Number.isFinite(ctl.toDegrees)) err('invalidControl', 'drive control needs a numeric toDegrees', { step: step.id });
-      let ids = [];
-      if (ctl.target?.groupId) {
-        const g = groups.get(ctl.target.groupId);
-        if (!g) err('staleReferences', `step ${step.id} references missing group ${ctl.target.groupId}`, { step: step.id });
-        else ids = g.connectionIds || [];
-      } else if (ctl.target?.connectionId) {
-        if (!compiled.varIndex.has(ctl.target.connectionId)) err('staleReferences', `step ${step.id} references missing connection ${ctl.target.connectionId}`, { step: step.id });
-        else ids = [ctl.target.connectionId];
-      } else err('invalidControl', 'control needs target.groupId or target.connectionId', { step: step.id });
-      for (const id of ids) {
+      const ids = targetConnectionIds(ctl.target, groups, compiled);
+      if (ids === undefined) err('invalidControl', 'control needs target.groupId, target.creaseId or target.connectionId', { step: step.id });
+      else if (ids === null) err('staleReferences', `step ${step.id} references a missing ${Object.keys(ctl.target)[0]} ${Object.values(ctl.target)[0]}`, { step: step.id });
+      for (const id of ids || []) {
         if (seen.has(id)) err('ambiguousControls', `connection ${id} is controlled twice in step ${step.id}`, { step: step.id, id });
         seen.set(id, ctl);
       }
@@ -69,7 +74,7 @@ export function resolveStep(step, doc, compiled) {
   const controls = [];
   const listed = new Set();
   for (const ctl of step.controls || []) {
-    const connIds = ctl.target?.groupId ? (groups.get(ctl.target.groupId)?.connectionIds || []) : [ctl.target?.connectionId];
+    const connIds = targetConnectionIds(ctl.target, groups, compiled) || [];
     connIds.forEach(id => listed.add(id));
     controls.push({ connIds, mode: ctl.mode, toRad: ctl.mode === 'drive' ? rad(ctl.toDegrees) : undefined });
   }
@@ -77,7 +82,7 @@ export function resolveStep(step, doc, compiled) {
     controls.push({ connIds: compiled.variableConnIds.filter(id => !listed.has(id)), mode: 'hold' });
   }
   const branchHint = {};
-  for (const h of step.branchHint || []) branchHint[h.target.connectionId] = rad(h.degrees);
+  for (const h of step.branchHint || []) for (const id of targetConnectionIds(h.target, groups, compiled) || []) branchHint[id] = rad(h.degrees);
   return { controls, easing: step.easing, guides: step.guides, branchHint };
 }
 

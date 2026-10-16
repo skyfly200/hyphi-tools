@@ -8,7 +8,7 @@ export { evaluatePoses, closureResiduals } from './kinematics.js';
 export { solveConfiguration, DEFAULT_TOLERANCES } from './solver/backend.js';
 export { solveStepContinuation, stepGenerator } from './solver/continuation.js';
 export { levenbergMarquardt } from './solver/levenberg-marquardt.js';
-export { validateSequence, resolveStep, solveSequence, stepCacheKey, SEQUENCE_VERSION } from './sequence.js';
+export { validateSequence, resolveStep, solveSequence, stepCacheKey, targetConnectionIds, SEQUENCE_VERSION } from './sequence.js';
 export { emptyFoldform, attachSequence, readFoldform } from './serialization.js';
 export { foldStudioToAssembly } from './adapters/foldstudio.js';
 export { polyForgeToAssembly, legacyAnglesToEngine } from './adapters/polyforge.js';

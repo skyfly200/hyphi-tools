@@ -77,3 +77,18 @@ test('a failing step stops the sequence with the failing step named', () => {
   assert.equal(r.failedStep, 's1');
   assert.equal(r.steps.length, 1);
 });
+
+test('steps can target a logical crease ID that spans several connections', () => {
+  const asm = vertex4();
+  asm.connections.forEach(c => { c.source = { crease: c.id === 'h1' || c.id === 'h3' ? 'crease-odd' : `crease-${c.id}` }; });
+  const c = compileAssembly(asm);
+  const d = { groups: [], steps: [{ id: 'sx', controls: [{ target: { creaseId: 'crease-odd' }, mode: 'drive', toDegrees: 40 }],
+    branchHint: [{ target: { creaseId: 'crease-odd' }, degrees: 3 }, { target: { connectionId: 'h0' }, degrees: 3 }, { target: { connectionId: 'h2' }, degrees: 3 }] }] };
+  assert.ok(validateSequence(d, c).ok, JSON.stringify(validateSequence(d, c).issues));
+  const r = solveSequence(c, d, { initialAngles: [0, 0, 0, 0] });
+  assert.equal(r.status, 'converged', JSON.stringify(r.steps.at(-1)?.failure));
+  near4(deg(r.finalAngles[1]), 40); near4(deg(r.finalAngles[3]), 40);
+  d.steps[0].controls[0].target = { creaseId: 'missing' };
+  assert.ok(validateSequence(d, c).issues.some(i => i.code === 'staleReferences'));
+});
+function near4(a, b) { assert.ok(Math.abs(a - b) < 0.1, `${a} !≈ ${b}`); }
