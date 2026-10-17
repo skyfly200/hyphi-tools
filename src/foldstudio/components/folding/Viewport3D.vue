@@ -58,7 +58,7 @@ function rebuildGeometry() {
       const fg = new THREE.BufferGeometry(); fg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
       flatLines = new THREE.LineSegments(fg, new THREE.LineBasicMaterial({ color: 0xaab0c4 })); scene.add(flatLines);
       const S = fs.physical.sheetMm;
-      if (fitted !== 'flat:' + S) { controls.target.set(S / 2, S / 2, 0); camera.position.set(S * 1.1, -S * 0.7, S * 1.3); controls.update(); fitted = 'flat:' + S; }
+      if (fitted !== 'flat:' + S) { frame(new THREE.Box3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(S, S, S * 0.3))); fitted = 'flat:' + S; }
     }
     geomKey = 'flat'; return;
   }
@@ -95,13 +95,24 @@ function rebuildGeometry() {
   if (fitted !== c.hash) { fit(m); fitted = c.hash; }
 }
 
+// Frame the whole sheet: distance from the bounding sphere and the camera's FOV so the
+// object fills ~70% of the view whatever its size, with a fixed 3/4 viewing direction.
+function frame(box) {
+  const ctr = box.getCenter(new THREE.Vector3());
+  const r = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 1);
+  const vfov = (camera.fov * Math.PI) / 180, hfov = 2 * Math.atan(Math.tan(vfov / 2) * camera.aspect);
+  const dist = (r / Math.sin(Math.min(vfov, hfov) / 2)) * 1.15;
+  controls.target.copy(ctr);
+  camera.position.copy(ctr).add(new THREE.Vector3(0.62, -0.72, 0.58).normalize().multiplyScalar(dist));
+  camera.near = Math.max(dist / 200, 0.1); camera.far = dist * 20; camera.updateProjectionMatrix();
+  controls.update();
+}
 function fit(m) {
+  // include the flat sheet so the view does not jump when a fold starts
   const box = new THREE.Box3(); const P = m.positions;
   for (let i = 0; i < P.length; i += 3) box.expandByPoint(new THREE.Vector3(P[i], P[i + 1], P[i + 2]));
-  const ctr = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3()).length() || 100;
-  controls.target.copy(ctr);
-  camera.position.copy(ctr).add(new THREE.Vector3(0.9, -1.1, 0.8).multiplyScalar(size * 1.5));
-  controls.update();
+  const S = fs.physical.sheetMm; box.expandByPoint(new THREE.Vector3(0, 0, 0)); box.expandByPoint(new THREE.Vector3(S, S, 0));
+  frame(box);
 }
 
 function updatePositions() {

@@ -2,7 +2,7 @@
 // Edit one folding step: instruction text, controls (drive / hold / free), anchors,
 // branch hints, playback duration, and solve it.
 import { computed } from 'vue';
-import { fs, raw, selectedStep, touchStep, addControl, removeControl, derivedGroups, addGroup, removeGroup, solveAll, cancelSolve, saveWaypoint, sequenceIssues } from '../../foldingStore.js';
+import { fs, raw, regionLabel, selectedStep, touchStep, addControl, removeControl, derivedGroups, addGroup, removeGroup, solveAll, cancelSolve, saveWaypoint, sequenceIssues } from '../../foldingStore.js';
 
 const step = computed(() => { fs.version; return selectedStep(); });
 const creases = computed(() => Object.keys(fs.autoGroups));
@@ -47,9 +47,13 @@ function makeGroup() { if (fs.groupPick.length) { addGroup(null, fs.groupPick); 
 
     <h4>Anchor</h4>
     <div class="chips">
-      <button v-for="r in fs.regions.slice(0, 40)" :key="r.id" class="chip2" :class="{ on: step.anchors.some(a => a.regionId === r.id) }" @click="toggleAnchor(r.id)" :title="r.id">{{ r.id.slice(2, 12) }}</button>
+      <span v-for="a in step.anchors" :key="a.regionId" class="chip" @mouseenter="fs.selected.regionId = a.regionId; fs.version++">{{ regionLabel(a.regionId) }}<button @click="toggleAnchor(a.regionId)">✕</button></span>
     </div>
-    <p class="note">The solver already pins the model anchor region; add step anchors only to hold another panel in place.</p>
+    <select class="anchor-add" @change="$event.target.value && toggleAnchor($event.target.value); $event.target.value = ''; ">
+      <option value="">+ Hold a panel in place…</option>
+      <option v-for="r in fs.regions" :key="r.id" :value="r.id" :disabled="step.anchors.some(a => a.regionId === r.id)">{{ r.label }}</option>
+    </select>
+    <p class="note">The model's own anchor panel is already pinned ({{ regionLabel(raw.compiled?.anchor) }}). Click a panel in the 2D or 3D view to see which one a label refers to.</p>
 
     <h4>Branch hints</h4>
     <p class="note">From a flat (singular) state several folds are possible. A small nudge picks the branch.</p>
@@ -88,7 +92,6 @@ button:disabled { opacity: .4; }
 .groups, .chips, .run { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
 .chip { display: inline-flex; gap: 4px; align-items: center; padding: 2px 6px; border: 1px solid var(--bd); border-radius: 10px; } .chip i { color: var(--sub); font-style: normal; }
 .chip button { padding: 0 3px; border: 0; background: none; }
-.chip2.on { background: var(--ac2); color: #fff; }
 .note { color: var(--sub); margin: 0; line-height: 1.35; }
 .issues div { padding: 3px 0; } .issues .error { color: #ff5252; } .issues .warning { color: #f5a623; }
 .msg { color: var(--sub); }

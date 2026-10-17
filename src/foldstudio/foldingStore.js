@@ -105,7 +105,13 @@ export async function rebuild() {
   fs.ambiguous = r.issues.filter(i => i.code === 'ambiguousEdge');
   fs.autoGroups = r.groups;
   fs.geometryHash = compiled.hash;
-  fs.regions = asm.regions.map(g => ({ id: g.id, faces: g.source?.faceCount ?? 1 }));
+  fs.regions = asm.regions.map((g, i) => {
+    const pts = (g.polygons || [g.polygon]).flat();
+    const cx = pts.reduce((a, p) => a + p[0], 0) / pts.length, cy = pts.reduce((a, p) => a + p[1], 0) / pts.length;
+    const faces = g.source?.faceCount ?? 1;
+    // Human label: stable ordinal + where the panel sits on the sheet (mm, origin bottom-left).
+    return { id: g.id, faces, cx, cy, label: `Panel ${i + 1} · ${faces > 1 ? faces + ' faces' : '1 face'} · (${cx.toFixed(0)}, ${cy.toFixed(0)}) mm` };
+  });
   fs.connections = asm.connections.map(c => ({
     id: c.id, crease: c.source?.crease ?? c.id, kind: c.type, assignment: c.source?.assignment ?? '',
     authoredAngleDeg: c.meta?.authoredFoldAngleDeg ?? null, a: c.a, b: c.b, widthMm: c.widthMm ?? null, lengthMm: c.lengthMm ?? null,
@@ -205,6 +211,7 @@ export function duplicateStep(id) {
   fs.steps.splice(i + 1, 0, copy); fs.selected.stepId = copy.id; persist();
 }
 export function touchStep() { markStale(); persist(); }
+export const regionLabel = id => fs.regions.find(r => r.id === id)?.label || id;
 export const selectedStep = () => fs.steps.find(s => s.id === fs.selected.stepId) || null;
 
 export function addControl(stepId, target, mode = 'drive') {
