@@ -1,5 +1,5 @@
 <script setup>
-import { fs, addStep, removeStep, moveStep, duplicateStep, selectedStep } from '../../foldingStore.js';
+import { fs, applyLilyPreset, addStep, removeStep, moveStep, duplicateStep, selectedStep } from '../../foldingStore.js';
 const badge = s => {
   const r = fs.results[s.id];
   if (!r) return { t: 'unsolved', c: 'idle' };
@@ -25,6 +25,9 @@ const badge = s => {
       </li>
     </ol>
     <p v-if="!fs.steps.length" class="empty">No steps yet. A step drives some creases, holds some, and lets the rest solve.</p>
+    <div class="preset">
+      <button @click="applyLilyPreset" title="Classifies the lily's U edges and adds phase 1 (fold in half, part way), then solves it">Load lily recipe (phase 1)</button>
+    </div>
   </div>
 </template>
 
@@ -44,4 +47,5 @@ button { background: var(--bg); color: var(--t); border: 1px solid var(--bd); bo
 button.primary { background: var(--ac2); color: #fff; border-color: var(--ac2); }
 button:disabled { opacity: .35; cursor: default; }
 .empty { color: var(--sub); line-height: 1.4; }
+.preset { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--bd); }
 </style>

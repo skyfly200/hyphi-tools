@@ -16,6 +16,7 @@ import {
   validateSequence, SEQUENCE_VERSION, solveConfiguration, rad, deg, targetConnectionIds,
 } from '../folding/index.js';
 import { checkCollisions, envelope, measureFeatures } from '../folding/collision/validation.js';
+import { lilyPreset } from '../folding/presets/lily.js';
 import { buildMesh, meshStats, exportGLB, exportSTL, buildAnimationBundle } from '../folding/export/index.js';
 
 export const DEFAULT_PHYSICAL = Object.freeze({ sheetMm: 100, panelThicknessMm: 0.3, hingeThicknessMm: 0.1, hingeWidthMm: 0 });
@@ -161,6 +162,22 @@ export async function classifyAllAmbiguous(kind) {
   await classify(fs.ambiguous.map(i => i.crease), kind);
 }
 
+// ── recipes ────────────────────────────────────────────────────────────────
+/** Load the origami-lily recipe (classification, groups, step 1) and solve it. */
+export async function applyLilyPreset() {
+  ensureIds(state.model);
+  const p = lilyPreset(state.model);
+  fs.classification = { ...fs.classification, ...p.classification };
+  fs.groups = p.groups.map(g => ({ ...g }));
+  fs.steps = p.steps.map(s => JSON.parse(JSON.stringify(s)));
+  fs.results = {}; fs.selected.stepId = fs.steps[0]?.id ?? null; fs.leftTab = 'steps'; fs.rightTab = 'step';
+  persist({ immediate: true });
+  await rebuild();
+  await solveAll();
+  setPosition(timeline().total);
+  return p.summary;
+}
+
 // ── steps ──────────────────────────────────────────────────────────────────
 let seq = 0;
 const newId = p => `${p}-${Date.now().toString(36)}-${(seq++).toString(36)}`;
@@ -204,7 +221,8 @@ export function addGroup(name, creaseIds) {
 export function removeGroup(id) { fs.groups = fs.groups.filter(g => g.id !== id); persist(); }
 
 // ── solving & playback ─────────────────────────────────────────────────────
-function doc() { return { version: SEQUENCE_VERSION, groups: derivedGroups(), steps: fs.steps, geometryHash: fs.geometryHash }; }
+// Plain JSON copy: reactive proxies cannot be structured-cloned into the worker.
+function doc() { return JSON.parse(JSON.stringify({ version: SEQUENCE_VERSION, groups: derivedGroups(), steps: fs.steps, geometryHash: fs.geometryHash })); }
 
 export function sequenceIssues() {
   if (!raw.compiled?.ok) return [];
@@ -217,10 +235,15 @@ export async function solveAll() {
   if (!v.ok) { fs.message = v.issues.find(i => i.level === 'error').message; return; }
   fs.solving = true; fs.progress = 0; fs.message = 'Solving…';
   const c = client();
-  const { requestId, promise } = c.solveSequence({ doc: doc(), initialAngles: fs.angles.length ? new Array(fs.angles.length).fill(0) : undefined },
-    { onProgress: m => { fs.progress = m.progress; fs.message = `Solving ${stepTitle(m.stepId)}…`; } });
-  fs.solveRequest = requestId;
-  const r = await promise;
+  let r;
+  try {
+    const { requestId, promise } = c.solveSequence({ doc: doc(), initialAngles: new Array(raw.compiled.variableConnIds.length).fill(0) },
+      { onProgress: m => { fs.progress = m.progress; fs.message = `Solving ${stepTitle(m.stepId)}…`; } });
+    fs.solveRequest = requestId;
+    r = await promise;
+  } catch (e) {
+    fs.solving = false; fs.solveRequest = null; fs.message = `Solver error: ${e.message}`; return;
+  }
   fs.solving = false; fs.solveRequest = null;
   if (r.stale) { fs.message = 'Discarded: the design changed while solving'; return; }
   const results = {};

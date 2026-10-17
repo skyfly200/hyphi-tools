@@ -23,6 +23,13 @@ Run the suite with `npm test` (Node's built-in runner, no extra dependencies).
 | M8 Export, importer | **Done** — mesh builder (stable topology, material UVs), GLB (m), STL (mm), FOLD folded frame, adaptive animation bundle, Blender importer script (shape keys, markers, optional rigid empties). **The importer has not been run inside Blender**; its parsing/scale path is tested with plain Python | `export/`, `tools/blender/` |
 
 
+**Lily recipe (`src/folding/presets/lily.js`, `tests/folding/lily.test.js`).** Designer decisions: the 24 slanted `U`
+edges are guide creases (rigid joins); the 8 horizontal/vertical `U` edges are real creases (held flat for now); midlines
+fold the sheet in half. Phase 1 is verified: all 8 midlines and the two main diagonals fold together on one symmetric
+1-DOF branch (diagonal ≈ −2.3 × midline angle; 40° midline → ≈ −92° diagonal; 90° → fully collapsed preliminary base,
+no interpenetration). Phase 2 (fold the outer folds inward) is **not** rigidly reachable with this file: the 16 outer
+diagonal creases stay locked while the centre is partly folded. It needs the creases still missing from the pattern.
+
 Known limits: solving is geometric only (no stress, fatigue or print-anisotropy prediction); panels are rigid; hinge
 bands that cross at a vertex have no valid band geometry and are reported as `hingeJunction`; a flat degree-4 vertex has
 several kinematic branches, so steps from a flat state need a `branchHint`; collision results over a path are only as
