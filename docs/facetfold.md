@@ -34,6 +34,24 @@ Library code: `src/facetfold/lib/` (pure JS + the manifold geometry kernel). UI:
 | **Net editing** | Toggle any edge between hinge and seam to split the net across the bed or rearrange it (cycles are rejected). |
 | **Exports** | STL per piece (mm), plate SVG, face heightmap PGM, report JSON. |
 
+## Multi-colour printing
+
+Every panel prints at the same layers, so colours can't be separated by height. Each colour becomes its own **body**,
+all in the same plate coordinates, and the slicer assigns each body an extruder or AMS slot.
+
+- **Modes:** single colour; *neighbours differ* (DSATUR graph colouring with N colours; it warns when the solid needs
+  more, e.g. a cube needs 3, a dodecahedron 4); cycle through colours; or paint faces one by one.
+- **Disjoint bodies:** panels keep their holes, collars and detents; hinge strips have their overlap into the panels
+  removed, so no two bodies share volume. Tests check pairwise overlap < 1e-6 mm³ and that the bodies' volumes add up to
+  the single-colour piece.
+- **Hinge strips** take the parent face's colour, the child's, or a dedicated material slot.
+- **Exports:** one STL per colour (same frame), and a 3MF (core spec, mm) with one object per body, a base-material colour
+  each, and a Bambu/Orca-style extruder map as best-effort metadata. The 3MF's structure is checked independently
+  (zip, XML, index ranges), **but it has not been opened in a slicer from here** — check colours and extruders on import.
+  If a slicer ignores the metadata, load the per-colour STLs as one multi-part object and assign extruders there.
+- **Cost:** the report estimates colour changes (colours × layers) and errors if more colours are used than extruder/AMS
+  slots. The estimate is rough; real purge depends on the slicer.
+
 ## Honest limits
 
 - **Holographic diffraction cannot be printed directly.** Visible colour separation needs a groove period below about

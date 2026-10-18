@@ -7,9 +7,10 @@ import { POLYHEDRA, EXTRA_POLYHEDRA, ensureOutward } from '@hyphi/polyhedra';
 import { loadKernel, meshOf } from './lib/kernel.js';
 import { buildNet, DEFAULT_PARAMS, defaultHingeKeys, analyzeEdges } from './lib/net.js';
 import { verifyNet } from './lib/verify.js';
-import { buildPlate } from './lib/solid.js';
+import { buildPlate, splitByColor } from './lib/solid.js';
+import { assignColors, colorChangeEstimate, DEFAULT_PALETTE } from './lib/colors.js';
 import { faceMountSpec, tieSlotSpecs, truncateVertex } from './lib/lighting.js';
-import { buildReport, pieceSTL, minHingeWidthMm } from './lib/export.js';
+import { buildReport, pieceSTL, minHingeWidthMm, export3MF } from './lib/export.js';
 import { plateSvg, heightmapPGM, PROCESSES } from './lib/surface.js';
 import { panelProfile } from './lib/panel.js';
 
@@ -28,6 +29,7 @@ export const state = reactive({
   bedMm: [256, 256],
   bedFinish: 'smooth',                 // smooth | textured (describes the build sheet; no geometry)
   surfaces: {},                        // face id -> { kind, pitchMm, angleDeg, depthMm, intent }
+  colors: { mode: 'single', count: 3, palette: DEFAULT_PALETTE.map(c => ({ ...c })), manual: {}, hingeMode: 'parent', hingeSlot: 0, extruders: 4, active: 0 },
   selectedFace: 0,
   fold: 1,                             // 0 flat … 1 closed
   view: 'folded',                      // folded | plate
@@ -38,7 +40,7 @@ export const state = reactive({
   faceCount: 0, edgeList: [], vertexCount: 0,
 });
 
-export const raw = markRaw({ net: null, verify: null, plate: null, K: null, meshes: null, solid: null });
+export const raw = markRaw({ net: null, verify: null, plate: null, K: null, meshes: null, solid: null, bodies: [], faceColors: [] });
 let runId = 0, timer = null;
 
 const shortest = s => Math.min(...s.faces.flatMap(f => f.map((v, i) => Math.hypot(...[0, 1, 2].map(k => s.vertices[v][k] - s.vertices[f[(i + 1) % f.length]][k])))));
@@ -81,14 +83,27 @@ export async function rebuild() {
 
     const plate = buildPlate(raw.K, net, features);
     if (id !== runId) { return; }                                    // a newer edit superseded this build
+    // multi-colour: one disjoint body per colour (empty when printing a single colour)
+    const C = state.colors, assign = assignColors(net, { mode: C.mode, count: C.count, manual: C.manual });
+    const hingeMode = C.hingeMode === 'own' ? { slot: C.hingeSlot } : C.hingeMode;
+    const bodies = C.mode === 'single' ? [] : splitByColor(raw.K, plate, net, assign.colors, hingeMode);
     const meshes = {
+      bodies: bodies.map(b => ({ piece: b.piece, color: b.color, mesh: meshOf(b.manifold) })),
       panels: new Map([...plate.panels].map(([fid, m]) => [fid, meshOf(m)])),
       strips: plate.strips.map(s => (s ? meshOf(s) : null)),
       components: plate.components.map(m => meshOf(m)),
     };
-    raw.net = markRaw(net); raw.verify = markRaw(verify); raw.plate = markRaw(plate); raw.meshes = markRaw(meshes); raw.solid = markRaw(cur);
+    raw.bodies = markRaw(bodies); raw.faceColors = assign.colors; raw.net = markRaw(net); raw.verify = markRaw(verify); raw.plate = markRaw(plate); raw.meshes = markRaw(meshes); raw.solid = markRaw(cur);
     const report = buildReport(net, verify, plate, { bedMm: state.bedMm, process: state.process });
     report.bedFinish = state.bedFinish;
+    if (C.mode !== 'single') {
+      const hingeSlots = net.hinges.map(h => (C.hingeMode === 'own' ? C.hingeSlot : C.hingeMode === 'child' ? assign.colors[h.child] : assign.colors[h.parent]));
+      const est = colorChangeEstimate(net, assign.colors, hingeSlots);
+      report.colors = { mode: C.mode, ...est, extruders: C.extruders, bodies: bodies.length };
+      report.issues.push(...assign.issues);
+      if (est.colorsUsed > C.extruders) report.issues.push({ level: 'error', code: 'tooManyColors', message: `${est.colorsUsed} colours are in use but only ${C.extruders} extruder/AMS slots are available. Reduce the colours or raise the slot count.` });
+      else if (est.changes > 400) report.issues.push({ level: 'warning', code: 'manyChanges', message: `about ${est.changes} colour changes (${est.colorsUsed} colours × ${est.layers} layers): expect long print time and a lot of purge waste. Fewer colours, or colours confined to fewer faces, helps.` });
+    }
     state.report = JSON.parse(JSON.stringify(report, (k, v) => (typeof v === 'number' && !Number.isFinite(v) ? null : v)));
     state.issues = report.issues;
     state.status = verify.ok ? 'Folds onto the ideal solid' : 'Verification found problems';
@@ -121,6 +136,12 @@ function download(name, data, mime) {
   setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 0);
 }
 const base = () => `facetfold-${state.solidId}`;
+export function exportColorSTLs() {
+  if (!raw.bodies.length) return exportSTLs();
+  raw.bodies.forEach(b => { const nm = state.colors.palette[b.color]?.name ?? `color${b.color}`; const r = pieceSTL(b.manifold, `${base()}-piece${b.piece + 1}-${nm}`); download(`${base()}-piece${b.piece + 1}-${nm}.stl`, r.bytes, 'model/stl'); });
+}
+export function export3MFFile() { if (raw.bodies.length) download(`${base()}.3mf`, export3MF(raw.bodies, state.colors.palette, { name: base() }).bytes, 'model/3mf'); }
+export function setFaceColor(face, color) { state.colors.manual[face] = color; if (state.colors.mode !== 'manual') state.colors.mode = 'manual'; scheduleRebuild(0); }
 export function exportSTLs() {
   if (!raw.plate) return;
   raw.plate.components.forEach((m, i) => { const r = pieceSTL(m, `${base()}-piece${i + 1}`); download(`${base()}-piece${i + 1}.stl`, r.bytes, 'model/stl'); });

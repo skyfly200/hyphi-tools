@@ -6,6 +6,7 @@ import { panelProfile } from './panel.js';
 import { planSnaps, wallPoint, DEFAULT_SNAP } from './snap.js';
 import { centroid2, inscribedRadius } from './lighting.js';
 import { faceVectors, assessSurface } from './surface.js';
+import { hingeColor } from './colors.js';
 
 const SEG = 48;
 const deg = r => (r * 180) / Math.PI;
@@ -168,4 +169,27 @@ export function describe(m) {
   const b = m.boundingBox();
   return { volumeMm3: m.volume(), surfaceMm2: m.surfaceArea(), genus: m.genus(), status: m.status(),
     min: b.min, max: b.max, size: [b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]] };
+}
+
+/**
+ * Split each printed piece into one DISJOINT body per colour (same plate coordinates).
+ * Panels keep their features; hinge strips take their colour from `hingeMode` and have the overlap into the panels
+ * removed, so no two bodies share volume (multi-material slicers want exactly that).
+ * @returns {Array<{ piece:number, color:number, manifold }>}
+ */
+export function splitByColor(K, plate, net, colors, hingeMode = 'parent') {
+  const { Manifold } = K, bodies = [];
+  net.components.forEach((comp, piece) => {
+    const byColor = new Map();
+    const add = (c, m) => { if (!byColor.has(c)) byColor.set(c, []); byColor.get(c).push(m); };
+    const panels = comp.faces.filter(f => plate.panels.has(f));
+    for (const f of panels) add(colors[f], plate.panels.get(f));
+    const panelUnion = Manifold.union(panels.map(f => plate.panels.get(f)));
+    net.hinges.forEach((h, i) => {
+      if (!plate.strips[i] || !comp.faces.includes(h.parent)) return;
+      add(hingeColor(net, h, colors, hingeMode), plate.strips[i].subtract(panelUnion));
+    });
+    for (const [color, list] of [...byColor].sort((a, b) => a[0] - b[0])) bodies.push({ piece, color, manifold: Manifold.union(list) });
+  });
+  return bodies;
 }

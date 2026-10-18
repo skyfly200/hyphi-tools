@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue';
-import { state, raw, scheduleRebuild, toggleHinge, resetHinges, addMount, removeMount, setSurface, applySurfaceToAll, suggestHingeWidth, PROCESSES } from '../store.js';
+import { state, raw, setFaceColor, scheduleRebuild, toggleHinge, resetHinges, addMount, removeMount, setSurface, applySurfaceToAll, suggestHingeWidth, PROCESSES } from '../store.js';
 import { PATTERNS, assessSurface, diffractionAngleDeg, dispersionDeg, maxPitchForDispersionUm } from '../lib/surface.js';
 
 const P = state.params;
@@ -11,6 +11,10 @@ const patch = p => setSurface(state.selectedFace, { ...spec.value, ...p });
 const assess = computed(() => spec.value.kind === 'none' ? null : assessSurface({ kind: spec.value.kind, pitchUm: spec.value.pitchMm * 1000, depthUm: (spec.value.depthMm ?? 0.15) * 1000, intent: spec.value.intent }, state.process));
 const calcPitch = computed({ get: () => state.calcPitch ?? 1.0, set: v => { state.calcPitch = v; } });
 const calc = computed(() => ({ a: diffractionAngleDeg(calcPitch.value, 550), spread: dispersionDeg(calcPitch.value), max: maxPitchForDispersionUm() }));
+const C = state.colors;
+const faceChips = computed(() => (state.version, raw.faceColors || []));
+const usedColors = computed(() => new Set(faceChips.value).size);
+const hexOf = i => C.palette[i]?.hex ?? '#888';
 const hingeCount = computed(() => state.edgeList.filter(e => e.kind === 'hinge').length);
 const portVertices = computed(() => Array.from({ length: state.vertexCount }, (_, i) => i));
 </script>
@@ -65,6 +69,22 @@ const portVertices = computed(() => Array.from({ length: state.vertexCount }, (_
     </section>
 
     <section class="blk">
+      <h3>Colours (multi-material)</h3>
+      <label class="row">Mode <select v-model="C.mode" @change="edit"><option value="single">single colour</option><option value="adjacent">neighbours differ</option><option value="each">cycle through colours</option><option value="manual">pick per face</option></select></label>
+      <template v-if="C.mode !== 'single'">
+        <label class="row">Colours <input type="number" min="2" max="8" v-model.number="C.count" @input="edit" /></label>
+        <label class="row">Extruder / AMS slots <input type="number" min="1" max="16" v-model.number="C.extruders" @input="edit" /></label>
+        <div class="pal"><div v-for="(c, i) in C.palette.slice(0, C.count)" :key="i" class="sw" :class="{ on: C.active === i }" @click="C.active = i">
+          <input type="color" v-model="c.hex" @input="edit" :title="c.name" /><input class="nm" v-model="c.name" @change="edit" /></div></div>
+        <label class="row">Hinge strips <select v-model="C.hingeMode" @change="edit"><option value="parent">colour of parent face</option><option value="child">colour of child face</option><option value="own">own material slot</option></select></label>
+        <label v-if="C.hingeMode === 'own'" class="row">Hinge slot <select v-model.number="C.hingeSlot" @change="edit"><option v-for="(c, i) in C.palette" :key="i" :value="i">{{ c.name }}</option></select></label>
+        <div class="faces"><button v-for="(c, f) in faceChips" :key="f" class="fc" :class="{ sel: state.selectedFace === f }" :style="{ background: hexOf(c) }" :title="`face ${f}`"
+            @click="state.selectedFace = f; if (C.mode === 'manual') setFaceColor(f, C.active)">{{ f }}</button></div>
+        <p class="note">{{ C.mode === 'manual' ? 'Select a colour above, then click faces to paint them.' : 'Switch to “pick per face” to paint individual faces.' }} {{ usedColors }} colour(s) in use. Each colour prints as its own body in the same frame; bodies do not overlap.</p>
+      </template>
+    </section>
+
+    <section class="blk">
       <h3>Outer surface</h3>
       <label class="row">Build sheet <select v-model="state.bedFinish" @change="edit"><option value="smooth">smooth</option><option value="textured">textured (diffuse)</option></select></label>
       <label class="row">Printer <select v-model="state.process" @change="edit"><option v-for="p in PROCESSES" :key="p.id" :value="p.id">{{ p.label }}</option></select></label>
@@ -94,4 +114,7 @@ const portVertices = computed(() => Array.from({ length: state.vertexCount }, (_
 .assess { padding:6px 8px; border-left:3px solid var(--bd); line-height:1.4; border-radius:3px; background:var(--acd); }
 .assess.printable { border-color:var(--ok); } .assess.marginal { border-color:var(--warn); } .assess.not-printable { border-color:var(--bad); }
 summary { cursor:pointer; color:var(--sub); }
+.pal { display:flex; flex-wrap:wrap; gap:6px; } .sw { display:flex; align-items:center; gap:4px; padding:2px 4px; border:1px solid var(--bd); border-radius:6px; cursor:pointer; } .sw.on { border-color:var(--ac2); background:var(--acd); }
+.sw input[type=color] { width:22px; height:22px; padding:0; border:0; background:none; } .sw .nm { width:62px; font-size:11px; padding:2px 4px; }
+.faces { display:flex; flex-wrap:wrap; gap:3px; } .fc { width:26px; height:24px; padding:0; font:10px 'DM Mono',monospace; color:#000; border-radius:4px; mix-blend-mode:normal; } .fc.sel { outline:2px solid var(--ac2); }
 </style>

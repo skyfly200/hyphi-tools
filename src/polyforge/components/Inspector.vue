@@ -8,7 +8,7 @@ import {
 import { buildDXF } from '../lib/dxf.js';
 import { buildKiCadPCB } from '../lib/kicad.js';
 import { buildSVGLayers } from '../lib/svgLayers.js';
-import { buildZip } from '../lib/zip.js';
+import { buildZip } from '../../lib/zip.js';
 import { bridgeFoldStats } from '../lib/layout.js';
 
 const saveName = ref('');

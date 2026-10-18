@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue';
-import { state, exportSTLs, exportPlateSvg, exportHeightmap, exportReport } from '../store.js';
+import { state, raw, exportColorSTLs, export3MFFile, exportSTLs, exportPlateSvg, exportHeightmap, exportReport } from '../store.js';
 
 const r = computed(() => state.report);
 const pct = v => (v * 100).toFixed(1) + '%';
@@ -31,6 +31,12 @@ const infos = computed(() => (state.issues || []).filter(i => i.level === 'info'
       <div v-for="f in r.fit" :key="f.piece" class="fit" :class="{ bad: !f.fits }">Piece {{ f.piece + 1 }}: {{ f.widthMm.toFixed(0) }} × {{ f.heightMm.toFixed(0) }} mm {{ f.fits ? 'fits the bed' : '— too large' }}</div>
     </section>
 
+    <section class="blk" v-if="r?.colors">
+      <h3>Multi-colour</h3>
+      <div class="kv"><span>Colours in use</span><b>{{ r.colors.colorsUsed }} of {{ r.colors.extruders }} slots</b><span>Bodies</span><b>{{ r.colors.bodies }}</b><span>Colour changes (rough)</span><b>≈ {{ r.colors.changes }}</b></div>
+      <p class="note">Every layer of a panel contains every colour, so changes scale with colours × layers. The count is indicative; real purge depends on the slicer.</p>
+    </section>
+
     <section class="blk" v-if="worst">
       <h3>Hinge strain</h3>
       <p class="note">Worst fold {{ worst.phiDeg?.toFixed(0) }}°: outer-fibre strain ≈ <b>{{ pct(worst.strain) }}</b> ({{ LABEL[worst.band] }}). Estimate only — test a printed hinge. Designed to fold once.</p>
@@ -52,7 +58,8 @@ const infos = computed(() => (state.issues || []).filter(i => i.level === 'info'
     <section class="blk">
       <h3>Export</h3>
       <div class="btns">
-        <button class="primary" @click="exportSTLs" :disabled="!r">STL per piece (mm)</button>
+        <button class="primary" @click="exportColorSTLs" :disabled="!r">{{ raw.bodies?.length ? 'STL per colour (mm)' : 'STL per piece (mm)' }}</button>
+        <button @click="export3MFFile" :disabled="!raw.bodies?.length" title="One object per colour with an extruder map. Check the import in your slicer.">3MF multi-colour</button>
         <button @click="exportPlateSvg" :disabled="!r">Plate map SVG</button>
         <button @click="exportHeightmap(state.selectedFace)" :disabled="!state.surfaces[state.selectedFace]">Face {{ state.selectedFace }} heightmap</button>
         <button @click="exportReport" :disabled="!r">Report JSON</button>

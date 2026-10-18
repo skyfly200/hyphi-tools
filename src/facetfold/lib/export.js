@@ -4,6 +4,7 @@ import { exportSTL } from '@hyphi/folding/export';
 import { bendStrainEstimate } from '@hyphi/folding/bends/surface';
 import { meshOf } from './kernel.js';
 import { describe } from './solid.js';
+import { buildZip } from '../../lib/zip.js';
 
 /** Binary STL (mm) for one printed piece. */
 export function pieceSTL(manifold, name = 'piece') { return exportSTL(meshOf(manifold), { name }); }
@@ -55,4 +56,38 @@ export function buildReport(net, verification, plate, { bedMm = [256, 256], proc
     issues,
     disclaimer: 'Geometry and fit are computed; material behaviour (hinge life, snap force, light transmission) is not. Print a test piece. STL output is not asserted print-ready.',
   };
+}
+
+const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+const hexA = h => `#${h.replace('#', '').toUpperCase().padEnd(6, '0').slice(0, 6)}FF`;
+
+/**
+ * 3MF (core spec, millimetres) with one object per colour body, a base-material colour per object, and a
+ * Bambu/Orca-style extruder map as best-effort metadata. Returns the zip bytes.
+ * Not verified in any slicer from here: check that colours/extruders import as expected.
+ * @param bodies [{ piece, color, manifold }]
+ * @param palette [{ name, hex }]
+ */
+export function export3MF(bodies, palette, { name = 'facetfold' } = {}) {
+  const used = [...new Set(bodies.map(b => b.color))].sort((a, b) => a - b);
+  const slot = new Map(used.map((c, i) => [c, i]));
+  let objects = '', items = '', cfg = '';
+  bodies.forEach((b, i) => {
+    const id = i + 2, m = meshOf(b.manifold), P = m.positions, I = m.indices;
+    const verts = []; for (let v = 0; v < P.length; v += 3) verts.push(`<vertex x="${P[v].toFixed(5)}" y="${P[v + 1].toFixed(5)}" z="${P[v + 2].toFixed(5)}"/>`);
+    const tris = []; for (let t = 0; t < I.length; t += 3) tris.push(`<triangle v1="${I[t]}" v2="${I[t + 1]}" v3="${I[t + 2]}"/>`);
+    const nm = `piece${b.piece + 1}-${palette[b.color]?.name ?? 'color' + b.color}`;
+    objects += `<object id="${id}" name="${esc(nm)}" type="model" pid="1" pindex="${slot.get(b.color)}"><mesh><vertices>${verts.join('')}</vertices><triangles>${tris.join('')}</triangles></mesh></object>`;
+    items += `<item objectid="${id}"/>`;
+    cfg += `<object id="${id}"><metadata key="name" value="${esc(nm)}"/><metadata key="extruder" value="${slot.get(b.color) + 1}"/></object>`;
+  });
+  const mats = used.map(c => `<base name="${esc(palette[c]?.name ?? 'Color ' + c)}" displaycolor="${hexA(palette[c]?.hex ?? '#cccccc')}"/>`).join('');
+  const model = `<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><metadata name="Title">${esc(name)}</metadata><metadata name="Application">hyphi-tools FacetFold</metadata><resources><basematerials id="1">${mats}</basematerials>${objects}</resources><build>${items}</build></model>`;
+  const files = {
+    '[Content_Types].xml': '<?xml version="1.0" encoding="UTF-8"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/><Default Extension="config" ContentType="text/xml"/></Types>',
+    '_rels/.rels': '<?xml version="1.0" encoding="UTF-8"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>',
+    '3D/3dmodel.model': model,
+    'Metadata/model_settings.config': `<?xml version="1.0" encoding="UTF-8"?>\n<config>${cfg}</config>`,
+  };
+  return { bytes: buildZip(files), slots: used.map(c => ({ slot: slot.get(c) + 1, color: c, name: palette[c]?.name, hex: palette[c]?.hex })), objects: bodies.length };
 }

@@ -48,14 +48,16 @@ function rebuild() {
     const mat = id => { const P = poses.get(`f${id}`), R = P.R, t = P.t; return new THREE.Matrix4().set(R[0], R[1], R[2], t[0], R[3], R[4], R[5], t[1], R[6], R[7], R[8], t[2], 0, 0, 0, 1); };
     for (const [fid, mesh] of M.panels) {
       const sel = fid === state.selectedFace, isPort = raw.solid?.portFace === fid;
-      const col = isPort ? new THREE.Color(0x3fbf7f) : PAL(fid);
+      const painted = state.colors.mode !== 'single' && raw.faceColors?.length;
+      const col = painted ? new THREE.Color(state.colors.palette[raw.faceColors[fid]]?.hex ?? '#888888') : isPort ? new THREE.Color(0x3fbf7f) : PAL(fid);
       const o = new THREE.Mesh(geom(mesh), new THREE.MeshStandardMaterial({ color: sel ? col.clone().lerp(new THREE.Color(0xffffff), 0.5) : col, roughness: 0.55, transparent: true, opacity: 0.9, side: THREE.DoubleSide }));
       o.matrixAutoUpdate = false; o.matrix.copy(mat(fid)); o.userData.face = fid; group.add(o);
     }
     // Strips are rigid in this preview and cannot show the bend, so they are drawn only while the net is nearly flat.
     if (state.fold < 0.03) net.hinges.forEach((h, i) => { const m = M.strips[i]; if (!m) return; const o = new THREE.Mesh(geom(m), new THREE.MeshStandardMaterial({ color: 0xf5d76e })); o.matrixAutoUpdate = false; o.matrix.copy(mat(h.parent)); group.add(o); });
   } else {
-    M.components.forEach((m, i) => { const o = new THREE.Mesh(geom(m), new THREE.MeshStandardMaterial({ color: 0x9fb4ff, roughness: 0.6, side: THREE.DoubleSide })); group.add(o); });
+    if (M.bodies.length) M.bodies.forEach(b => group.add(new THREE.Mesh(geom(b.mesh), new THREE.MeshStandardMaterial({ color: new THREE.Color(state.colors.palette[b.color]?.hex ?? '#888888'), roughness: 0.6, side: THREE.DoubleSide }))));
+    else M.components.forEach((m, i) => { const o = new THREE.Mesh(geom(m), new THREE.MeshStandardMaterial({ color: 0x9fb4ff, roughness: 0.6, side: THREE.DoubleSide })); group.add(o); });
     for (const [fid, mesh] of M.panels) { /* per-face pick targets are the component meshes; faces are selected from the list */ void fid; void mesh; }
     const [bw, bh] = state.bedMm; const pts = [0, 0, 0, bw, 0, 0, bw, 0, 0, bw, bh, 0, bw, bh, 0, 0, bh, 0, 0, bh, 0, 0, 0, 0];
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));

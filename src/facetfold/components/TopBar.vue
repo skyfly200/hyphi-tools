@@ -1,6 +1,6 @@
 <script setup>
 import { state, SOLIDS, scheduleRebuild } from '../store.js';
-const pick = e => { state.solidId = e.target.value; state.customHinges = null; state.port.enabled = false; state.mounts = []; state.surfaces = {}; scheduleRebuild(0); };
+const pick = e => { state.solidId = e.target.value; state.customHinges = null; state.port.enabled = false; state.mounts = []; state.surfaces = {}; state.colors.manual = {}; scheduleRebuild(0); };
 </script>
 
 <template>
