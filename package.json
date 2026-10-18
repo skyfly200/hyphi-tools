@@ -19,6 +19,8 @@
     "@hyphi/solver-core": "*",
     "@mdi/font": "^7.4.47",
     "@vitejs/plugin-vue": "^5.2.4",
+    "earcut": "^3.2.4",
+    "manifold-3d": "^3.5.4",
     "polygon-clipping": "^0.15.7",
     "qrcode-generator": "^1.4.4",
     "react": "^18.3.1",
