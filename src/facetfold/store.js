@@ -16,11 +16,13 @@ import { faceMountSpec, tieSlotSpecs, truncateVertex } from './lib/lighting.js';
 import { buildReport, pieceSTL, minHingeWidthMm, export3MF } from './lib/export.js';
 import { plateSvg, heightmapPGM, PROCESSES } from './lib/surface.js';
 import { panelProfile } from './lib/panel.js';
-import { resolveProfile, validateProfile, generateGcode, parseGcode, analyzeGcode, analyzeNozzles, buildRibbons } from '@hyphi/slicer';
+import { createSlicingClient, resolveProfile, validateProfile, generateGcode, parseGcode, analyzeGcode, analyzeNozzles, buildRibbons } from '@hyphi/slicer';
 
 export const SOLIDS = { ...Object.fromEntries(Object.entries(POLYHEDRA).map(([k, v]) => [k, { id: k, label: v.label, build: v.build }])),
   ...Object.fromEntries(Object.entries(EXTRA_POLYHEDRA).map(([k, v]) => [k, { id: k, label: v.label, build: v.build }])) };
 
+function lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function lsSet(k, v) { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch { /* storage unavailable */ } }
 export const state = reactive({
   theme: 'dark',
   solidId: 'cube',
@@ -35,7 +37,7 @@ export const state = reactive({
   surfaces: {},                        // face id -> { kind, pitchMm, angleDeg, depthMm, intent }
   colors: { mode: 'single', count: 3, palette: DEFAULT_PALETTE.map(c => ({ ...c })), manual: {}, hingeMode: 'parent', hingeSlot: 0, extruders: 4, active: 0 },
   art: { layers: [], info: {}, customFontName: null, nextId: 1 },
-  slicing: { profile: { nozzleMm: 0.4, layerHeightMm: 0.2, firstLayerHeightMm: 0.2, walls: 2, topLayers: 4, bottomLayers: 4, infillPct: 15, material: 'PETG' }, piece: 0, busy: false, error: null, nozzleTable: null, result: null, layer: 0, layerMax: 0, colorBy: 'type', stale: false },
+  slicing: { profile: { nozzleMm: 0.4, layerHeightMm: 0.2, firstLayerHeightMm: 0.2, walls: 2, topLayers: 4, bottomLayers: 4, infillPct: 15, material: 'PETG' }, where: 'local', server: { url: lsGet('ff.slicer.url') || '', key: lsGet('ff.slicer.key') || '', remember: !!lsGet('ff.slicer.key'), engine: 'builtin', engines: ['builtin'], info: '' }, progress: '', piece: 0, busy: false, error: null, nozzleTable: null, result: null, layer: 0, layerMax: 0, colorBy: 'type', stale: false },
   selectedFace: 0,
   fold: 1,                             // 0 flat … 1 closed
   view: 'folded',                      // folded | plate
@@ -237,12 +239,37 @@ function show(gcode, parsed, profile, extra = {}) {
   state.slicing.layerMax = Math.max(0, parsed.layers.length - 1); state.slicing.layer = state.slicing.layerMax; state.slicing.stale = false;
   state.view = 'gcode'; state.version++;
 }
-export const runSlice = () => guarded(() => {
+function hingeIssue(prof) {          // a hinge thinner than the first layer is never printed
+  const th = raw.net?.params.hingeThicknessMm;
+  return th && prof.firstLayerHeightMm > th * 1.25 ? { level: 'warning', code: 'hingeVsLayer', message: `hinge flexure is ${th} mm but the first layer is ${prof.firstLayerHeightMm} mm — hinges will not print; use a first layer of about ${th} mm (a 0.2 mm nozzle with 0.1 mm layers) or thicken the hinge` } : null;
+}
+const serverClient = () => {
+  const S = state.slicing.server; if (!S.url) throw new Error('enter the slicing server URL');
+  lsSet('ff.slicer.url', S.url); lsSet('ff.slicer.key', S.remember ? S.key : '');
+  return createSlicingClient({ baseUrl: S.url, apiKey: S.key });
+};
+export async function checkServer() {
+  const S = state.slicing.server; S.info = '';
+  try { const h = await serverClient().health(); S.engines = h.engines; if (!h.engines.includes(S.engine)) S.engine = 'builtin'; S.info = `reachable · engines: ${h.engines.join(', ')} · ${h.running} running, ${h.queued} queued`; }
+  catch (e) { S.info = e.message; }
+}
+export function cancelSlice() { raw.abort?.abort(); }
+const runRemote = () => guarded(async () => {
+  const m = pieceManifold(); if (!m) throw new Error('nothing built yet');
+  const prof = sliceProfile(), client = serverClient(), ac = new AbortController(); raw.abort = ac;
+  try {
+    const r = await client.slice({ stl: pieceSTL(m, 'piece').bytes, profile: prof, engine: state.slicing.server.engine }, { signal: ac.signal,
+      onProgress: j => { state.slicing.progress = j.status === 'queued' ? `queued (#${j.queuePosition})` : j.status === 'running' ? `slicing on server ${Math.round((j.progress || 0) * 100)}%` : j.status; } });
+    const parsed = parseGcode(r.gcode);
+    show(r.gcode, parsed, prof, { engine: `hosted server (${r.summary.engine})`, profileIssues: [...(r.summary.profileIssues || []), ...(hingeIssue(prof) ? [hingeIssue(prof)] : [])], fitsBed: r.summary.stats?.fitsBed ?? null, lostVolumeMm3: r.summary.stats?.lostVolumeMm3 });
+  } finally { raw.abort = null; state.slicing.progress = ''; }
+});
+export const runSlice = () => state.slicing.where === 'server' ? runRemote() : runLocalSlice();
+const runLocalSlice = () => guarded(() => {
   const m = pieceManifold(); if (!m) throw new Error('nothing built yet');
   const prof = sliceProfile(), issues = validateProfile(prof);
   if (issues.some(i => i.level === 'error')) throw new Error(issues.filter(i => i.level === 'error').map(i => i.message).join('; '));
-  const th = raw.net?.params.hingeThicknessMm;       // a hinge thinner than the first layer is never printed
-  if (th && prof.firstLayerHeightMm > th * 1.25) issues.push({ level: 'warning', code: 'hingeVsLayer', message: `hinge flexure is ${th} mm but the first layer is ${prof.firstLayerHeightMm} mm — hinges will not print; use a first layer of about ${th} mm (a 0.2 mm nozzle with 0.1 mm layers) or thicken the hinge` });
+  const hi = hingeIssue(prof); if (hi) issues.push(hi);
   const g = generateGcode(raw.K, m, prof);
   const parsed = parseGcode(g.gcode);
   show(g.gcode, parsed, prof, { engine: 'built-in preview slicer', profileIssues: issues, fitsBed: g.stats.fitsBed, lostVolumeMm3: g.stats.lostAreaMm2, estTimeS: g.stats.timeS });

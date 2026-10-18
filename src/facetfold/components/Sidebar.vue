@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue';
-import { state, raw, setFaceColor, scheduleRebuild, toggleHinge, resetHinges, addMount, removeMount, setSurface, applySurfaceToAll, FONTS, addArt, removeArt, copyArtToAllFaces, setSvgFromFile, uploadFont, runNozzleAnalysis, runSlice, loadGcode, downloadGcode, suggestHingeWidth, PROCESSES } from '../store.js';
+import { state, raw, setFaceColor, scheduleRebuild, toggleHinge, resetHinges, addMount, removeMount, setSurface, applySurfaceToAll, FONTS, addArt, removeArt, copyArtToAllFaces, setSvgFromFile, uploadFont, runNozzleAnalysis, runSlice, loadGcode, downloadGcode, checkServer, cancelSlice, suggestHingeWidth, PROCESSES } from '../store.js';
 import { PATTERNS, assessSurface, diffractionAngleDeg, dispersionDeg, maxPitchForDispersionUm } from '../lib/surface.js';
 
 const P = state.params;
@@ -132,10 +132,20 @@ const portVertices = computed(() => Array.from({ length: state.vertexCount }, (_
       <label class="row">Walls / top / bottom <input type="number" min="1" v-model.number="SL.profile.walls" /><input type="number" min="0" v-model.number="SL.profile.topLayers" /><input type="number" min="0" v-model.number="SL.profile.bottomLayers" /></label>
       <label class="row">Infill % <input type="number" min="0" max="100" v-model.number="SL.profile.infillPct" /></label>
       <label class="row">Material <select v-model="SL.profile.material"><option>PETG</option><option>PLA</option><option>PETG-translucent</option></select></label>
-      <div class="row"><button :disabled="SL.busy" @click="runNozzleAnalysis">Analyze nozzles</button><button :disabled="SL.busy" @click="runSlice">Slice piece</button></div>
+      <label class="row">Slice on <select v-model="SL.where"><option value="local">this browser (preview slicer)</option><option value="server">hosted slicing server</option></select></label>
+      <template v-if="SL.where === 'server'">
+        <input class="wide" v-model="SL.server.url" placeholder="https://slicer.example.com" />
+        <input class="wide" type="password" autocomplete="off" v-model="SL.server.key" placeholder="API key" />
+        <label class="row"><span><input type="checkbox" v-model="SL.server.remember" /> remember key in this browser</span></label>
+        <div class="row"><button @click="checkServer">Check server</button>
+          <select v-model="SL.server.engine"><option v-for="e in SL.server.engines" :key="e" :value="e">{{ e }}</option></select></div>
+        <p v-if="SL.server.info" class="note">{{ SL.server.info }}</p>
+        <p class="note">The piece's STL and your settings are sent to that server; use only a server you trust. A remembered key is stored unencrypted in this browser.</p>
+      </template>
+      <div class="row"><button :disabled="SL.busy" @click="runNozzleAnalysis">Analyze nozzles</button><button :disabled="SL.busy" @click="runSlice">Slice piece</button><button v-if="SL.busy && SL.where === 'server'" @click="cancelSlice">Cancel</button></div>
       <div class="row"><label class="up">open G-code <input type="file" accept=".gcode,.gco,.nc,text/plain" @change="onGcode" /></label><button :disabled="!SL.result" @click="downloadGcode">Download G-code</button></div>
       <label class="row">Colour by <select v-model="SL.colorBy"><option value="type">feature type</option><option value="width">line width vs nozzle</option></select></label>
-      <p class="note">{{ SL.busy ? 'Working…' : SL.error || 'Slices the selected plate piece with a built-in preview slicer (walls, skin, rectilinear infill, single colour). For production, export the STL and use the same settings with your slicer, then open its G-code here to inspect it.' }}</p>
+      <p class="note">{{ SL.busy ? (SL.progress || 'Working…') : SL.error || 'Slices the selected plate piece with a built-in preview slicer (walls, skin, rectilinear infill, single colour). For production, export the STL and use the same settings with your slicer, then open its G-code here to inspect it.' }}</p>
     </section>
 
     <section class="blk">

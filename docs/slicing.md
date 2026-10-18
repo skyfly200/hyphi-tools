@@ -16,3 +16,20 @@ With the default FacetFold hinge (0.1 mm flexure), a 0.2 mm first layer never pr
 ## Limits
 
 Rough time and filament estimates; not verified against a real printer; the slicer runs on the main thread (seconds for a typical net); the 3MF multi-colour files are not sliced here, so colour changes are the external slicer's job.
+
+## Hosted / cloud slicing
+
+`@hyphi/slicer/server` is a dependency-free Node HTTP job server; `@hyphi/slicer` exports `createSlicingClient` (browser or Node).
+
+```
+SLICER_API_KEYS=<secret>[,<secret2>] SLICER_CORS_ORIGINS=https://your-app.example node scripts/slice-server.mjs
+docker build -f Dockerfile.slicer -t hyphi-slicer . && docker run -p 8787:8787 -e SLICER_API_KEYS=<secret> hyphi-slicer
+node scripts/slice.mjs part.stl --profile slicer-profiles/petg-0.4-standard.json --server https://slicer.example.com --key <secret> --nozzles
+```
+
+API (JSON, bearer key): `POST /v1/jobs` (raw STL + `X-Slice-Options` JSON header, or JSON with base64 `stl`) → `202 {id}`; `GET /v1/jobs/:id` (status, progress, summary, queue position); `GET /v1/jobs/:id/gcode`; `DELETE /v1/jobs/:id` (cancel/discard); `GET /v1/profiles`; `GET /health` (open).
+
+- **Engines:** `builtin` (worker thread) always; `prusa` when `PRUSA_SLICER` points at a PrusaSlicer CLI (run as a child process, profile passed as ini, then the G-code is analysed). The Docker image does not include PrusaSlicer.
+- **Safety:** refuses to start without API keys (`SLICER_ALLOW_ANON=1` for local development); constant-time key comparison; jobs are visible only to the key that made them; body-size, triangle, layer-count, per-client active-job and per-job timeout limits; CORS only for listed origins; no shell is ever used. It speaks plain HTTP, so run it behind TLS.
+- **FacetFold:** Slicing → "Slice on → hosted slicing server" sends the selected piece's STL and your settings, shows queue/progress, supports Cancel, and loads the returned G-code into the viewer. The key can optionally be remembered in the browser (stored unencrypted).
+- **Not provided:** I have not deployed a server anywhere; you host it. No accounts, billing, persistence across restarts (jobs are in memory and expire after an hour), or multi-node scaling. Verified here with local integration tests, including a stand-in external slicer script; the real PrusaSlicer engine and the Docker image have not been run.
