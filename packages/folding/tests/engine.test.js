@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   compileAssembly, evaluatePoses, applyPose, solveConfiguration, solveStepContinuation,
   bandPose, bandChord, rad, deg, dist,
-} from '../../src/folding/index.js';
+} from '../src/index.js';
 
 const near = (a, b, eps = 1e-6, msg) => assert.ok(Math.abs(a - b) <= eps, msg || `${a} !≈ ${b}`);
 const nearV = (a, b, eps = 1e-6) => a.forEach((x, i) => near(x, b[i], eps, `[${i}] ${x} !≈ ${b[i]} (${a} vs ${b})`));

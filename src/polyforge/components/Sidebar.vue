@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue';
 import { state, geometry, requiredWireCount, compatibleConnectors, setPolyhedron, setDesignRulesFromText } from '../store.js';
-import { listPolyhedra } from '../lib/polyhedra.js';
+import { listPolyhedra } from '@hyphi/polyhedra';
 import { listLEDs } from '../lib/leds.js';
 import { CONNECTOR_PLACEMENTS, listConnectorTabs } from '../lib/connectors.js';
 import { bridgeTraceCount, computeBridgeWidthMm, PANEL_SHAPES, INSCRIBED_NGON } from '../lib/layout.js';

@@ -7,8 +7,8 @@
 //
 // Classification map: { [creaseId or edgeId]: 'fold' | 'join' | 'boundary' | 'bendable' }
 
-import { cloneModel, ensureIds, creaseIdOf } from '../../foldstudio/lib/model.js';
-import { computeFaces } from '../../foldstudio/lib/faces.js';
+import { cloneModel, ensureIds, creaseIdOf } from './model.js';
+import { computeFaces } from './faces.js';
 
 const edgeKey = (a, b) => (a < b ? `${a},${b}` : `${b},${a}`);
 

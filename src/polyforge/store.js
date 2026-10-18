@@ -1,9 +1,8 @@
 // PolyForge reactive store. Single source of truth for the Vue app.
 import { reactive, computed, watch } from 'vue';
-import { POLYHEDRA, buildEdges } from './lib/polyhedra.js';
+import { POLYHEDRA, buildEdges, unfold } from '@hyphi/polyhedra';
 import { LEDS } from './lib/leds.js';
 import { CONNECTORS } from './lib/connectors.js';
-import { unfold } from './lib/unfold.js';
 import { savePatch, loadPatch, deletePatch, listPatches, exportPatchJSON, parsePatchJSON } from './lib/patches.js';
 
 const PREFS_KEY = 'polyforge.prefs.v1';

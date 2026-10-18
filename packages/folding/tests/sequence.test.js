@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compileAssembly, validateSequence, solveSequence, rad, deg, stepCacheKey } from '../../src/folding/index.js';
+import { compileAssembly, validateSequence, solveSequence, rad, deg, stepCacheKey } from '../src/index.js';
 
 function vertex4() {
   const o = [10, 10], P = [[20, 10], [10, 20], [0, 10], [10, 0]], C = [[20, 20], [0, 20], [0, 0], [20, 0]];

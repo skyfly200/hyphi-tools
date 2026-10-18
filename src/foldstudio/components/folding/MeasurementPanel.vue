@@ -2,7 +2,7 @@
 // Feature-to-feature distances, overall envelope and a section plane readout.
 import { ref, computed } from 'vue';
 import { fs, raw, measure, runCollisionCheck, poses } from '../../foldingStore.js';
-import { sectionSegments, chainSegments, radialExtents } from '../../../folding/collision/validation.js';
+import { sectionSegments, chainSegments, radialExtents } from '@hyphi/folding/collision';
 
 const A = ref({ region: '', x: 0, y: 0 }), B = ref({ region: '', x: 0, y: 0 });
 const result = ref(null);

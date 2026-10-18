@@ -1,4 +1,4 @@
-// Origami-lily recipe for the 100 mm FoldStudio pattern (tests/folding/fixtures/lily.fold).
+// Origami-lily recipe for the 100 mm FoldStudio pattern (tests/foldstudio/fixtures/lily.fold).
 //
 // Selects creases by GEOMETRY (not by edge index), so it keeps working if the pattern
 // is re-exported. Decisions encoded here came from the designer:
@@ -10,7 +10,7 @@
 // preliminary base at midline = 90°. Phase 2 (outer folds inward) is NOT reachable with
 // rigid panels in this file; it needs the creases still missing from the pattern.
 
-import { ensureIds, cloneModel, creaseIdOf } from '../../foldstudio/lib/model.js';
+import { ensureIds, cloneModel, creaseIdOf } from '../lib/model.js';
 
 const near = (a, b, eps = 1e-6) => Math.abs(a - b) < eps;
 

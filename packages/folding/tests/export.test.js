@@ -4,8 +4,8 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { compileAssembly, solveSequence, rad, evaluatePoses } from '../../src/folding/index.js';
-import { buildMesh, meshStats, meshBounds, exportGLB, exportSTL, parseSTL, buildAnimationBundle, refineSamples, foldFrameFor } from '../../src/folding/export/index.js';
+import { compileAssembly, solveSequence, rad, evaluatePoses } from '../src/index.js';
+import { buildMesh, meshStats, meshBounds, exportGLB, exportSTL, parseSTL, buildAnimationBundle, refineSamples, foldFrameFor } from '../src/export/index.js';
 
 const sq = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
 const near = (a, b, e = 1e-6, m) => assert.ok(Math.abs(a - b) <= e, m || `${a} !≈ ${b}`);
@@ -118,7 +118,7 @@ test('animation bundle is consistent and Blender-side scale matches the source m
   const dir = mkdtempSync(join(tmpdir(), 'bundle-'));
   try {
     for (const [name, text] of Object.entries(bundle)) writeFileSync(join(dir, name), text);
-    const out = JSON.parse(execFileSync('python3', ['tools/blender/import_folding_bundle.py', '--check', dir], { encoding: 'utf8' }));
+    const out = JSON.parse(execFileSync('python3', ['packages/folding/tools/blender/import_folding_bundle.py', '--check', dir], { encoding: 'utf8' }));
     assert.equal(out.units, 'mm'); assert.equal(out.configs, cfg.length); assert.equal(out.vertexCount, topo.vertexCount);
     const last = cfg.at(-1), mine = meshBounds({ positions: Float64Array.from(last.positions) }).size;
     out.extentMm.at(-1).forEach((v, k) => near(v, mine[k], 1e-6));

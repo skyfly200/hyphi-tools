@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { foldToModel } from '../../src/foldstudio/lib/fold-io.js';
+import { foldStudioToAssembly } from '../../src/foldstudio/lib/foldingAdapter.js';
 import {
-  foldStudioToAssembly, polyForgeToAssembly, legacyAnglesToEngine, compileAssembly, evaluatePoses, applyPose, rad,
-} from '../../src/folding/index.js';
+  polyForgeToAssembly, legacyAnglesToEngine, compileAssembly, evaluatePoses, applyPose, rad,
+} from '@hyphi/folding';
 
 const lily = () => foldToModel(JSON.parse(readFileSync(new URL('./fixtures/lily.fold', import.meta.url), 'utf8')));
 

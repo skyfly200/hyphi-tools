@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { foldToModel } from '../../src/foldstudio/lib/fold-io.js';
 import { ensureIds, cloneModel } from '../../src/foldstudio/lib/model.js';
-import { foldStudioToAssembly, compileAssembly, solveSequence, evaluatePoses, deg, targetConnectionIds, validateSequence } from '../../src/folding/index.js';
-import { lilyPreset } from '../../src/folding/presets/lily.js';
-import { checkCollisions, envelope } from '../../src/folding/collision/validation.js';
+import { foldStudioToAssembly } from '../../src/foldstudio/lib/foldingAdapter.js';
+import { compileAssembly, solveSequence, evaluatePoses, deg, targetConnectionIds, validateSequence } from '@hyphi/folding';
+import { lilyPreset } from '../../src/foldstudio/presets/lily.js';
+import { checkCollisions, envelope } from '@hyphi/folding/collision';
 
 const model = () => foldToModel(JSON.parse(readFileSync(new URL('./fixtures/lily.fold', import.meta.url), 'utf8')));
 function setup() {

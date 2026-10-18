@@ -2,13 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   compileAssembly, evaluatePoses, solveConfiguration, rad, deg, applyPose,
-} from '../../src/folding/index.js';
-import { triangulatePolygon } from '../../src/folding/collision/mesh.js';
-import { triTriClosest } from '../../src/folding/collision/narrowphase.js';
+} from '../src/index.js';
+import { triangulatePolygon } from '../src/collision/mesh.js';
+import { triTriClosest } from '../src/collision/narrowphase.js';
 import {
   checkCollisions, checkPath, sectionSegments, chainSegments, envelope, radialExtents, measureFeatures, checkObstacles,
-} from '../../src/folding/collision/validation.js';
-import { expandHingeWidths } from '../../src/folding/hinges.js';
+} from '../src/collision/validation.js';
+import { expandHingeWidths } from '../src/hinges.js';
 
 const near = (a, b, e = 1e-6, m) => assert.ok(Math.abs(a - b) <= e, m || `${a} !≈ ${b}`);
 const sq = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];

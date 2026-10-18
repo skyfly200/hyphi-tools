@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   compileAssembly, solveConfiguration, evaluatePoses, applyPose, rad, deg,
-} from '../../src/folding/index.js';
-import { bandPose, segmentedEnd, bendProfile, bandCenterline, bandMaxCurvature, bandAngleLimit } from '../../src/folding/bends/circular.js';
-import { bandSurfaceGrid, gridDistortion, meshDistortion, bendStrainEstimate } from '../../src/folding/bends/surface.js';
+} from '../src/index.js';
+import { bandPose, segmentedEnd, bendProfile, bandCenterline, bandMaxCurvature, bandAngleLimit } from '../src/bends/circular.js';
+import { bandSurfaceGrid, gridDistortion, meshDistortion, bendStrainEstimate } from '../src/bends/surface.js';
 
 const near = (a, b, e = 1e-9, m) => assert.ok(Math.abs(a - b) <= e, m || `${a} !≈ ${b}`);
 const frame = (extra = {}) => ({ o: [10, 0, 0], u: [0, -1, 0], v: [1, 0, 0], lengthMm: 12, ...extra });

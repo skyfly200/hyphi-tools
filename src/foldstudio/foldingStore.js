@@ -12,12 +12,13 @@ import { reactive, markRaw, watch } from 'vue';
 import { state, pushHistory } from './store.js';
 import { ensureIds } from './lib/model.js';
 import {
-  compileAssembly, evaluatePoses, foldStudioToAssembly, expandHingeWidths, SolverClient,
+  compileAssembly, evaluatePoses, expandHingeWidths, SolverClient,
   validateSequence, SEQUENCE_VERSION, solveConfiguration, rad, deg, targetConnectionIds,
-} from '../folding/index.js';
-import { checkCollisions, envelope, measureFeatures } from '../folding/collision/validation.js';
-import { lilyPreset } from '../folding/presets/lily.js';
-import { buildMesh, meshStats, exportGLB, exportSTL, buildAnimationBundle } from '../folding/export/index.js';
+} from '@hyphi/folding';
+import { checkCollisions, envelope, measureFeatures } from '@hyphi/folding/collision';
+import { lilyPreset } from './presets/lily.js';
+import { foldStudioToAssembly } from './lib/foldingAdapter.js';
+import { buildMesh, meshStats, exportGLB, exportSTL, buildAnimationBundle } from '@hyphi/folding/export';
 
 export const DEFAULT_PHYSICAL = Object.freeze({ sheetMm: 100, panelThicknessMm: 0.3, hingeThicknessMm: 0.1, hingeWidthMm: 0 });
 

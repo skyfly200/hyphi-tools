@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SolverClient, createInlineTransport } from '../../src/folding/worker-client.js';
-import { createSolverService } from '../../src/folding/worker-core.js';
-import { rad } from '../../src/folding/index.js';
+import { SolverClient, createInlineTransport } from '../src/worker-client.js';
+import { createSolverService } from '../src/worker-core.js';
+import { rad } from '../src/index.js';
 
 function vertex4() {
   const o = [10, 10], P = [[20, 10], [10, 20], [0, 10], [10, 0]], C = [[20, 20], [0, 20], [0, 0], [20, 0]];

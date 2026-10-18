@@ -7,11 +7,10 @@ export { compileAssembly, geometryHash, connectionPose, CONNECTION_TYPES } from 
 export { evaluatePoses, closureResiduals } from './kinematics.js';
 export { solveConfiguration, DEFAULT_TOLERANCES } from './solver/backend.js';
 export { solveStepContinuation, stepGenerator } from './solver/continuation.js';
-export { levenbergMarquardt } from './solver/levenberg-marquardt.js';
+export { levenbergMarquardt, ConstraintSystem } from '@hyphi/solver-core';
 export { validateSequence, resolveStep, solveSequence, stepCacheKey, targetConnectionIds, SEQUENCE_VERSION } from './sequence.js';
 export { emptyFoldform, attachSequence, readFoldform } from './serialization.js';
-export { foldStudioToAssembly } from './adapters/foldstudio.js';
-export { polyForgeToAssembly, legacyAnglesToEngine } from './adapters/polyforge.js';
+export { polyForgeToAssembly, polyForgeToAssembly as netToAssembly, legacyAnglesToEngine } from './adapters/polyforge.js';
 export { bandCenterline, bendProfile, bandMaxCurvature, bandAngleLimit } from './bends/circular.js';
 export { bandSurfaceGrid, gridDistortion, meshDistortion, bendStrainEstimate } from './bends/surface.js';
 export { checkCollisions, checkPath, sectionSegments, chainSegments, envelope, radialExtents, measureFeatures, checkObstacles } from './collision/validation.js';

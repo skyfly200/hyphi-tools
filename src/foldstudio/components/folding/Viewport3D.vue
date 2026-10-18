@@ -5,8 +5,8 @@ import { ref, onMounted, onBeforeUnmount, watch } from 'vue';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { fs, raw, selectedStep, connectionModes, poses } from '../../foldingStore.js';
-import { buildMesh } from '../../../folding/export/index.js';
-import { applyPose } from '../../../folding/math.js';
+import { buildMesh } from '@hyphi/folding/export';
+import { applyPose } from '@hyphi/folding';
 
 const host = ref(null);
 let renderer, scene, camera, controls, mesh, hingeLines, flatLines, collisionPts, ro, anim = 0, partOfTri = [];

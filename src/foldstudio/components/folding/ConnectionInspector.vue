@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue';
 import { fs, raw, connectionModes, derivedGroups } from '../../foldingStore.js';
-import { deg } from '../../../folding/math.js';
+import { deg } from '@hyphi/folding';
 
 const conn = computed(() => { fs.version; return fs.connections.find(c => c.id === fs.selected.connId) || null; });
 const angle = computed(() => {
