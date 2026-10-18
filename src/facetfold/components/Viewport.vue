@@ -47,8 +47,13 @@ function rebuild() {
     const poses = evaluatePoses(compiled, angles);
     const mat = id => { const P = poses.get(`f${id}`), R = P.R, t = P.t; return new THREE.Matrix4().set(R[0], R[1], R[2], t[0], R[3], R[4], R[5], t[1], R[6], R[7], R[8], t[2], 0, 0, 0, 1); };
     for (const [fid, mesh] of M.panels) {
+      const pieces = M.facePieces?.get(fid);                      // faces with artwork render as their colour pieces
+      if (pieces) {
+        for (const p of pieces) { const o = new THREE.Mesh(geom(p.mesh), new THREE.MeshStandardMaterial({ color: new THREE.Color(state.colors.palette[p.color]?.hex ?? '#888888'), roughness: 0.55, transparent: true, opacity: 0.95, side: THREE.DoubleSide })); o.matrixAutoUpdate = false; o.matrix.copy(mat(fid)); o.userData.face = fid; group.add(o); }
+        continue;
+      }
       const sel = fid === state.selectedFace, isPort = raw.solid?.portFace === fid;
-      const painted = state.colors.mode !== 'single' && raw.faceColors?.length;
+      const painted = (state.colors.mode !== 'single' || raw.bodies?.length) && raw.faceColors?.length;
       const col = painted ? new THREE.Color(state.colors.palette[raw.faceColors[fid]]?.hex ?? '#888888') : isPort ? new THREE.Color(0x3fbf7f) : PAL(fid);
       const o = new THREE.Mesh(geom(mesh), new THREE.MeshStandardMaterial({ color: sel ? col.clone().lerp(new THREE.Color(0xffffff), 0.5) : col, roughness: 0.55, transparent: true, opacity: 0.9, side: THREE.DoubleSide }));
       o.matrixAutoUpdate = false; o.matrix.copy(mat(fid)); o.userData.face = fid; group.add(o);

@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue';
-import { state, raw, setFaceColor, scheduleRebuild, toggleHinge, resetHinges, addMount, removeMount, setSurface, applySurfaceToAll, suggestHingeWidth, PROCESSES } from '../store.js';
+import { state, raw, setFaceColor, scheduleRebuild, toggleHinge, resetHinges, addMount, removeMount, setSurface, applySurfaceToAll, FONTS, addArt, removeArt, copyArtToAllFaces, setSvgFromFile, uploadFont, suggestHingeWidth, PROCESSES } from '../store.js';
 import { PATTERNS, assessSurface, diffractionAngleDeg, dispersionDeg, maxPitchForDispersionUm } from '../lib/surface.js';
 
 const P = state.params;
@@ -15,6 +15,11 @@ const C = state.colors;
 const faceChips = computed(() => (state.version, raw.faceColors || []));
 const usedColors = computed(() => new Set(faceChips.value).size);
 const hexOf = i => C.palette[i]?.hex ?? '#888';
+const faceArt = computed(() => state.art.layers.filter(l => l.face === state.selectedFace));
+const slots = computed(() => C.palette.slice(0, Math.max(C.count, 2)));
+const infoOf = l => state.art.info[l.id] || {};
+const onSvg = (l, e) => { const f = e.target.files[0]; if (f) setSvgFromFile(l.id, f); e.target.value = ''; };
+const onFont = e => { const f = e.target.files[0]; if (f) uploadFont(f); e.target.value = ''; };
 const hingeCount = computed(() => state.edgeList.filter(e => e.kind === 'hinge').length);
 const portVertices = computed(() => Array.from({ length: state.vertexCount }, (_, i) => i));
 </script>
@@ -85,6 +90,39 @@ const portVertices = computed(() => Array.from({ length: state.vertexCount }, (_
     </section>
 
     <section class="blk">
+      <h3>Art (SVG / text) — face {{ state.selectedFace }}</h3>
+      <div class="pal"><div v-for="(c, i) in slots" :key="i" class="sw"><input type="color" v-model="c.hex" @input="edit" :title="c.name" /><span class="nm">{{ i }}</span></div></div>
+      <div class="row"><button @click="addArt('text')">+ Text</button><button @click="addArt('svg')">+ SVG</button>
+        <label class="up">font file <input type="file" accept=".ttf,.otf,.woff" @change="onFont" /></label></div>
+      <div v-for="l in faceArt" :key="l.id" class="art">
+        <div class="row"><b>{{ l.type }}</b><button @click="l.open = !l.open">{{ l.open ? '–' : '+' }}</button><button @click="copyArtToAllFaces(l.id)" title="copy to every other face">all faces</button><button @click="removeArt(l.id)">✕</button></div>
+        <template v-if="l.open">
+          <template v-if="l.type === 'text'">
+            <input class="wide" v-model="l.text" @input="edit" />
+            <label class="row">Font <select v-model="l.font" @change="edit"><option v-for="f in FONTS" :key="f.id" :value="f.id">{{ f.label }}</option><option v-if="state.art.customFontName" value="custom">{{ state.art.customFontName }}</option></select></label>
+            <label class="row">Size mm <input type="number" min="1" step="0.5" v-model.number="l.sizeMm" @input="edit" /></label>
+          </template>
+          <template v-else>
+            <input type="file" accept=".svg,image/svg+xml" @change="onSvg(l, $event)" />
+            <textarea class="wide" rows="3" v-model="l.svg" @input="l.slotMap = {}; edit()" placeholder="paste SVG markup"></textarea>
+            <label class="row">Width mm <input type="number" min="1" step="0.5" v-model.number="l.widthMm" @input="edit" /></label>
+            <div v-if="infoOf(l).colors?.length" class="row">SVG colours →
+              <span v-for="c in infoOf(l).colors" :key="c" class="map"><i :style="{ background: c }"></i>
+                <select :value="l.slotMap[c] ?? ''" @change="l.slotMap = { ...l.slotMap, [c]: $event.target.value === '' ? undefined : +$event.target.value }; edit()"><option value="">nearest</option><option v-for="(p, i) in slots" :key="i" :value="i">{{ i }}</option></select></span></div>
+          </template>
+          <label class="row">Colour (default) <select v-model.number="l.slot" @change="edit"><option v-for="(p, i) in slots" :key="i" :value="i">{{ i }} {{ p.name }}</option></select></label>
+          <label class="row">X / Y mm <input type="number" step="0.5" v-model.number="l.dx" @input="edit" /><input type="number" step="0.5" v-model.number="l.dy" @input="edit" /></label>
+          <label class="row">Rotate° / scale <input type="number" v-model.number="l.rotDeg" @input="edit" /><input type="number" step="0.1" min="0.1" v-model.number="l.scale" @input="edit" /></label>
+          <label class="row">Depth mm <input type="number" step="0.1" min="0.1" v-model.number="l.depthMm" :disabled="l.through" @input="edit" /> <label><input type="checkbox" v-model="l.through" @change="edit" /> through</label></label>
+          <label class="row">Side <select v-model="l.side" @change="edit"><option value="outer">outer face (print bed)</option><option value="inner">inner side</option></select></label>
+          <p v-if="infoOf(l).error" class="note err">{{ infoOf(l).error }}</p>
+          <p v-for="w in infoOf(l).warnings || []" :key="w" class="note">{{ w }}</p>
+        </template>
+      </div>
+      <p class="note">Select a face, add text or an SVG. Art is inlaid into the panel from the print-bed side (reads correctly from outside), each colour as its own body. Thin strokes below ~2 nozzle widths are flagged.</p>
+    </section>
+
+    <section class="blk">
       <h3>Outer surface</h3>
       <label class="row">Build sheet <select v-model="state.bedFinish" @change="edit"><option value="smooth">smooth</option><option value="textured">textured (diffuse)</option></select></label>
       <label class="row">Printer <select v-model="state.process" @change="edit"><option v-for="p in PROCESSES" :key="p.id" :value="p.id">{{ p.label }}</option></select></label>
@@ -107,6 +145,7 @@ const portVertices = computed(() => Array.from({ length: state.vertexCount }, (_
 </template>
 
 <style scoped>
+.art{border:1px solid var(--line,#444);border-radius:6px;padding:6px;margin:6px 0}.art .wide{width:100%;box-sizing:border-box}.map{display:inline-flex;gap:2px;align-items:center;margin-right:6px}.map i{width:12px;height:12px;border:1px solid #888;display:inline-block}.err{color:#e5484d}.up{font-size:11px}
 .edges { display:flex; flex-wrap:wrap; gap:4px; max-height:140px; overflow:auto; }
 .e { padding:2px 6px; font:11px 'DM Mono',monospace; display:inline-flex; gap:4px; } .e i { font-style:normal; opacity:.7; }
 .e.hinge { border-color:var(--ac); } .e.seam { opacity:.85; }

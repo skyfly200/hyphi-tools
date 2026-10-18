@@ -7,6 +7,7 @@ import { planSnaps, wallPoint, DEFAULT_SNAP } from './snap.js';
 import { centroid2, inscribedRadius } from './lighting.js';
 import { faceVectors, assessSurface } from './surface.js';
 import { hingeColor } from './colors.js';
+import { PROCESSES } from './surface.js';
 
 const SEG = 48;
 const deg = r => (r * 180) / Math.PI;
@@ -171,19 +172,85 @@ export function describe(m) {
     min: b.min, max: b.max, size: [b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]] };
 }
 
+const EPS_VOL = 1e-6;
+
+/**
+ * Artwork (SVG / text) as colour inlays on a face.
+ * art[faceId] = [ { groups:[{ slot, fillRule, polygons (plate coords) }], depthMm | 'through', side:'outer'|'inner' } ]
+ * An inlay REPLACES the panel material inside the shape: from the bed-side surface down to `depthMm` ('outer', the
+ * default, keeping the outer surface flat), from the inner surface ('inner'), or the full thickness ('through').
+ * Later layers win where shapes overlap. Everything returned is disjoint and sums to the original panel.
+ * @returns {Array<{ color:number, manifold }>} the base remainder first (colour = base), then the inlays
+ */
+export function facePieces(K, panel, baseColor, layers, t) {
+  const { Manifold, CrossSection } = K;
+  const prisms = [];
+  for (const L of layers || []) {
+    const thru = L.depthMm === 'through' || L.depthMm >= t - 1e-6, d = thru ? t : L.depthMm;
+    for (const g of L.groups) {
+      if (!g.polygons.length) continue;
+      let cs; try { cs = new CrossSection(g.polygons, g.fillRule || 'NonZero'); } catch { continue; }
+      if (cs.isEmpty()) continue;
+      const lo = thru ? -0.05 : L.side === 'inner' ? t - d : -0.05, hi = thru ? t + 0.05 : L.side === 'inner' ? t + 0.05 : d;
+      prisms.push({ slot: g.slot, prism: Manifold.extrude(cs, hi - lo).translate([0, 0, lo]) });
+    }
+  }
+  if (!prisms.length) return [{ color: baseColor, manifold: panel }];
+  const pieces = [];
+  prisms.forEach((p, k) => {
+    const later = prisms.slice(k + 1).map(q => q.prism);
+    const region = later.length ? p.prism.subtract(Manifold.union(later)) : p.prism;
+    const m = panel.intersect(region);
+    if (m.volume() > EPS_VOL) pieces.push({ color: p.slot, manifold: m });
+  });
+  const rest = panel.subtract(Manifold.union(prisms.map(p => p.prism)));
+  if (rest.volume() > EPS_VOL) pieces.unshift({ color: baseColor, manifold: rest });
+  return pieces;
+}
+
+/**
+ * Check artwork against the face and the printer: how much is clipped by the panel edge, and how much fine detail is
+ * thinner than the printer can lay down (morphological opening by half the minimum line width).
+ */
+export function artDiagnostics(K, net, profiles, art, process = 'fdm04') {
+  const { CrossSection } = K, issues = [], P = PROCESSES[process], minLine = (P?.minPitchUm ?? 800) / 2000;   // mm
+  const t = net.params.panelThicknessMm;
+  for (const [fidStr, layers] of Object.entries(art || {})) {
+    const fid = Number(fidStr), prof = profiles[fid]; if (!prof?.valid) continue;
+    const bottom = new CrossSection([prof.bottom], 'NonZero');
+    layers.forEach((L, li) => {
+      let area = 0, inside = 0, lost = 0;
+      for (const g of L.groups) {
+        if (!g.polygons.length) continue;
+        let cs; try { cs = new CrossSection(g.polygons, g.fillRule || 'NonZero'); } catch { continue; }
+        const a = cs.area(); if (a <= 0) continue;
+        area += a; inside += cs.intersect(bottom).area();
+        const opened = cs.offset(-minLine / 2, 'Round', 2, 12).offset(minLine / 2, 'Round', 2, 12);
+        lost += a - Math.min(a, opened.area());
+      }
+      if (area <= 0) { issues.push({ level: 'warning', code: 'artEmpty', face: fid, message: `face ${fid} layer ${li + 1}: the artwork produced no shape` }); return; }
+      if (inside / area < 0.98) issues.push({ level: 'warning', code: 'artClipped', face: fid, message: `face ${fid} layer ${li + 1}: ${((1 - inside / area) * 100).toFixed(0)}% of the artwork lies outside the panel and is cut off. Reduce its size or move it.` });
+      if (lost / area > 0.03) issues.push({ level: 'warning', code: 'artFine', face: fid, message: `face ${fid} layer ${li + 1}: ${((lost / area) * 100).toFixed(0)}% of the artwork is thinner than ${minLine.toFixed(2)} mm and will not print on this printer. Enlarge it, thicken strokes, or use a finer printer.` });
+      const d = L.depthMm === 'through' ? t : L.depthMm;
+      if (d < 0.2) issues.push({ level: 'warning', code: 'artShallow', face: fid, message: `face ${fid} layer ${li + 1}: an inlay ${d} mm deep is thinner than one or two layers; colour may look patchy. Use ≥ 0.4 mm.` });
+    });
+  }
+  return issues;
+}
+
 /**
  * Split each printed piece into one DISJOINT body per colour (same plate coordinates).
- * Panels keep their features; hinge strips take their colour from `hingeMode` and have the overlap into the panels
- * removed, so no two bodies share volume (multi-material slicers want exactly that).
+ * Panels keep their features; artwork inlays take their own colour; hinge strips take their colour from `hingeMode`
+ * and have the overlap into the panels removed, so no two bodies share volume.
  * @returns {Array<{ piece:number, color:number, manifold }>}
  */
-export function splitByColor(K, plate, net, colors, hingeMode = 'parent') {
-  const { Manifold } = K, bodies = [];
+export function splitByColor(K, plate, net, colors, hingeMode = 'parent', art = {}, cache = null) {
+  const { Manifold } = K, bodies = [], t = net.params.panelThicknessMm;
   net.components.forEach((comp, piece) => {
     const byColor = new Map();
     const add = (c, m) => { if (!byColor.has(c)) byColor.set(c, []); byColor.get(c).push(m); };
     const panels = comp.faces.filter(f => plate.panels.has(f));
-    for (const f of panels) add(colors[f], plate.panels.get(f));
+    for (const f of panels) { const ps = facePieces(K, plate.panels.get(f), colors[f], art[f], t); if (cache) cache.set(f, ps); for (const p of ps) add(p.color, p.manifold); }
     const panelUnion = Manifold.union(panels.map(f => plate.panels.get(f)));
     net.hinges.forEach((h, i) => {
       if (!plate.strips[i] || !comp.faces.includes(h.parent)) return;

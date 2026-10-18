@@ -7,7 +7,10 @@ import { POLYHEDRA, EXTRA_POLYHEDRA, ensureOutward } from '@hyphi/polyhedra';
 import { loadKernel, meshOf } from './lib/kernel.js';
 import { buildNet, DEFAULT_PARAMS, defaultHingeKeys, analyzeEdges } from './lib/net.js';
 import { verifyNet } from './lib/verify.js';
-import { buildPlate, splitByColor } from './lib/solid.js';
+import { buildPlate, splitByColor, artDiagnostics } from './lib/solid.js';
+import { parseSvg, textShapes, loadFont, resolveLayer } from './lib/art.js';
+import openSansUrl from '@fontsource/open-sans/files/open-sans-latin-700-normal.woff?url';
+import montserratUrl from '@fontsource/montserrat/files/montserrat-latin-700-normal.woff?url';
 import { assignColors, colorChangeEstimate, DEFAULT_PALETTE } from './lib/colors.js';
 import { faceMountSpec, tieSlotSpecs, truncateVertex } from './lib/lighting.js';
 import { buildReport, pieceSTL, minHingeWidthMm, export3MF } from './lib/export.js';
@@ -30,6 +33,7 @@ export const state = reactive({
   bedFinish: 'smooth',                 // smooth | textured (describes the build sheet; no geometry)
   surfaces: {},                        // face id -> { kind, pitchMm, angleDeg, depthMm, intent }
   colors: { mode: 'single', count: 3, palette: DEFAULT_PALETTE.map(c => ({ ...c })), manual: {}, hingeMode: 'parent', hingeSlot: 0, extruders: 4, active: 0 },
+  art: { layers: [], info: {}, customFontName: null, nextId: 1 },
   selectedFace: 0,
   fold: 1,                             // 0 flat … 1 closed
   view: 'folded',                      // folded | plate
@@ -40,7 +44,7 @@ export const state = reactive({
   faceCount: 0, edgeList: [], vertexCount: 0,
 });
 
-export const raw = markRaw({ net: null, verify: null, plate: null, K: null, meshes: null, solid: null, bodies: [], faceColors: [] });
+export const raw = markRaw({ fonts: {}, shapeCache: new Map(), net: null, verify: null, plate: null, K: null, meshes: null, solid: null, bodies: [], faceColors: [] });
 let runId = 0, timer = null;
 
 const shortest = s => Math.min(...s.faces.flatMap(f => f.map((v, i) => Math.hypot(...[0, 1, 2].map(k => s.vertices[v][k] - s.vertices[f[(i + 1) % f.length]][k])))));
@@ -57,6 +61,38 @@ function currentSolid() {
   }
   return { solid: s, portFace: null, scaled: false };
 }
+
+export const FONTS = [{ id: 'open-sans', label: 'Open Sans Bold', url: openSansUrl }, { id: 'montserrat', label: 'Montserrat Bold', url: montserratUrl }];
+async function getFont(id) {
+  if (raw.fonts[id]) return raw.fonts[id];
+  const f = FONTS.find(x => x.id === id); if (!f) throw new Error('font not loaded — upload it again');
+  raw.fonts[id] = loadFont(await (await fetch(f.url)).arrayBuffer());
+  return raw.fonts[id];
+}
+export async function uploadFont(file) {
+  try { raw.fonts.custom = loadFont(await file.arrayBuffer()); state.art.customFontName = file.name; state.error = null; scheduleRebuild(0); }
+  catch (e) { state.art.customFontName = null; state.error = e.message; }
+}
+async function shapesFor(L) {
+  const key = L.type === 'text' ? JSON.stringify(['t', L.text, L.font, L.sizeMm, L.align, state.art.customFontName]) : JSON.stringify(['s', L.svg, L.widthMm]);
+  if (raw.shapeCache.has(key)) return raw.shapeCache.get(key);
+  const r = L.type === 'text' ? textShapes(await getFont(L.font), L.text, { sizeMm: L.sizeMm, align: L.align }) : parseSvg(L.svg, { widthMm: L.widthMm });
+  if (raw.shapeCache.size > 40) raw.shapeCache.clear();
+  raw.shapeCache.set(key, r); return r;
+}
+export function addArt(type, extra = {}) {
+  const id = state.art.nextId++;
+  const base = { id, face: state.selectedFace, type, slot: Math.min(1, state.colors.palette.length - 1), dx: 0, dy: 0, rotDeg: 0, scale: 1, depthMm: 0.8, through: false, side: 'outer', slotMap: {}, open: true };
+  state.art.layers.push(type === 'text' ? { ...base, text: 'HELLO', font: 'open-sans', sizeMm: 10, align: 'center', ...extra } : { ...base, svg: '', widthMm: 20, ...extra });
+  scheduleRebuild(0); return id;
+}
+export function removeArt(id) { state.art.layers = state.art.layers.filter(l => l.id !== id); delete state.art.info[id]; scheduleRebuild(0); }
+export function copyArtToAllFaces(id) {
+  const L = state.art.layers.find(l => l.id === id); if (!L) return;
+  for (let f = 0; f < state.faceCount; f++) if (f !== L.face) state.art.layers.push({ ...JSON.parse(JSON.stringify(L)), id: state.art.nextId++, face: f });
+  scheduleRebuild(0);
+}
+export async function setSvgFromFile(id, file) { const L = state.art.layers.find(l => l.id === id); if (L) { L.svg = await file.text(); L.slotMap = {}; scheduleRebuild(0); } }
 
 export async function rebuild() {
   const id = ++runId;
@@ -83,11 +119,28 @@ export async function rebuild() {
 
     const plate = buildPlate(raw.K, net, features);
     if (id !== runId) { return; }                                    // a newer edit superseded this build
-    // multi-colour: one disjoint body per colour (empty when printing a single colour)
-    const C = state.colors, assign = assignColors(net, { mode: C.mode, count: C.count, manual: C.manual });
+    // artwork layers (SVG / text) -> inlay groups per face
+    const artByFace = {}, artInfo = {}, C = state.colors;
+    for (const L of state.art.layers) {
+      if (L.face >= net.faces.length) continue;
+      try {
+        const sh = await shapesFor(L);
+        const groups = resolveLayer(sh.shapes, net.faces[L.face], { placement: { dx: L.dx, dy: L.dy, rotDeg: L.rotDeg, scale: L.scale }, slotMap: L.slotMap, defaultSlot: L.slot, palette: C.palette });
+        (artByFace[L.face] ||= []).push({ groups, depthMm: L.through ? 'through' : L.depthMm, side: L.side });
+        artInfo[L.id] = { colors: sh.colors, warnings: sh.warnings, widthMm: sh.widthMm, heightMm: sh.heightMm, slots: groups.map(g => g.slot) };
+      } catch (e) { artInfo[L.id] = { error: e.message }; }
+    }
+    if (id !== runId) return;
+    state.art.info = artInfo;
+    const hasArt = Object.keys(artByFace).length > 0;
+    // multi-colour: one disjoint body per colour (empty when printing one colour with no artwork)
+    const assign = assignColors(net, { mode: C.mode, count: C.count, manual: C.manual });
     const hingeMode = C.hingeMode === 'own' ? { slot: C.hingeSlot } : C.hingeMode;
-    const bodies = C.mode === 'single' ? [] : splitByColor(raw.K, plate, net, assign.colors, hingeMode);
+    const pieceCache = new Map();
+    const bodies = C.mode === 'single' && !hasArt ? [] : splitByColor(raw.K, plate, net, assign.colors, hingeMode, artByFace, pieceCache);
+    const artIssues = hasArt ? artDiagnostics(raw.K, net, plate.profiles, artByFace, state.process) : [];
     const meshes = {
+      facePieces: new Map([...pieceCache].filter(([f]) => artByFace[f]).map(([f, ps]) => [f, ps.map(p => ({ color: p.color, mesh: meshOf(p.manifold) }))])),
       bodies: bodies.map(b => ({ piece: b.piece, color: b.color, mesh: meshOf(b.manifold) })),
       panels: new Map([...plate.panels].map(([fid, m]) => [fid, meshOf(m)])),
       strips: plate.strips.map(s => (s ? meshOf(s) : null)),
@@ -96,10 +149,15 @@ export async function rebuild() {
     raw.bodies = markRaw(bodies); raw.faceColors = assign.colors; raw.net = markRaw(net); raw.verify = markRaw(verify); raw.plate = markRaw(plate); raw.meshes = markRaw(meshes); raw.solid = markRaw(cur);
     const report = buildReport(net, verify, plate, { bedMm: state.bedMm, process: state.process });
     report.bedFinish = state.bedFinish;
-    if (C.mode !== 'single') {
+    report.issues.push(...artIssues);
+    for (const [lid, inf] of Object.entries(artInfo)) {
+      if (inf.error) report.issues.push({ level: 'error', code: 'artError', message: `artwork layer ${lid}: ${inf.error}` });
+      for (const w of inf.warnings || []) report.issues.push({ level: 'warning', code: 'artWarning', message: `artwork layer ${lid}: ${w}` });
+    }
+    if (C.mode !== 'single' || hasArt) {
       const hingeSlots = net.hinges.map(h => (C.hingeMode === 'own' ? C.hingeSlot : C.hingeMode === 'child' ? assign.colors[h.child] : assign.colors[h.parent]));
-      const est = colorChangeEstimate(net, assign.colors, hingeSlots);
-      report.colors = { mode: C.mode, ...est, extruders: C.extruders, bodies: bodies.length };
+      const est = colorChangeEstimate(net, [...assign.colors, ...bodies.map(b => b.color)], hingeSlots);
+      report.colors = { mode: C.mode, ...est, extruders: C.extruders, bodies: bodies.length, artLayers: state.art.layers.length };
       report.issues.push(...assign.issues);
       if (est.colorsUsed > C.extruders) report.issues.push({ level: 'error', code: 'tooManyColors', message: `${est.colorsUsed} colours are in use but only ${C.extruders} extruder/AMS slots are available. Reduce the colours or raise the slot count.` });
       else if (est.changes > 400) report.issues.push({ level: 'warning', code: 'manyChanges', message: `about ${est.changes} colour changes (${est.colorsUsed} colours × ${est.layers} layers): expect long print time and a lot of purge waste. Fewer colours, or colours confined to fewer faces, helps.` });

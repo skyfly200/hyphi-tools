@@ -52,6 +52,16 @@ all in the same plate coordinates, and the slicer assigns each body an extruder 
 - **Cost:** the report estimates colour changes (colours × layers) and errors if more colours are used than extruder/AMS
   slots. The estimate is rough; real purge depends on the slicer.
 
+## SVG and text art (multi-colour inlays)
+
+Each face can carry any number of art layers, each either **text** or an **SVG**. Art space is millimetres, y-up, centred on the face, as seen from outside; it is mirrored onto the plate so it reads correctly on the finished solid (checked in 3D by `tests/facetfold/art-handedness.test.js`).
+
+- **Text** uses opentype.js with bundled Open Sans Bold / Montserrat Bold, or an uploaded `.ttf/.otf/.woff` (fonts using unsupported GSUB tables can fail to parse; the error is shown in the layer).
+- **SVG** supports paths (all commands incl. arcs), basic shapes, groups/transforms, `<use>`, and solid fills/strokes (strokes become outlines). Each distinct SVG colour maps to a palette slot (nearest by default, overridable). Gradients fall back to the first stop with a warning.
+- **Placement**: X/Y offset, rotation, scale per layer. **Depth**: a set depth from the bed side (default, keeps the outer surface), from the inner side, or through the whole panel. Later layers win where they overlap.
+- Each colour becomes a disjoint body, so art works with 3MF multi-colour and per-colour STL export. Diagnostics flag art clipped by the panel edge, features thinner than ~2 nozzle widths, depth shallower than a couple of layers, and layers that produce nothing.
+- Art is not yet shown in the plate view's top-down render (it sits on the underside).
+
 ## Honest limits
 
 - **Holographic diffraction cannot be printed directly.** Visible colour separation needs a groove period below about
