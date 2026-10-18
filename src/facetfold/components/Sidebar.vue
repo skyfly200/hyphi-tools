@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue';
-import { state, raw, setFaceColor, scheduleRebuild, toggleHinge, resetHinges, addMount, removeMount, setSurface, applySurfaceToAll, FONTS, addArt, removeArt, copyArtToAllFaces, setSvgFromFile, uploadFont, suggestHingeWidth, PROCESSES } from '../store.js';
+import { state, raw, setFaceColor, scheduleRebuild, toggleHinge, resetHinges, addMount, removeMount, setSurface, applySurfaceToAll, FONTS, addArt, removeArt, copyArtToAllFaces, setSvgFromFile, uploadFont, runNozzleAnalysis, runSlice, loadGcode, downloadGcode, suggestHingeWidth, PROCESSES } from '../store.js';
 import { PATTERNS, assessSurface, diffractionAngleDeg, dispersionDeg, maxPitchForDispersionUm } from '../lib/surface.js';
 
 const P = state.params;
@@ -20,6 +20,8 @@ const slots = computed(() => C.palette.slice(0, Math.max(C.count, 2)));
 const infoOf = l => state.art.info[l.id] || {};
 const onSvg = (l, e) => { const f = e.target.files[0]; if (f) setSvgFromFile(l.id, f); e.target.value = ''; };
 const onFont = e => { const f = e.target.files[0]; if (f) uploadFont(f); e.target.value = ''; };
+const SL = state.slicing, pieceCount = computed(() => (state.version, raw.plate?.components?.length || 1));
+const onGcode = e => { const f = e.target.files[0]; if (f) loadGcode(f); e.target.value = ''; };
 const hingeCount = computed(() => state.edgeList.filter(e => e.kind === 'hinge').length);
 const portVertices = computed(() => Array.from({ length: state.vertexCount }, (_, i) => i));
 </script>
@@ -120,6 +122,20 @@ const portVertices = computed(() => Array.from({ length: state.vertexCount }, (_
         </template>
       </div>
       <p class="note">Select a face, add text or an SVG. Art is inlaid into the panel from the print-bed side (reads correctly from outside), each colour as its own body. Thin strokes below ~2 nozzle widths are flagged.</p>
+    </section>
+
+    <section class="blk">
+      <h3>Slicing</h3>
+      <label class="row">Piece <select v-model.number="SL.piece"><option v-for="i in pieceCount" :key="i" :value="i - 1">{{ i }}</option></select></label>
+      <label class="row">Nozzle mm <select v-model.number="SL.profile.nozzleMm"><option v-for="n in [0.2, 0.25, 0.4, 0.6, 0.8]" :key="n" :value="n">{{ n }}</option></select></label>
+      <label class="row">Layer height mm <input type="number" step="0.01" min="0.05" v-model.number="SL.profile.layerHeightMm" @input="SL.profile.firstLayerHeightMm = SL.profile.layerHeightMm" /></label>
+      <label class="row">Walls / top / bottom <input type="number" min="1" v-model.number="SL.profile.walls" /><input type="number" min="0" v-model.number="SL.profile.topLayers" /><input type="number" min="0" v-model.number="SL.profile.bottomLayers" /></label>
+      <label class="row">Infill % <input type="number" min="0" max="100" v-model.number="SL.profile.infillPct" /></label>
+      <label class="row">Material <select v-model="SL.profile.material"><option>PETG</option><option>PLA</option><option>PETG-translucent</option></select></label>
+      <div class="row"><button :disabled="SL.busy" @click="runNozzleAnalysis">Analyze nozzles</button><button :disabled="SL.busy" @click="runSlice">Slice piece</button></div>
+      <div class="row"><label class="up">open G-code <input type="file" accept=".gcode,.gco,.nc,text/plain" @change="onGcode" /></label><button :disabled="!SL.result" @click="downloadGcode">Download G-code</button></div>
+      <label class="row">Colour by <select v-model="SL.colorBy"><option value="type">feature type</option><option value="width">line width vs nozzle</option></select></label>
+      <p class="note">{{ SL.busy ? 'Working…' : SL.error || 'Slices the selected plate piece with a built-in preview slicer (walls, skin, rectilinear infill, single colour). For production, export the STL and use the same settings with your slicer, then open its G-code here to inspect it.' }}</p>
     </section>
 
     <section class="blk">

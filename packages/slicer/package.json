@@ -1,0 +1,13 @@
+{
+  "name": "@hyphi/slicer",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Planar FDM slicing automation: profiles, a preview slicer, G-code writer/parser, and feature/nozzle analysis.",
+  "main": "src/index.js",
+  "module": "src/index.js",
+  "exports": { ".": "./src/index.js", "./gcode": "./src/gcode.js", "./analyze": "./src/analyze.js", "./profile": "./src/profile.js" },
+  "files": ["src", "README.md"],
+  "sideEffects": false,
+  "license": "UNLICENSED",
+  "private": true
+}

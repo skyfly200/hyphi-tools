@@ -13,6 +13,7 @@ const pick = e => { state.solidId = e.target.value; state.customHinges = null; s
     <div class="seg">
       <button :class="{ on: state.view === 'folded' }" @click="state.view = 'folded'">Folded</button>
       <button :class="{ on: state.view === 'plate' }" @click="state.view = 'plate'">Print plate</button>
+      <button :class="{ on: state.view === 'gcode' }" :disabled="!state.slicing.result" @click="state.view = 'gcode'" title="Slice a piece first">G-code</button>
     </div>
     <span class="status" :class="{ bad: state.error || (state.report && !state.report.verification?.ok) }">{{ state.busy ? 'Building…' : state.error || state.status }}</span>
     <div class="right">

@@ -6,9 +6,11 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { evaluatePoses } from '@hyphi/folding';
 import { state, raw } from '../store.js';
+import { TYPE_KEYS } from '@hyphi/slicer';
 
 const host = ref(null);
-let renderer, scene, camera, controls, group, ro, anim = 0, fitKey = '';
+let renderer, scene, camera, controls, group, ro, anim = 0, fitKey = '', gMesh = null;
+const TYPE_COLOR = { outer: 0xff6b35, inner: 0xf5d76e, solid: 0x7b5cfa, sparse: 0x3fbf7f, top: 0xff4fa3, bottom: 0x4fc3ff, gap: 0xffffff, bridge: 0xff9f1c, support: 0x888888, skirt: 0x666666, other: 0xaaaaaa };
 const raycaster = new THREE.Raycaster();
 const PAL = i => new THREE.Color().setHSL((i * 0.137) % 1, 0.5, 0.62);
 
@@ -37,8 +39,33 @@ function geom(mesh) {
 }
 function clear() { for (const c of [...group.children]) { group.remove(c); c.traverse?.(o => { o.geometry?.dispose?.(); o.material?.dispose?.(); }); } }
 
+function drawGcode() {
+  gMesh = null;
+  const R = raw.slice?.ribbons; if (!R || !R.indices.length) return;
+  const nz = raw.slice.profile.nozzleMm, col = new Float32Array(R.typeIdx.length * 3), c = new THREE.Color();
+  for (let i = 0; i < R.typeIdx.length; i++) {
+    if (state.slicing.colorBy === 'width') { const r = R.widthMm[i] / nz; c.set(r < 0.7 ? 0xff3b3b : r < 1.4 ? 0x3fbf7f : r < 2 ? 0xf5d76e : 0xff9f1c); }
+    else c.set(TYPE_COLOR[TYPE_KEYS[R.typeIdx[i]]] ?? 0xaaaaaa);
+    col.set([c.r, c.g, c.b], i * 3);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(R.positions, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.setIndex(new THREE.BufferAttribute(R.indices, 1));
+  gMesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+  gMesh.geometry.setDrawRange(0, R.layerIndexEnd[Math.min(state.slicing.layer, R.layerIndexEnd.length - 1)] ?? R.indices.length);
+  group.add(gMesh);
+  const [bw, bh] = [raw.slice.profile.bed.x, raw.slice.profile.bed.y], pts = [0, 0, 0, bw, 0, 0, bw, 0, 0, bw, bh, 0, bw, bh, 0, 0, bh, 0, 0, bh, 0, 0, 0, 0];
+  const bg = new THREE.BufferGeometry(); bg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3)); group.add(new THREE.LineSegments(bg, new THREE.LineBasicMaterial({ color: 0x7a7a9a })));
+  const key = `gcode:${state.version}`;
+  if (key !== fitKey) { fitKey = key; frame(new THREE.Box3(new THREE.Vector3(...R.bbox.min), new THREE.Vector3(...R.bbox.max)), false); }
+}
+function setLayer() {
+  const R = raw.slice?.ribbons; if (!gMesh || !R) return;
+  gMesh.geometry.setDrawRange(0, R.layerIndexEnd[Math.min(state.slicing.layer, R.layerIndexEnd.length - 1)] ?? 0);
+}
+
 function rebuild() {
   clear();
+  if (state.view === 'gcode') return drawGcode();
   const net = raw.net, M = raw.meshes; if (!net || !M) return;
   const folded = state.view === 'folded';
   if (folded) {
@@ -93,7 +120,8 @@ function pick(e) {
 }
 
 onMounted(() => { init(); rebuild(); });
-watch(() => [state.version, state.view, state.fold, state.selectedFace], rebuild);
+watch(() => [state.version, state.view, state.fold, state.selectedFace, state.slicing.colorBy], rebuild);
+watch(() => state.slicing.layer, setLayer);
 onBeforeUnmount(() => { cancelAnimationFrame(anim); ro?.disconnect(); if (group) clear(); controls?.dispose(); renderer?.dispose(); renderer?.domElement.remove(); });
 </script>
 
@@ -104,6 +132,11 @@ onBeforeUnmount(() => { cancelAnimationFrame(anim); ro?.disconnect(); if (group)
       <b>{{ Math.round(state.fold * 100) }}%</b>
     </div>
     <div v-if="state.view === 'folded' && state.fold >= 0.03" class="cap">Hinge strips are hidden while folded (the preview poses rigid panels). Slide to Flat to see them.</div>
+    <div v-if="state.view === 'gcode'" class="fold">
+      <span>Layer</span><input type="range" min="0" :max="state.slicing.layerMax" step="1" v-model.number="state.slicing.layer" />
+      <b>{{ state.slicing.layer + 1 }} / {{ state.slicing.layerMax + 1 }} · z {{ raw.slice?.ribbons.layerZ[state.slicing.layer]?.toFixed(2) }} mm</b>
+    </div>
+    <div v-if="state.view === 'gcode'" class="cap">G-code toolpaths drawn at true extrusion width. Red lines are under 70% of the nozzle width (detail the nozzle struggles with).</div>
     <div v-if="state.view === 'plate'" class="cap">Printed outer-face-down. Outer surfaces touch the bed; walls lean inward going up (no supports).</div>
   </div>
 </template>

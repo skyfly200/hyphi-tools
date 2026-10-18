@@ -1,0 +1,70 @@
+// Slicing profiles. A profile is plain JSON so the same file drives the built-in slicer, the analysis
+// and (via `toPrusaIni`) an external slicer, which is what makes a slicing process repeatable.
+
+export const NOZZLES = Object.freeze([0.2, 0.25, 0.4, 0.6, 0.8]);
+
+export const MATERIALS = Object.freeze({
+  PLA: { nozzleC: 210, bedC: 60, fanPct: 100, flowMultiplier: 1 },
+  PETG: { nozzleC: 240, bedC: 80, fanPct: 40, flowMultiplier: 0.97 },
+  'PETG-translucent': { nozzleC: 245, bedC: 80, fanPct: 30, flowMultiplier: 0.97 },
+});
+
+export const DEFAULT_PROFILE = Object.freeze({
+  name: 'default-0.4',
+  nozzleMm: 0.4,
+  filamentDiameterMm: 1.75,
+  material: 'PETG',
+  layerHeightMm: 0.2,
+  firstLayerHeightMm: 0.2,
+  lineWidthFactor: 1.125,       // extrusion width = nozzle × this
+  walls: 2,
+  topLayers: 4,
+  bottomLayers: 4,
+  infillPct: 15,
+  skirtLoops: 1,
+  skirtDistanceMm: 3,
+  speed: { first: 20, outerWall: 40, innerWall: 60, infill: 80, solid: 60, travel: 150 },   // mm/s
+  retractMm: 0.8,
+  retractSpeed: 30,
+  bed: { x: 256, y: 256 },
+  originAtCentre: false,
+  startGcode: 'G28\nG90\nM83',
+  endGcode: 'M104 S0\nM140 S0\nM107\nG91\nG1 Z5 F600\nG90',
+});
+
+/** Fill defaults from the material table and check that the numbers make physical sense. */
+export function resolveProfile(p = {}) {
+  const m = { ...DEFAULT_PROFILE, ...p, speed: { ...DEFAULT_PROFILE.speed, ...(p.speed || {}) }, bed: { ...DEFAULT_PROFILE.bed, ...(p.bed || {}) } };
+  const mat = MATERIALS[m.material] || MATERIALS.PETG;
+  m.nozzleC ??= mat.nozzleC; m.bedC ??= mat.bedC; m.fanPct ??= mat.fanPct; m.flowMultiplier ??= mat.flowMultiplier;
+  m.lineWidthMm = p.lineWidthMm ?? +(m.nozzleMm * m.lineWidthFactor).toFixed(4);
+  return m;
+}
+
+/** Layer height must sit in roughly 25–80 % of the nozzle diameter to extrude and bond reliably. */
+export function validateProfile(p) {
+  const issues = [], n = p.nozzleMm;
+  const warn = (code, message, level = 'warning') => issues.push({ level, code, message });
+  if (p.layerHeightMm > 0.8 * n) warn('layerTooTall', `layer height ${p.layerHeightMm} mm exceeds 80% of the ${n} mm nozzle`, 'error');
+  else if (p.layerHeightMm < 0.25 * n) warn('layerTooThin', `layer height ${p.layerHeightMm} mm is under 25% of the ${n} mm nozzle; extrusion will be unreliable`);
+  if (p.firstLayerHeightMm > 0.8 * n) warn('firstLayerTall', 'first layer taller than 80% of the nozzle');
+  if (p.lineWidthMm < n * 0.9 || p.lineWidthMm > n * 1.6) warn('lineWidth', `line width ${p.lineWidthMm} mm is outside 0.9–1.6 × the nozzle`);
+  if (p.walls < 1) warn('walls', 'at least one wall is required', 'error');
+  if (p.bed.x < 1 || p.bed.y < 1) warn('bed', 'bed size is invalid', 'error');
+  return issues;
+}
+
+/** PrusaSlicer-style ini for the external-slicer path (also read by OrcaSlicer's CLI import of ini). */
+export function toPrusaIni(prof) {
+  const p = resolveProfile(prof);
+  const lines = {
+    nozzle_diameter: p.nozzleMm, filament_diameter: p.filamentDiameterMm, layer_height: p.layerHeightMm, first_layer_height: p.firstLayerHeightMm,
+    perimeters: p.walls, top_solid_layers: p.topLayers, bottom_solid_layers: p.bottomLayers, fill_density: `${p.infillPct}%`,
+    extrusion_width: p.lineWidthMm, perimeter_extrusion_width: p.lineWidthMm, infill_extrusion_width: p.lineWidthMm, first_layer_extrusion_width: p.lineWidthMm,
+    temperature: p.nozzleC, first_layer_temperature: p.nozzleC, bed_temperature: p.bedC, first_layer_bed_temperature: p.bedC,
+    retract_length: p.retractMm, skirts: p.skirtLoops, skirt_distance: p.skirtDistanceMm, bed_shape: `0x0,${p.bed.x}x0,${p.bed.x}x${p.bed.y},0x${p.bed.y}`,
+    perimeter_speed: p.speed.innerWall, external_perimeter_speed: p.speed.outerWall, infill_speed: p.speed.infill, solid_infill_speed: p.speed.solid, travel_speed: p.speed.travel,
+    use_relative_e_distances: 1,
+  };
+  return Object.entries(lines).map(([k, v]) => `${k} = ${v}`).join('\n') + '\n';
+}

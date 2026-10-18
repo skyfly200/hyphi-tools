@@ -35,3 +35,7 @@ Packages are `private` and `0.x`: the API can still change. Breaking changes wil
 - A generative / parametric design tool needing constraints, warm-started solving, animation by continuation and a
   worker: **only `@hyphi/solver-core`**.
 - Anything that folds, hinges or assembles rigid parts: add **`@hyphi/folding`**.
+
+## @hyphi/slicer
+
+Planar FDM slicing automation: profiles, a preview slicer on the manifold kernel, a G-code writer/parser/analyser, geometry-based nozzle analysis and an STL reader. See [slicing.md](slicing.md).

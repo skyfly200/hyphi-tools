@@ -3,6 +3,9 @@ import { computed } from 'vue';
 import { state, raw, exportColorSTLs, export3MFFile, exportSTLs, exportPlateSvg, exportHeightmap, exportReport } from '../store.js';
 
 const r = computed(() => state.report);
+const SL = state.slicing, nt = computed(() => SL.nozzleTable), res = computed(() => SL.result);
+const mmss = t => `${Math.floor(t / 3600)}h ${String(Math.floor((t % 3600) / 60)).padStart(2, '0')}m`;
+const featRows = computed(() => Object.values(res.value?.analysis.features || {}));
 const pct = v => (v * 100).toFixed(1) + '%';
 const LABEL = { elastic: 'elastic', 'yields-once': 'yields once', 'likely-whitens': 'whitens', 'likely-cracks': 'cracks' };
 const worst = computed(() => r.value?.worstHingeStrain);
@@ -29,6 +32,29 @@ const infos = computed(() => (state.issues || []).filter(i => i.level === 'info'
         <span>Fold angles</span><b>{{ r.foldAnglesDeg.map(a => a.toFixed(1) + '°').join(', ') }}</b>
         <span>Snap detents</span><b>{{ r.snaps?.detents ?? 0 }}</b></div>
       <div v-for="f in r.fit" :key="f.piece" class="fit" :class="{ bad: !f.fits }">Piece {{ f.piece + 1 }}: {{ f.widthMm.toFixed(0) }} × {{ f.heightMm.toFixed(0) }} mm {{ f.fits ? 'fits the bed' : '— too large' }}</div>
+    </section>
+
+    <section class="blk" v-if="nt">
+      <h3>Nozzle fit (piece {{ nt.piece + 1 }})</h3>
+      <p class="iss ok">Recommended: <b>{{ nt.recommended.nozzleMm }} mm</b> — {{ nt.recommended.reason }}.</p>
+      <table class="tbl"><thead><tr><th>nozzle</th><th>layer</th><th>lost</th><th>single-line</th><th>time ×</th></tr></thead>
+        <tbody><tr v-for="t in nt.table" :key="t.nozzleMm" :class="{ rec: t.nozzleMm === nt.recommended.nozzleMm, bad: !t.ok }"><td>{{ t.nozzleMm }}</td><td :class="{ bad: !t.layerOk }">{{ t.layerHeightMm }}</td><td>{{ t.lostPct }}%</td><td>{{ t.thinPct }}%</td><td>{{ t.relativeTime }}</td></tr></tbody></table>
+      <p class="note">“Lost” = share of the cross-sections narrower than one extrusion line (cannot be printed). “Single-line” = under two lines wide (one wall, weak). Layer height is half the nozzle (red = taller than the thinnest hinge); time is relative.</p>
+    </section>
+
+    <section class="blk" v-if="res">
+      <h3>G-code ({{ res.engine }})</h3>
+      <div class="kv"><span>Layers</span><b>{{ res.analysis.layers }}</b>
+        <span>Time (rough)</span><b>{{ mmss(res.analysis.timeS) }}</b>
+        <span>Filament</span><b>{{ (res.analysis.filamentMm / 1000).toFixed(2) }} m · {{ res.analysis.filamentCm3 }} cm³</b>
+        <span>Travel / retractions</span><b>{{ (res.analysis.travelMm / 1000).toFixed(1) }} m / {{ res.analysis.retractions }}</b>
+        <span v-if="res.lostVolumeMm3 !== undefined">Detail not printed</span><b v-if="res.lostVolumeMm3 !== undefined" :class="{ warn: res.lostVolumeMm3 > 1 }">{{ res.lostVolumeMm3.toFixed(1) }} mm³</b></div>
+      <table class="tbl"><thead><tr><th>feature</th><th>length</th><th>width (5/50/95%)</th></tr></thead>
+        <tbody><tr v-for="f in featRows" :key="f.label"><td>{{ f.label }}</td><td>{{ (f.lengthMm / 1000).toFixed(2) }} m</td><td>{{ f.widthP5Mm }} / {{ f.widthMedianMm }} / {{ f.widthP95Mm }}</td></tr></tbody></table>
+      <div v-for="i in [...res.profileIssues, ...res.analysis.issues]" :key="i.code" class="iss" :class="i.level === 'error' ? 'bad' : i.level === 'warning' ? 'warn' : ''">{{ i.message }}</div>
+      <div v-if="res.fitsBed === false" class="iss bad">The piece is larger than the bed.</div>
+      <div v-if="SL.stale" class="iss warn">The design changed since this was sliced — slice again.</div>
+      <p class="note">Estimated from move lengths and feed rates only (no acceleration model). Built-in slicer: no gap fill, bridging or seam control.</p>
     </section>
 
     <section class="blk" v-if="r?.colors">
@@ -73,5 +99,7 @@ const infos = computed(() => (state.issues || []).filter(i => i.level === 'info'
 .kv { display:grid; grid-template-columns:1fr auto; gap:3px 10px; } .kv span { color:var(--sub); }
 .bad { color:var(--bad); } .warn { color:var(--warn); } .ok { color:var(--ok); }
 .iss { line-height:1.4; padding:2px 0; } .fit.bad { color:var(--bad); }
+.tbl { width:100%; border-collapse:collapse; font-size:11px; } .tbl th { text-align:left; color:var(--sub); font-weight:400; } .tbl td, .tbl th { padding:2px 4px; }
+.tbl tr.rec td { color:var(--ok); font-weight:600; } .tbl tr.bad td:nth-child(3) { color:var(--bad); }
 summary { cursor:pointer; color:var(--sub); }
 </style>

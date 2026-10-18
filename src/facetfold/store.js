@@ -16,6 +16,7 @@ import { faceMountSpec, tieSlotSpecs, truncateVertex } from './lib/lighting.js';
 import { buildReport, pieceSTL, minHingeWidthMm, export3MF } from './lib/export.js';
 import { plateSvg, heightmapPGM, PROCESSES } from './lib/surface.js';
 import { panelProfile } from './lib/panel.js';
+import { resolveProfile, validateProfile, generateGcode, parseGcode, analyzeGcode, analyzeNozzles, buildRibbons } from '@hyphi/slicer';
 
 export const SOLIDS = { ...Object.fromEntries(Object.entries(POLYHEDRA).map(([k, v]) => [k, { id: k, label: v.label, build: v.build }])),
   ...Object.fromEntries(Object.entries(EXTRA_POLYHEDRA).map(([k, v]) => [k, { id: k, label: v.label, build: v.build }])) };
@@ -34,6 +35,7 @@ export const state = reactive({
   surfaces: {},                        // face id -> { kind, pitchMm, angleDeg, depthMm, intent }
   colors: { mode: 'single', count: 3, palette: DEFAULT_PALETTE.map(c => ({ ...c })), manual: {}, hingeMode: 'parent', hingeSlot: 0, extruders: 4, active: 0 },
   art: { layers: [], info: {}, customFontName: null, nextId: 1 },
+  slicing: { profile: { nozzleMm: 0.4, layerHeightMm: 0.2, firstLayerHeightMm: 0.2, walls: 2, topLayers: 4, bottomLayers: 4, infillPct: 15, material: 'PETG' }, piece: 0, busy: false, error: null, nozzleTable: null, result: null, layer: 0, layerMax: 0, colorBy: 'type', stale: false },
   selectedFace: 0,
   fold: 1,                             // 0 flat … 1 closed
   view: 'folded',                      // folded | plate
@@ -44,7 +46,7 @@ export const state = reactive({
   faceCount: 0, edgeList: [], vertexCount: 0,
 });
 
-export const raw = markRaw({ fonts: {}, shapeCache: new Map(), net: null, verify: null, plate: null, K: null, meshes: null, solid: null, bodies: [], faceColors: [] });
+export const raw = markRaw({ slice: null, fonts: {}, shapeCache: new Map(), net: null, verify: null, plate: null, K: null, meshes: null, solid: null, bodies: [], faceColors: [] });
 let runId = 0, timer = null;
 
 const shortest = s => Math.min(...s.faces.flatMap(f => f.map((v, i) => Math.hypot(...[0, 1, 2].map(k => s.vertices[v][k] - s.vertices[f[(i + 1) % f.length]][k])))));
@@ -146,6 +148,7 @@ export async function rebuild() {
       strips: plate.strips.map(s => (s ? meshOf(s) : null)),
       components: plate.components.map(m => meshOf(m)),
     };
+    state.slicing.stale = !!raw.slice;
     raw.bodies = markRaw(bodies); raw.faceColors = assign.colors; raw.net = markRaw(net); raw.verify = markRaw(verify); raw.plate = markRaw(plate); raw.meshes = markRaw(meshes); raw.solid = markRaw(cur);
     const report = buildReport(net, verify, plate, { bedMm: state.bedMm, process: state.process });
     report.bedFinish = state.bedFinish;
@@ -211,4 +214,42 @@ export function exportHeightmap(face) {
   const r = heightmapPGM(f, pr.bottom, spec, 50); download(`${base()}-face${face}-heightmap.pgm`, r.bytes, 'image/x-portable-graymap');
 }
 export function exportReport() { if (state.report) download(`${base()}-report.json`, JSON.stringify(state.report, null, 2), 'application/json'); }
+
+// ---- slicing automation: nozzle analysis, preview slicing, G-code analysis and viewing ----
+const tick = () => new Promise(r => setTimeout(r, 20));
+const pieceManifold = () => raw.plate?.components?.[Math.min(state.slicing.piece, (raw.plate?.components?.length || 1) - 1)];
+const sliceProfile = () => resolveProfile({ ...state.slicing.profile, name: `facetfold-${state.slicing.profile.nozzleMm}`, bed: { x: state.bedMm[0], y: state.bedMm[1] } });
+async function guarded(fn) {
+  if (state.slicing.busy) return;
+  state.slicing.busy = true; state.slicing.error = null; await tick();
+  try { await fn(); } catch (e) { state.slicing.error = e.message; } finally { state.slicing.busy = false; }
+}
+export const runNozzleAnalysis = () => guarded(() => {
+  const m = pieceManifold(); if (!m) throw new Error('nothing built yet');
+  const a = analyzeNozzles(raw.K, m, { lineWidthFactor: sliceProfile().lineWidthFactor, maxLayerHeightMm: raw.net?.hinges.length ? raw.net.params.hingeThicknessMm : Infinity });
+  state.slicing.nozzleTable = { ...a, piece: state.slicing.piece };
+});
+function show(gcode, parsed, profile, extra = {}) {
+  const analysis = analyzeGcode(parsed, { nozzleMm: profile.nozzleMm, filamentDiameterMm: profile.filamentDiameterMm });
+  const ribbons = buildRibbons(parsed, { filamentDiameterMm: profile.filamentDiameterMm });
+  raw.slice = markRaw({ gcode, parsed, ribbons, profile });
+  state.slicing.result = { analysis, ...extra };
+  state.slicing.layerMax = Math.max(0, parsed.layers.length - 1); state.slicing.layer = state.slicing.layerMax; state.slicing.stale = false;
+  state.view = 'gcode'; state.version++;
+}
+export const runSlice = () => guarded(() => {
+  const m = pieceManifold(); if (!m) throw new Error('nothing built yet');
+  const prof = sliceProfile(), issues = validateProfile(prof);
+  if (issues.some(i => i.level === 'error')) throw new Error(issues.filter(i => i.level === 'error').map(i => i.message).join('; '));
+  const th = raw.net?.params.hingeThicknessMm;       // a hinge thinner than the first layer is never printed
+  if (th && prof.firstLayerHeightMm > th * 1.25) issues.push({ level: 'warning', code: 'hingeVsLayer', message: `hinge flexure is ${th} mm but the first layer is ${prof.firstLayerHeightMm} mm — hinges will not print; use a first layer of about ${th} mm (a 0.2 mm nozzle with 0.1 mm layers) or thicken the hinge` });
+  const g = generateGcode(raw.K, m, prof);
+  const parsed = parseGcode(g.gcode);
+  show(g.gcode, parsed, prof, { engine: 'built-in preview slicer', profileIssues: issues, fitsBed: g.stats.fitsBed, lostVolumeMm3: g.stats.lostAreaMm2, estTimeS: g.stats.timeS });
+});
+export const loadGcode = file => guarded(async () => {
+  const text = await file.text(), prof = sliceProfile();
+  show(text, parseGcode(text), prof, { engine: `loaded ${file.name}`, profileIssues: [], fitsBed: null });
+});
+export function downloadGcode() { if (raw.slice) download(`${base()}-piece${state.slicing.piece + 1}.gcode`, new TextEncoder().encode(raw.slice.gcode), 'text/x.gcode'); }
 export { PROCESSES };

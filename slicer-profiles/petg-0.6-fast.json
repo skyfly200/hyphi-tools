@@ -1,0 +1,1 @@
+{ "name": "petg-0.6-fast", "nozzleMm": 0.6, "material": "PETG", "layerHeightMm": 0.3, "firstLayerHeightMm": 0.3, "walls": 2, "topLayers": 3, "bottomLayers": 3, "infillPct": 10 }

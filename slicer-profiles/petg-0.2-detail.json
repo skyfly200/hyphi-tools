@@ -1,0 +1,1 @@
+{ "name": "petg-0.2-detail", "nozzleMm": 0.2, "material": "PETG", "layerHeightMm": 0.1, "firstLayerHeightMm": 0.12, "walls": 3, "topLayers": 6, "bottomLayers": 6, "infillPct": 15, "speed": { "first": 15, "outerWall": 25, "innerWall": 35, "infill": 45, "solid": 35 } }
