@@ -42,6 +42,14 @@ const TOOLS = [
     icon: '⬢',
   },
   {
+    href: '/facetfold',
+    internal: true,
+    name: 'FacetFold',
+    tagline: 'Printable folding polyhedra',
+    desc: 'Print a polyhedron as one flat net, outer faces down on the bed, with living hinges, snap-together seams, and mounts for LEDs and cables. Textured or micro-relief outer surfaces. Verified by folding it in the constraint solver.',
+    icon: '◇',
+  },
+  {
     href: '/harness',
     internal: true,
     name: 'Harness Calculator',

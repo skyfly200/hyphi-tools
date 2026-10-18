@@ -6,6 +6,7 @@ import FoldForm from './FoldForm'
 import FoldStudio from './FoldStudio'
 import FoldStudioDocs from './FoldStudioDocs'
 import PolyForge from './PolyForge'
+import FacetFold from './FacetFold'
 import HarnessCalculator from './HarnessCalculator'
 
 export default function App() {
@@ -18,6 +19,7 @@ export default function App() {
       <Route path="/foldstudio" element={<FoldStudio />} />
       <Route path="/foldstudio/docs" element={<FoldStudioDocs />} />
       <Route path="/polyforge" element={<PolyForge />} />
+      <Route path="/facetfold" element={<FacetFold />} />
       <Route path="/harness" element={<HarnessCalculator />} />
     </Routes>
   )

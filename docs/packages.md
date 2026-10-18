@@ -6,7 +6,7 @@
 @hyphi/folding        rigid panels, bands, collision, export   (+ polygon-clipping)
 @hyphi/polyhedra      polyhedra + net unfolding         (no dependencies)
 
-apps (src/): FoldStudio · PolyForge · FacetFold · FoldForm · …
+apps (src/): FoldStudio · PolyForge · FacetFold (docs/facetfold.md) · FoldForm · …
 ```
 
 Apps depend on packages; packages never import from `src/`. Rule of thumb: if a file names a specific app's data

@@ -5,6 +5,7 @@
 import { panelProfile } from './panel.js';
 import { planSnaps, wallPoint, DEFAULT_SNAP } from './snap.js';
 import { centroid2, inscribedRadius } from './lighting.js';
+import { faceVectors, assessSurface } from './surface.js';
 
 const SEG = 48;
 const deg = r => (r * 180) / Math.PI;
@@ -85,6 +86,33 @@ export function buildPlate(K, net, features = {}) {
     push(addOn, d.bump.face, bump); push(carve, d.dimple.face, dim);
   }
 
+  // ── bed-side surface relief (only where the chosen process can resolve it) ──
+  const process = features.process || 'fdm04', surfaces = features.surfaces || {};
+  const surfaceReport = [];
+  for (const [fidStr, spec] of Object.entries(surfaces)) {
+    const fid = Number(fidStr), prof = profiles[fid];
+    if (!spec || spec.kind === 'none' || !prof?.valid) continue;
+    const depthMm = spec.depthMm ?? Math.min(0.15, spec.pitchMm * 0.2);
+    const verdict = assessSurface({ kind: spec.kind, pitchUm: spec.pitchMm * 1000, depthUm: depthMm * 1000, intent: spec.intent }, process);
+    surfaceReport.push({ face: fid, process, verdict: verdict.verdict, reasons: verdict.reasons });
+    if (verdict.verdict === 'not-printable') { issues.push({ level: 'warning', code: 'surfaceSkipped', face: fid, message: `face ${fid}: surface ${spec.kind} @ ${(spec.pitchMm * 1000).toFixed(0)} µm not built — ${verdict.reasons[0]}` }); continue; }
+    const vec = faceVectors(net.faces[fid], prof.bottom, spec);
+    const tools = [];
+    if (vec.type === 'lines') {
+      const hw = ((spec.widthFrac ?? 0.5) * spec.pitchMm) / 2;
+      for (const [x0, y0, x1, y1] of vec.segments) {
+        const L = Math.hypot(x1 - x0, y1 - y0); if (L < 0.2) continue;
+        const nx = -(y1 - y0) / L * hw, ny = (x1 - x0) / L * hw;
+        const pts = [];
+        for (const [x, y] of [[x0, y0], [x1, y1]]) pts.push([x + nx, y + ny, 0], [x - nx, y - ny, 0], [x + nx, y + ny, -0.1], [x - nx, y - ny, -0.1], [x, y, depthMm]);
+        tools.push(Manifold.hull(pts));
+      }
+    } else if (vec.type === 'dots') {
+      for (const [x, y] of vec.points) tools.push(Manifold.cylinder(depthMm + 0.1, vec.radiusMm, 0.01, 10).translate([x, y, -0.1]));
+    }
+    if (tools.length) { push(carve, fid, Manifold.union(tools)); surfaceReport.at(-1).features = tools.length; }
+  }
+
   // ── assemble panels ──
   const panels = new Map();
   for (const [fid, body] of bodies) {
@@ -132,7 +160,7 @@ export function buildPlate(K, net, features = {}) {
     net.hinges.forEach((h, i) => { if (strips[i] && c.faces.includes(h.parent)) parts.push(strips[i]); });
     return Manifold.union(parts);
   });
-  return { components, profiles, snaps, issues, panels, strips };
+  return { components, profiles, snaps, issues, panels, strips, surfaceReport };
 }
 
 /** Quick facts about a built component: volume, genus, bounding box, manifold status. */

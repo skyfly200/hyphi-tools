@@ -23,9 +23,9 @@ export const edgeKey = (a, b) => (a < b ? `${a}-${b}` : `${b}-${a}`);
 
 export const DEFAULT_PARAMS = Object.freeze({
   edgeLengthMm: 40,          // shortest edge of the solid
-  panelThicknessMm: 1.6,
-  hingeWidthMm: 0.8,         // flat length of the flexure strip (w)
-  hingeThicknessMm: 0.2,
+  panelThicknessMm: 2.4,
+  hingeWidthMm: 1.5,         // flat length of the flexure strip (w); strain ≈ (t_h/2)·φ/w — see export.js
+  hingeThicknessMm: 0.1,
   seamClearanceMm: 0.15,     // total gap left at a closing seam
   plateSpacingMm: 6,         // spacing between separate net pieces on the plate
 });
@@ -172,7 +172,8 @@ function arrange(compFaces, spacing, optimize) {
   compFaces.forEach(faces => {
     const polys = faces.map(f => f.outer);
     let best = { th: 0, box: polygonsBox(polys, 0) };
-    if (optimize) for (let d = 1; d < 180; d++) { const th = (d * Math.PI) / 180, b = polygonsBox(polys, th); if (b.w * b.h < best.box.w * best.box.h - 1e-9) best = { th, box: b }; }
+    // only rotate for a real (>3%) gain; keeps tidy nets axis-aligned
+    if (optimize) for (let d = 1; d < 180; d++) { const th = (d * Math.PI) / 180, b = polygonsBox(polys, th); if (b.w * b.h < best.box.w * best.box.h * 0.97) best = { th, box: b }; }
     rotations.push(best.th); boxes.push(best.box);
   });
   let x = 0, height = 0;

@@ -79,5 +79,5 @@ test('plate layout is tight: rotation optimisation never makes the box bigger', 
 });
 
 test('DEFAULT_PARAMS are documented values', () => {
-  assert.equal(DEFAULT_PARAMS.hingeThicknessMm, 0.2); assert.equal(DEFAULT_PARAMS.panelThicknessMm, 1.6);
+  assert.equal(DEFAULT_PARAMS.hingeThicknessMm, 0.1); assert.equal(DEFAULT_PARAMS.hingeWidthMm, 1.5); assert.equal(DEFAULT_PARAMS.panelThicknessMm, 2.4);
 });
