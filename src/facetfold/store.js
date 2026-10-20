@@ -33,7 +33,8 @@ export const state = reactive({
   snap: { enabled: true, bumpRadiusMm: 0.8, bumpHeightMm: 0.35, spacingMm: 18 },
   process: 'fdm04',
   bedMm: [256, 256],
-  bedFinish: 'smooth',                 // smooth | textured (describes the build sheet; no geometry)
+  bedFinish: 'textured',               // textured | smooth | holographic (the build plate; no geometry)
+  // (PETG only works on the textured plate)
   surfaces: {},                        // face id -> { kind, pitchMm, angleDeg, depthMm, intent }
   colors: { mode: 'single', count: 3, palette: DEFAULT_PALETTE.map(c => ({ ...c })), manual: {}, hingeMode: 'parent', hingeSlot: 0, extruders: 4, active: 0 },
   art: { layers: [], info: {}, customFontName: null, nextId: 1 },
@@ -152,8 +153,10 @@ export async function rebuild() {
     };
     state.slicing.stale = !!raw.slice;
     raw.bodies = markRaw(bodies); raw.faceColors = assign.colors; raw.net = markRaw(net); raw.verify = markRaw(verify); raw.plate = markRaw(plate); raw.meshes = markRaw(meshes); raw.solid = markRaw(cur);
-    const report = buildReport(net, verify, plate, { bedMm: state.bedMm, process: state.process });
+    const report = buildReport(net, verify, plate, { bedMm: state.bedMm, process: state.process, material: state.slicing.profile.material });
     report.bedFinish = state.bedFinish;
+    for (const i of validateProfile(sliceProfile())) if (i.code === 'plateForMaterial' || i.code === 'plateFinish') report.issues.push(i);
+    if (state.bedFinish !== 'smooth' && Object.values(state.surfaces).some(sp => sp.kind !== 'none')) report.issues.push({ level: 'warning', code: 'plateVsPattern', message: `the ${state.bedFinish} plate imprints its own surface on the bed-side faces, which hides or mixes with the relief you designed on them; use the smooth plate for designed patterns` });
     report.issues.push(...artIssues);
     for (const [lid, inf] of Object.entries(artInfo)) {
       if (inf.error) report.issues.push({ level: 'error', code: 'artError', message: `artwork layer ${lid}: ${inf.error}` });
@@ -190,7 +193,7 @@ export function removeMount(i) { state.mounts.splice(i, 1); scheduleRebuild(0); 
 export function setSurface(face, spec) { if (!spec || spec.kind === 'none') delete state.surfaces[face]; else state.surfaces[face] = spec; scheduleRebuild(0); }
 export function applySurfaceToAll(spec) { for (let f = 0; f < state.faceCount; f++) setSurfaceQuiet(f, spec); scheduleRebuild(0); }
 function setSurfaceQuiet(f, spec) { if (!spec || spec.kind === 'none') delete state.surfaces[f]; else state.surfaces[f] = { ...spec }; }
-export function suggestHingeWidth() { if (raw.net) { state.params.hingeWidthMm = Math.ceil(minHingeWidthMm(raw.net) * 10) / 10; scheduleRebuild(0); } }
+export function suggestHingeWidth() { if (raw.net) { state.params.hingeWidthMm = Math.ceil(minHingeWidthMm(raw.net, undefined, state.slicing.profile.material) * 10) / 10; scheduleRebuild(0); } }
 
 // ── downloads ──
 function download(name, data, mime) {
@@ -220,7 +223,7 @@ export function exportReport() { if (state.report) download(`${base()}-report.js
 // ---- slicing automation: nozzle analysis, preview slicing, G-code analysis and viewing ----
 const tick = () => new Promise(r => setTimeout(r, 20));
 const pieceManifold = () => raw.plate?.components?.[Math.min(state.slicing.piece, (raw.plate?.components?.length || 1) - 1)];
-const sliceProfile = () => resolveProfile({ ...state.slicing.profile, name: `facetfold-${state.slicing.profile.nozzleMm}`, bed: { x: state.bedMm[0], y: state.bedMm[1] } });
+const sliceProfile = () => resolveProfile({ ...state.slicing.profile, plate: state.bedFinish, name: `facetfold-${state.slicing.profile.nozzleMm}`, bed: { x: state.bedMm[0], y: state.bedMm[1] } });
 export function setPrinter(id) {
   const pr = PRINTERS[id]; if (!pr) return;
   state.slicing.profile.printer = id; state.bedMm = [pr.bed.x, pr.bed.y];
@@ -248,7 +251,7 @@ function show(gcode, parsed, profile, extra = {}) {
 }
 function hingeIssue(prof) {          // a hinge thinner than the first layer is never printed
   const th = raw.net?.params.hingeThicknessMm;
-  return th && prof.firstLayerHeightMm > th * 1.25 ? { level: 'warning', code: 'hingeVsLayer', message: `hinge flexure is ${th} mm but the first layer is ${prof.firstLayerHeightMm} mm — hinges will not print; use a first layer of about ${th} mm (a 0.2 mm nozzle with 0.1 mm layers) or thicken the hinge` } : null;
+  return th && prof.firstLayerHeightMm > th * 1.25 ? { level: 'warning', code: 'hingeVsLayer', message: `hinge flexure is ${th} mm but the first layer is ${prof.firstLayerHeightMm} mm — hinges will not print; set the layer height and first layer to about ${th} mm (a 0.4 mm nozzle can print 0.1 mm layers, and slight over-extrusion makes the real hinge a little thicker) or thicken the hinge` } : null;
 }
 const serverClient = () => {
   const S = state.slicing.server; if (!S.url) throw new Error('enter the slicing server URL');

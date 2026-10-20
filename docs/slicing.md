@@ -11,7 +11,7 @@ A repeatable slicing process plus a way to inspect the result.
 
 ## What it already found
 
-With the default FacetFold hinge (0.1 mm flexure), a 0.2 mm first layer never prints the hinge. The slicer reports this as a warning and the nozzle table marks 0.4+ mm nozzles unsuitable; use a 0.2 mm nozzle with 0.1 mm layers, or a thicker hinge.
+With the default FacetFold hinge (0.1 mm flexure), a 0.2 mm first layer never prints the hinge. The slicer reports this as a warning and the nozzle table marks 0.4+ mm nozzles unsuitable; set the layer height and first layer to about 0.1 mm (a 0.4 mm nozzle can print that; in practice slight over-extrusion makes the printed hinge a little thicker than modelled, which helped on the author's printers) or thicken the hinge. Hinge strain is estimated from the modelled thickness, so a thicker printed hinge means the real strain is higher than reported.
 
 ## Limits
 
@@ -38,3 +38,7 @@ API (JSON, bearer key): `POST /v1/jobs` (raw STL + `X-Slice-Options` JSON header
 ## Printers
 
 `PRINTERS` knows the Bambu Lab A1 mini (180 × 180 mm bed, nozzles 0.2/0.4/0.6/0.8, Orca preferred) and the Prusa i3 MK3S/MK3S+ (250 × 210 mm, 0.25/0.4/0.6, PrusaSlicer preferred). A profile's `"printer"` sets the bed and enables checks (stock nozzle sizes, temperature limits). Ready-made profiles in `slicer-profiles/`: `a1mini-petg-0.4`, `a1mini-petg-0.2-detail`, `mk3s-petg-0.4`, `mk3s-petg-0.25-detail`. In FacetFold, choosing a printer sets the plate bed (so nets are checked against 180 × 180 or 250 × 210) and the nozzle list. Bed sizes and temperature limits are the published figures from memory and should be checked against your machines. The built-in slicer's G-code is preview-only for the A1 mini, which needs Bambu's own start sequence; print Orca's output there.
+
+## Materials and plates
+
+Materials: PLA, PETG, TPU, PVB (generic starting temperatures and fan; check your spool and your printer's own profile). TPU runs at 40 % of the default speeds with short retraction. Plates: textured, smooth, holographic. PETG is restricted to the textured plate (from your experience, encoded in `MATERIAL_PLATES`), and selecting another plate raises a warning. The plate describes the bed-side faces' finish: textured prints copy the texture, holographic prints pick up the diffraction pattern, so designed surface relief on those faces is flagged as hidden or mixed. Hinge strain bands depend on the material: PLA and PVB are treated as brittle (assumed, not measured), TPU as elastic far beyond a single fold. Profiles for both printers in all four materials are in `slicer-profiles/` (`*-petg-0.4-hinge` uses 0.1 mm layers on the 0.4 mm nozzle).

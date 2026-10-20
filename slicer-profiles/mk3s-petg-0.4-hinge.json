@@ -1,0 +1,13 @@
+{
+ "name": "mk3s-petg-0.4-hinge",
+ "printer": "prusa-mk3s",
+ "nozzleMm": 0.4,
+ "material": "PETG",
+ "plate": "textured",
+ "layerHeightMm": 0.1,
+ "firstLayerHeightMm": 0.1,
+ "walls": 2,
+ "topLayers": 6,
+ "bottomLayers": 6,
+ "infillPct": 15
+}

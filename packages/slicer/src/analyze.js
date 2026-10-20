@@ -24,7 +24,7 @@ export function analyzeNozzles(K, manifold, { nozzles = NOZZLES, lineWidthFactor
       lost += l; thin += t;
       if (s.area > 0 && (100 * l) / s.area > worst.pct) worst = { pct: (100 * l) / s.area, z: s.z };
     }
-    const layerH = +(nz * layerHeightRatio).toFixed(3);
+    const layerH = +Math.max(nz * 0.25, Math.min(nz * layerHeightRatio, maxLayerHeightMm)).toFixed(3);   // as thin as the nozzle allows when a thin vertical feature needs it
     return { nozzleMm: nz, lineWidthMm: +w.toFixed(3), layerHeightMm: layerH, lostPct: +((100 * lost) / total).toFixed(3), thinPct: +((100 * thin) / total).toFixed(2), worstLayer: worst.z === null ? null : { zMm: +worst.z.toFixed(2), lostPct: +worst.pct.toFixed(2) },
       layers: Math.ceil(H / layerH), relativeTime: 1 / (nz * layerH) };
   });

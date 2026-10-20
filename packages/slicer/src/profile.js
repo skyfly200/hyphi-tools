@@ -15,14 +15,31 @@ export const PRINTERS = Object.freeze({
 });
 function NOZZLES_ALL() { return [0.2, 0.25, 0.4, 0.6, 0.8]; }
 
+/**
+ * Generic starting values per filament. Check your spool's label and your printer's own profile; these are not tuned.
+ * speedScale slows the default speeds (TPU needs to go slowly); retractMm is short for direct-drive extruders.
+ */
 export const MATERIALS = Object.freeze({
-  PLA: { nozzleC: 210, bedC: 60, fanPct: 100, flowMultiplier: 1 },
-  PETG: { nozzleC: 240, bedC: 80, fanPct: 40, flowMultiplier: 0.97 },
-  'PETG-translucent': { nozzleC: 245, bedC: 80, fanPct: 30, flowMultiplier: 0.97 },
+  PLA: { nozzleC: 210, bedC: 60, fanPct: 100, flowMultiplier: 1, speedScale: 1, retractMm: 0.8 },
+  PETG: { nozzleC: 240, bedC: 80, fanPct: 40, flowMultiplier: 0.97, speedScale: 1, retractMm: 0.8 },
+  'PETG-translucent': { nozzleC: 245, bedC: 80, fanPct: 30, flowMultiplier: 0.97, speedScale: 1, retractMm: 0.8 },
+  TPU: { nozzleC: 225, bedC: 50, fanPct: 50, flowMultiplier: 1, speedScale: 0.4, retractMm: 0.4 },
+  PVB: { nozzleC: 210, bedC: 55, fanPct: 100, flowMultiplier: 1, speedScale: 0.9, retractMm: 0.8 },
 });
+
+/** Build plates. `finish` describes what the outer (bed-side) faces of a print will look like. */
+export const PLATES = Object.freeze({
+  textured: { label: 'Textured', finish: 'diffuse matte — the texture is copied onto the bed-side faces' },
+  smooth: { label: 'Smooth', finish: 'smooth and glossy' },
+  holographic: { label: 'Holographic', finish: 'the bed-side faces pick up the diffraction pattern, visible as rainbow colours' },
+});
+
+/** Which plates a material works on, as reported from experience (not derived). Materials not listed are unrestricted. */
+export const MATERIAL_PLATES = Object.freeze({ PETG: ['textured'], 'PETG-translucent': ['textured'] });
 
 export const DEFAULT_PROFILE = Object.freeze({
   name: 'default-0.4',
+  plate: 'textured',
   nozzleMm: 0.4,
   filamentDiameterMm: 1.75,
   material: 'PETG',
@@ -49,6 +66,8 @@ export function resolveProfile(p = {}) {
   const pr = PRINTERS[p.printer];
   const m = { ...DEFAULT_PROFILE, ...(pr ? { bed: pr.bed } : {}), ...p, speed: { ...DEFAULT_PROFILE.speed, ...(p.speed || {}) }, bed: { ...DEFAULT_PROFILE.bed, ...(pr ? pr.bed : {}), ...(p.bed || {}) } };
   const mat = MATERIALS[m.material] || MATERIALS.PETG;
+  if (!p.speed) m.speed = Object.fromEntries(Object.entries(DEFAULT_PROFILE.speed).map(([k, v]) => [k, k === 'travel' ? v : Math.max(5, Math.round(v * mat.speedScale))]));
+  m.retractMm = p.retractMm ?? mat.retractMm;
   m.nozzleC ??= mat.nozzleC; m.bedC ??= mat.bedC; m.fanPct ??= mat.fanPct; m.flowMultiplier ??= mat.flowMultiplier;
   m.lineWidthMm = p.lineWidthMm ?? +(m.nozzleMm * m.lineWidthFactor).toFixed(4);
   return m;
@@ -64,6 +83,11 @@ export function validateProfile(p) {
   if (p.lineWidthMm < n * 0.9 || p.lineWidthMm > n * 1.6) warn('lineWidth', `line width ${p.lineWidthMm} mm is outside 0.9–1.6 × the nozzle`);
   if (p.walls < 1) warn('walls', 'at least one wall is required', 'error');
   if (p.bed.x < 1 || p.bed.y < 1) warn('bed', 'bed size is invalid', 'error');
+  if (!MATERIALS[p.material]) warn('material', `unknown material "${p.material}"`);
+  if (!PLATES[p.plate]) warn('plate', `unknown build plate "${p.plate}"`);
+  const ok = MATERIAL_PLATES[p.material];
+  if (ok && PLATES[p.plate] && !ok.includes(p.plate)) warn('plateForMaterial', `${p.material} only works on the ${ok.join(' / ')} plate; ${p.plate} is selected`);
+  if (PLATES[p.plate]) warn('plateFinish', `${PLATES[p.plate].label} plate: ${PLATES[p.plate].finish}`, 'info');
   const pr = PRINTERS[p.printer];
   if (p.printer && !pr) warn('printer', `unknown printer "${p.printer}"`);
   if (pr) {
@@ -106,7 +130,7 @@ export function toOrcaProfiles(prof, bases = {}) {
     sparse_infill_density: `${p.infillPct}%`, line_width: w, outer_wall_line_width: w, inner_wall_line_width: w, sparse_infill_line_width: w, internal_solid_infill_line_width: w, top_surface_line_width: w, initial_layer_line_width: w,
     skirt_loops: s(p.skirtLoops), skirt_distance: s(p.skirtDistanceMm), outer_wall_speed: s(sp.outerWall), inner_wall_speed: s(sp.innerWall), sparse_infill_speed: s(sp.infill), internal_solid_infill_speed: s(sp.solid), initial_layer_speed: s(sp.first), travel_speed: s(sp.travel) };
   const filament = { ...(bases.filament || {}), type: 'filament', name: `${name}-${p.material}`, from: 'User', filament_diameter: [s(p.filamentDiameterMm)],
-    nozzle_temperature: [s(p.nozzleC)], nozzle_temperature_initial_layer: [s(p.nozzleC)], hot_plate_temp: [s(p.bedC)], hot_plate_temp_initial_layer: [s(p.bedC)], textured_plate_temp: [s(p.bedC)], textured_plate_temp_initial_layer: [s(p.bedC)],
+    nozzle_temperature: [s(p.nozzleC)], nozzle_temperature_initial_layer: [s(p.nozzleC)], hot_plate_temp: [s(p.bedC)], hot_plate_temp_initial_layer: [s(p.bedC)], textured_plate_temp: [s(p.bedC)], textured_plate_temp_initial_layer: [s(p.bedC)], cool_plate_temp: [s(p.bedC)], cool_plate_temp_initial_layer: [s(p.bedC)], eng_plate_temp: [s(p.bedC)], eng_plate_temp_initial_layer: [s(p.bedC)],
     fan_min_speed: [s(p.fanPct)], fan_max_speed: [s(p.fanPct)], filament_flow_ratio: [s(p.flowMultiplier)] };
   return { machine, process, filament };
 }

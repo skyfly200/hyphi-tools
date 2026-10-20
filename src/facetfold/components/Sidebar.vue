@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue';
 import { state, raw, setFaceColor, scheduleRebuild, toggleHinge, resetHinges, addMount, removeMount, setSurface, applySurfaceToAll, FONTS, addArt, removeArt, copyArtToAllFaces, setSvgFromFile, uploadFont, runNozzleAnalysis, runSlice, loadGcode, downloadGcode, checkServer, cancelSlice, setPrinter, suggestHingeWidth, PROCESSES } from '../store.js';
-import { PRINTERS } from '@hyphi/slicer';
+import { PRINTERS, MATERIALS, PLATES, resolveProfile, validateProfile } from '@hyphi/slicer';
 import { PATTERNS, assessSurface, diffractionAngleDeg, dispersionDeg, maxPitchForDispersionUm } from '../lib/surface.js';
 
 const P = state.params;
@@ -23,6 +23,7 @@ const onSvg = (l, e) => { const f = e.target.files[0]; if (f) setSvgFromFile(l.i
 const onFont = e => { const f = e.target.files[0]; if (f) uploadFont(f); e.target.value = ''; };
 const SL = state.slicing, pieceCount = computed(() => (state.version, raw.plate?.components?.length || 1));
 const onGcode = e => { const f = e.target.files[0]; if (f) loadGcode(f); e.target.value = ''; };
+const plateNotes = computed(() => validateProfile(resolveProfile({ ...state.slicing.profile, plate: state.bedFinish })).filter(i => i.code === 'plateForMaterial' || i.code === 'plateFinish'));
 const hingeCount = computed(() => state.edgeList.filter(e => e.kind === 'hinge').length);
 const portVertices = computed(() => Array.from({ length: state.vertexCount }, (_, i) => i));
 </script>
@@ -134,7 +135,9 @@ const portVertices = computed(() => Array.from({ length: state.vertexCount }, (_
       <label class="row">Layer height mm <input type="number" step="0.01" min="0.05" v-model.number="SL.profile.layerHeightMm" @input="SL.profile.firstLayerHeightMm = SL.profile.layerHeightMm" /></label>
       <label class="row">Walls / top / bottom <input type="number" min="1" v-model.number="SL.profile.walls" /><input type="number" min="0" v-model.number="SL.profile.topLayers" /><input type="number" min="0" v-model.number="SL.profile.bottomLayers" /></label>
       <label class="row">Infill % <input type="number" min="0" max="100" v-model.number="SL.profile.infillPct" /></label>
-      <label class="row">Material <select v-model="SL.profile.material"><option>PETG</option><option>PLA</option><option>PETG-translucent</option></select></label>
+      <label class="row">Material <select v-model="SL.profile.material" @change="edit"><option v-for="(m, id) in MATERIALS" :key="id" :value="id">{{ id }}</option></select></label>
+      <label class="row">Build plate <select v-model="state.bedFinish" @change="edit"><option v-for="(p, id) in PLATES" :key="id" :value="id">{{ p.label }}</option></select></label>
+      <p v-for="n in plateNotes" :key="n.code" class="note" :class="{ err: n.level !== 'info' }">{{ n.message }}</p>
       <label class="row">Slice on <select v-model="SL.where"><option value="local">this browser (preview slicer)</option><option value="server">hosted slicing server</option></select></label>
       <template v-if="SL.where === 'server'">
         <input class="wide" v-model="SL.server.url" placeholder="https://slicer.example.com" />
@@ -153,7 +156,7 @@ const portVertices = computed(() => Array.from({ length: state.vertexCount }, (_
 
     <section class="blk">
       <h3>Outer surface</h3>
-      <label class="row">Build sheet <select v-model="state.bedFinish" @change="edit"><option value="smooth">smooth</option><option value="textured">textured (diffuse)</option></select></label>
+      <label class="row">Build plate <select v-model="state.bedFinish" @change="edit"><option v-for="(p, id) in PLATES" :key="id" :value="id">{{ p.label }}</option></select></label>
       <label class="row">Printer <select v-model="state.process" @change="edit"><option v-for="p in PROCESSES" :key="p.id" :value="p.id">{{ p.label }}</option></select></label>
       <label class="row">Face <select v-model.number="state.selectedFace"><option v-for="f in faces" :key="f" :value="f">{{ f }}</option></select></label>
       <label class="row">Pattern <select :value="spec.kind" @change="patch({ kind: $event.target.value })"><option v-for="k in PATTERNS" :key="k" :value="k">{{ k }}</option></select></label>

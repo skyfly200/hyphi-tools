@@ -1,0 +1,12 @@
+{
+ "name": "a1mini-tpu-0.4",
+ "printer": "bambu-a1-mini",
+ "nozzleMm": 0.4,
+ "material": "TPU",
+ "plate": "smooth",
+ "layerHeightMm": 0.2,
+ "walls": 3,
+ "topLayers": 4,
+ "bottomLayers": 4,
+ "infillPct": 20
+}

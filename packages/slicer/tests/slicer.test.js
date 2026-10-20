@@ -9,7 +9,7 @@ const box = (x, y, z) => K.Manifold.cube([x, y, z]);
 const near = (a, b, e, m) => assert.ok(Math.abs(a - b) <= e, m || `${a} !≈ ${b}`);
 
 test('profile: validation catches impossible layer heights and sizes', () => {
-  assert.equal(validateProfile(resolveProfile({})).length, 0);
+  assert.equal(validateProfile(resolveProfile({})).filter(i => i.level !== 'info').length, 0);
   assert.ok(validateProfile(resolveProfile({ layerHeightMm: 0.4 })).some(i => i.code === 'layerTooTall' && i.level === 'error'));
   assert.ok(validateProfile(resolveProfile({ layerHeightMm: 0.05 })).some(i => i.code === 'layerTooThin'));
   assert.match(toPrusaIni({ nozzleMm: 0.6, layerHeightMm: 0.3 }), /nozzle_diameter = 0.6\n[\s\S]*layer_height = 0.3/);
@@ -121,9 +121,10 @@ test('simplify: circle offsets collapse to few moves without leaving the toleran
 
 test('nozzle analysis: a vertical feature thinner than the layer height rules larger nozzles out', () => {
   const a = analyzeNozzles(K, box(40, 40, 20), { maxLayerHeightMm: 0.1 });
-  assert.ok(a.recommended.layerHeightMm <= 0.125 && a.recommended.nozzleMm <= 0.25, `got ${a.recommended.nozzleMm}`);
+  // a 0.4 mm nozzle can print 0.1 mm layers (25 % of the nozzle), so it stays eligible; 0.6+ cannot go that thin
+  assert.equal(a.recommended.nozzleMm, 0.4); assert.equal(a.recommended.layerHeightMm, 0.1);
   assert.match(a.recommended.reason, /thinnest vertical feature/);
-  assert.equal(a.table.find(r => r.nozzleMm === 0.8).layerOk, false);
+  assert.equal(a.table.find(r => r.nozzleMm === 0.8).layerOk, false); assert.equal(a.table.find(r => r.nozzleMm === 0.6).layerOk, false);
 });
 
 test('printers: A1 mini and MK3S presets set the bed, check nozzle/temps, and flag preview-only G-code', async () => {
@@ -137,4 +138,25 @@ test('printers: A1 mini and MK3S presets set the bed, check nozzle/temps, and fl
   assert.ok(Object.keys(PRINTERS).length >= 3);
   const r = generateGcode(K, box(10, 10, 2), a1); assert.equal(r.stats.fitsBed, true);
   const big = generateGcode(K, box(200, 10, 2), a1); assert.equal(big.stats.fitsBed, false);       // wider than the A1 mini bed
+});
+
+test('materials and plates: PETG only on textured, TPU is slowed, hinge strain bands follow the material', async () => {
+  const { MATERIALS, PLATES } = await import('../src/index.js');
+  const { classifyStrain, hingeStrains, minHingeWidthMm } = await import('../../../src/facetfold/lib/export.js');
+  assert.deepEqual(Object.keys(PLATES).sort(), ['holographic', 'smooth', 'textured']);
+  for (const m of ['PLA', 'PETG', 'TPU', 'PVB']) assert.ok(MATERIALS[m]);
+  const bad = validateProfile(resolveProfile({ material: 'PETG', plate: 'holographic' }));
+  assert.ok(bad.some(i => i.code === 'plateForMaterial'));
+  assert.ok(!validateProfile(resolveProfile({ material: 'PETG', plate: 'textured' })).some(i => i.code === 'plateForMaterial'));
+  assert.ok(!validateProfile(resolveProfile({ material: 'PLA', plate: 'holographic' })).some(i => i.code === 'plateForMaterial'));
+  assert.ok(validateProfile(resolveProfile({ plate: 'holographic', material: 'PVB' })).some(i => i.code === 'plateFinish' && /diffraction/.test(i.message)));
+  assert.ok(resolveProfile({ material: 'TPU' }).speed.outerWall <= 20 && resolveProfile({ material: 'PLA' }).speed.outerWall === 40);
+  assert.equal(resolveProfile({ material: 'TPU', speed: { outerWall: 33 } }).speed.outerWall, 33);
+  // 5 % strain: cracks PLA, tolerable for PETG, trivially elastic for TPU
+  assert.equal(classifyStrain(0.05, 'PLA'), 'likely-whitens'); assert.equal(classifyStrain(0.05, 'PETG'), 'yields-once'); assert.equal(classifyStrain(0.05, 'TPU'), 'elastic');
+  const { POLYHEDRA } = await import('@hyphi/polyhedra'), { buildNet } = await import('../../../src/facetfold/lib/net.js');
+  const net = buildNet(POLYHEDRA.cube.build(), { edgeLengthMm: 40 });
+  assert.ok(hingeStrains(net, 'PLA')[0].strain === hingeStrains(net, 'TPU')[0].strain);
+  assert.ok(minHingeWidthMm(net, undefined, 'PLA') > minHingeWidthMm(net, undefined, 'PETG'));
+  assert.ok(minHingeWidthMm(net, undefined, 'TPU') < minHingeWidthMm(net, undefined, 'PETG'));
 });

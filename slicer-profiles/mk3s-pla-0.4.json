@@ -1,0 +1,12 @@
+{
+ "name": "mk3s-pla-0.4",
+ "printer": "prusa-mk3s",
+ "nozzleMm": 0.4,
+ "material": "PLA",
+ "plate": "smooth",
+ "layerHeightMm": 0.2,
+ "walls": 2,
+ "topLayers": 4,
+ "bottomLayers": 4,
+ "infillPct": 15
+}
