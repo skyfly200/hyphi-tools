@@ -1,0 +1,196 @@
+# GlowFlora Home: product spec (source of truth for the hardware pipeline).
+#
+# Parts are seeded from hyphi-wiki/docs/glowflora/bom.md (Home V1.0, Prototype V2).
+# Values marked TODO are not in any repo yet and come from the EasyEDA project
+# during the Phase 0 migration.
+#
+# Units: millimetres, degrees. Coordinates: KiCad (origin top-left, +Y down).
+
+spec_version: 0
+product:
+  id: glowflora-home
+  name: GlowFlora Home
+  revision: V1.0
+  lineage: Prototype V2 (EasyEDA)
+
+fab:
+  house: jlcpcb
+  layers: 2
+  thickness: 1.6          # TODO confirm
+  copper_oz: 1
+  finish: ENIG
+  mask: black
+  assembly: economic
+  rules:                  # wiki/glowflora/pcb.md
+    min_trace: 0.1
+    pref_trace: 0.2
+    via_diameter: 0.5
+    via_drill: 0.3
+    min_clearance: 0.1
+
+board:
+  # TODO: replace with the real outline from the EasyEDA board. A list of
+  # points, or a DXF/SVG path the generator reads.
+  outline:
+    type: polygon
+    points: []
+  mounting_holes:
+    - { ref: HOLE1, size: M3, at: null }
+    - { ref: HOLE2, size: M3, at: null }
+    - { ref: HOLE3, size: M3, at: null }
+
+# One entry per part type. `refs` lists every designator using it.
+# tier: basic | extended | null (null = not yet checked; the JLCPCB plugin or
+#   jlcparts fills it in). Each extended type adds ~$3 per assembly order.
+# rotation_offset: JLCPCB placement correction found on the first KiCad order.
+# height: max component height above the board, used by the enclosure generator.
+parts:
+  - id: cap_bulk
+    refs: [C1]
+    value: 100uF
+    kind: capacitor_electrolytic
+    lcsc: C5102671
+    tier: null
+    rotation_offset: null
+    height: null
+  - id: cap_10u
+    refs: [C2, C3]
+    value: 10uF
+    package: "0603"
+    lcsc: C96446
+    tier: null
+  - id: cap_100n
+    refs: [C4, C5, C6, C7, C8, C9, C10, C11, C12, C13, C14, C15, C16]
+    value: 100nF
+    package: "0402"
+    lcsc: C1525
+    tier: null
+  - id: fuse
+    refs: [F1]
+    value: SMD1206-110-8
+    package: "1206"
+    lcsc: C46641027
+    tier: null
+  - id: led
+    refs: [LED1, LED2, LED3, LED4, LED5, LED6, LED7, LED8, LED9, LED10, LED11, LED12]
+    value: WS2812B-V5
+    package: "5050"
+    lcsc: C691873
+    tier: null
+    rotation_offset: null   # 5050 LEDs are a common rotation mismatch
+  - id: r_led_data
+    refs: [R1]
+    value: 330R
+    package: "0402"
+    lcsc: C25104
+    tier: null
+  - id: r_ilim_1a
+    refs: [R1a]
+    value: 3.3k
+    package: "0805"
+    lcsc: C26010
+    tier: null
+  - id: r_ilim_1b
+    refs: [R1b]
+    value: 20k
+    package: "0805"
+    lcsc: C4328
+    tier: null
+  - id: r_ilim_2a
+    refs: [R2a]
+    value: 3.9k
+    package: "0805"
+    lcsc: C17614
+    tier: null
+  - id: r_ilim_2b
+    refs: [R2b]
+    value: 2.4k
+    package: "0805"
+    lcsc: C17526
+    tier: null
+  - id: r_ilim_3a
+    refs: [R3a]
+    value: 6.8k
+    package: "0805"
+    lcsc: C17772
+    tier: null
+  - id: r_ilim_3b
+    refs: [R3b]
+    value: 3k
+    package: "0805"
+    lcsc: C17661
+    tier: null
+  - id: r_200k
+    refs: [R4, R5]
+    value: 200k
+    package: "0402"
+    lcsc: C25764
+    tier: null
+  - id: switch
+    refs: [SW1]
+    value: K1-1502SA-01
+    lcsc: C145915
+    tier: null
+    height: null
+  - id: mcu
+    refs: [U1]
+    value: Seeed XIAO ESP32-C3
+    lcsc: C19189385
+    tier: null
+    height: null
+  - id: ilim_ic
+    refs: [U2]
+    value: MT9700-N
+    package: SOT-23-5
+    lcsc: C42441843
+    tier: null
+    rotation_offset: null   # SOT-23-5 is a common rotation mismatch
+  - id: boost
+    refs: [DCBOOST]
+    value: TODO            # wiki: "specific part TBD on schematic"
+    lcsc: null
+    tier: null
+  # Not assembled by JLCPCB:
+  - id: jumpers
+    refs: [J1A, J1B, J1C, J2A, J2B, J2C, J3A, J3B, J3C, BYPASS]
+    kind: solder_jumper_open
+    lcsc: null
+    assemble: false
+  - id: holes
+    refs: [HOLE1, HOLE2, HOLE3]
+    kind: mounting_hole_m3
+    lcsc: null
+    assemble: false
+  - id: battery
+    refs: []
+    value: 18650 cell, spot-welded nickel tabs
+    lcsc: null
+    assemble: false
+    height: null
+
+# Placement constraints the layout scripts enforce. Free-form for now; Phase 1
+# turns these into rules.
+placement:
+  - { refs: [LED1..LED12], rule: ring_or_array, note: "TODO from EasyEDA layout" }
+  - { refs: [C4..C16], rule: near, target: "each LED VDD", max_distance: 2.0 }
+  - { refs: [U2, R1a, R1b, R2a, R2b, R3a, R3b], rule: group, note: current-limit block }
+  - { refs: [R1], rule: near, target: "LED1 DIN", max_distance: 3.0 }
+
+# Nets that must be hand-routed (everything else may be auto-routed).
+critical_nets: [VBAT, VLED, LED_DATA]
+
+enclosure:
+  generator: build123d
+  wall: 2.0
+  clearance_above: 2.0    # mm over tallest part
+  clearance_below: 1.0
+  battery_bay: { cell: "18650", diameter: 18.5, length: 65.5 }   # TODO confirm bay layout
+  openings: [usb_c_on_U1, SW1]
+
+# Variants override any field above. Current-limit presets map to the jumper
+# matrix in hyphi-wiki/docs/diy/current-limit.md (I_lim mA = 6800 / R_set kΩ).
+variants:
+  default:
+    jumpers: { tier1: A, tier2: bypass, tier3: bypass }   # R_set 3.3k, ~2.06 A (example)
+  low-power:
+    jumpers: { tier1: B, tier2: bypass, tier3: bypass }   # R_set 20k, ~340 mA (example)
