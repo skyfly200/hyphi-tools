@@ -21,6 +21,12 @@ export function createSlicingClient({ baseUrl, apiKey = '', fetch: f = globalThi
     submit: ({ stl, profile = {}, engine = 'builtin', nozzles = false }) =>
       call('/v1/jobs', { method: 'POST', headers: { 'content-type': 'application/octet-stream', 'x-slice-options': encodeURIComponent(JSON.stringify({ profile, engine, nozzles })) }, body: stl }),
     get: id => call(`/v1/jobs/${id}`),
+    /** OctoPrint through the server's bridge (the server must allow that host). */
+    octoprint: {
+      status: ({ baseUrl, apiKey: key }) => call('/v1/octoprint/status', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ baseUrl, apiKey: key }) }),
+      send: ({ baseUrl, apiKey: key, name, gcode, print = false, confirmBedClear = false }) => call('/v1/octoprint/jobs', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ baseUrl, apiKey: key, name, gcode, print, confirmBedClear }) }),
+      cancel: ({ baseUrl, apiKey: key }) => call('/v1/octoprint/cancel', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ baseUrl, apiKey: key }) }),
+    },
     gcode: id => call(`/v1/jobs/${id}/gcode`, {}, true),
     cancel: id => call(`/v1/jobs/${id}`, { method: 'DELETE' }),
     /** Submit, poll until finished, fetch the G-code. Abort with `signal` (cancels the remote job). */

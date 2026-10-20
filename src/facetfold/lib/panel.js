@@ -65,7 +65,8 @@ export function panelProfile(net, face) {
   const top = offsetPolygon(face.outer, edges.map(e => e.topOffMm));
   if (!bottom) issues.push({ level: 'error', code: 'panelTooSmall', face: face.id, message: `face ${face.id}: hinge/seam trims consume the panel at the outer surface` });
   if (!top) issues.push({ level: 'error', code: 'panelTooSmall', face: face.id, message: `face ${face.id}: wall mitres consume the panel at the inner surface — reduce thickness or increase edge length` });
-  for (const e of edges) if (e.overhang) issues.push({ level: 'warning', code: 'overhang', face: face.id, edge: e.i,
+  const tol = net.params.overhangToleranceMm ?? 0.2;     // about half an extrusion width bridges without support
+  for (const e of edges) if (e.overhang && -e.runMm > tol) issues.push({ level: 'warning', code: 'overhang', face: face.id, edge: e.i,
     message: `face ${face.id} edge ${e.i}: wall leans OUTWARD by ${(-e.runMm).toFixed(2)} mm (needs support). Increase panel thickness or reduce hinge width.` });
   return { ideal: face.outer, bottom, top, edges, valid: !!(bottom && top), issues };
 }

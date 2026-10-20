@@ -12,13 +12,14 @@ import { Worker } from 'node:worker_threads';
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 import { resolveProfile, validateProfile } from '../profile.js';
 import { runExternalSlicer } from './external.js';
+import { createOctoPrintClient } from '../octoprint.js';
 
 const sha = s => createHash('sha256').update(s).digest();
 const HDR = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' };
 
 export function createSlicingServer(opts = {}) {
   const o = { apiKeys: [], allowAnonymous: false, maxBodyBytes: 64 * 1024 * 1024, concurrency: 2, maxQueuePerClient: 5, jobTtlMs: 60 * 60 * 1000, jobTimeoutMs: 5 * 60 * 1000,
-    maxTriangles: 2_000_000, maxLayers: 4000, corsOrigins: [], prusaPath: null, orca: null, profiles: [], ...opts };
+    maxTriangles: 2_000_000, maxLayers: 4000, corsOrigins: [], prusaPath: null, orca: null, profiles: [], octoprintHosts: [], ...opts };
   // external engines: { prusa: { path, wrapper? }, orca: { path, wrapper?, bases? } }
   o.external = { ...(o.prusaPath ? { prusa: { path: o.prusaPath } } : {}), ...(o.orca?.path ? { orca: o.orca } : {}), ...(opts.external || {}) };
   if (!o.allowAnonymous && !o.apiKeys.length) throw new Error('refusing to start without API keys (set apiKeys, or allowAnonymous for local development)');
@@ -102,6 +103,17 @@ export function createSlicingServer(opts = {}) {
       const j = { id: randomBytes(16).toString('hex'), client, status: 'queued', progress: 0, engine, createdAt: Date.now(), profile, nozzles: !!spec.nozzles, stl: spec.stl };
       jobs.set(j.id, j); queue.push(j); pump();
       return send(res, 202, publicJob(j));
+    }
+    if (path.startsWith('/v1/octoprint/') && req.method === 'POST') {            // bridge to an OctoPrint on your network (allow-listed hosts only)
+      let b; try { b = JSON.parse((await readBody(req, o.maxBodyBytes)).toString('utf8')); } catch { return fail(res, 400, 'invalid request body'); }
+      let host; try { const u = new URL(b.baseUrl); host = u.host; if (!/^https?:$/.test(u.protocol)) throw 0; } catch { return fail(res, 400, 'invalid OctoPrint URL'); }
+      if (!o.octoprintHosts.includes(host)) return fail(res, 403, `OctoPrint host "${host}" is not allowed on this server`);
+      try {
+        const op = createOctoPrintClient({ baseUrl: b.baseUrl, apiKey: b.apiKey });
+        if (path === '/v1/octoprint/status') return send(res, 200, { version: await op.version().catch(() => null), state: await op.state(), job: await op.job().catch(() => null) });
+        if (path === '/v1/octoprint/jobs') return send(res, 200, await op.uploadAndPrint({ name: b.name, gcode: b.gcode, print: !!b.print, confirmBedClear: !!b.confirmBedClear }));
+        if (path === '/v1/octoprint/cancel') return send(res, 200, await op.cancel());
+      } catch (e) { return fail(res, e.status === 401 || e.status === 403 ? 502 : 400, e.message); }
     }
     const m = /^\/v1\/jobs\/([0-9a-f]{32})(\/gcode)?$/.exec(path);
     if (m) {

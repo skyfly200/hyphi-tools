@@ -1,0 +1,13 @@
+{
+  "name": "@hyphi/inventory",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Inventory of printed parts, assemblies (bills of materials) and filament, kept as an append-only ledger.",
+  "main": "src/index.js",
+  "module": "src/index.js",
+  "exports": { ".": "./src/index.js", "./file-store": "./src/file-store.js" },
+  "files": ["src", "README.md"],
+  "sideEffects": false,
+  "license": "UNLICENSED",
+  "private": true
+}

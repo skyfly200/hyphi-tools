@@ -1,6 +1,7 @@
 <script setup>
-import { computed } from 'vue';
-import { state, raw, setFaceColor, scheduleRebuild, toggleHinge, resetHinges, addMount, removeMount, setSurface, applySurfaceToAll, FONTS, addArt, removeArt, copyArtToAllFaces, setSvgFromFile, uploadFont, runNozzleAnalysis, runSlice, loadGcode, downloadGcode, checkServer, cancelSlice, setPrinter, importSettings, downloadImportedProfile, suggestHingeWidth, PROCESSES } from '../store.js';
+import { computed, onMounted } from 'vue';
+import { state, raw, setFaceColor, scheduleRebuild, toggleHinge, resetHinges, addMount, removeMount, setSurface, applySurfaceToAll, FONTS, addArt, removeArt, copyArtToAllFaces, setSvgFromFile, uploadFont, runNozzleAnalysis, runSlice, loadGcode, downloadGcode, checkServer, cancelSlice, setPrinter, invInit, invRegister, invPrinted, invScrap, octoStatus, octoSend, openInBambuStudio, applyPreset, importSettings, downloadImportedProfile, suggestHingeWidth, PROCESSES } from '../store.js';
+import { PRESETS } from '../lib/printcheck.js';
 import { PRINTERS, MATERIALS, PLATES, resolveProfile, validateProfile } from '@hyphi/slicer';
 import { PATTERNS, assessSurface, diffractionAngleDeg, dispersionDeg, maxPitchForDispersionUm } from '../lib/surface.js';
 
@@ -25,6 +26,8 @@ const SL = state.slicing, pieceCount = computed(() => (state.version, raw.plate?
 const onImport = e => { const f = e.target.files[0]; if (f) importSettings(f); e.target.value = ''; };
 const onGcode = e => { const f = e.target.files[0]; if (f) loadGcode(f); e.target.value = ''; };
 const plateNotes = computed(() => validateProfile(resolveProfile({ ...state.slicing.profile, plate: state.bedFinish })).filter(i => i.code === 'plateForMaterial' || i.code === 'plateFinish'));
+const PJ = state.printer, INV = state.inventory;
+onMounted(invInit);
 const hingeCount = computed(() => state.edgeList.filter(e => e.kind === 'hinge').length);
 const portVertices = computed(() => Array.from({ length: state.vertexCount }, (_, i) => i));
 </script>
@@ -34,7 +37,8 @@ const portVertices = computed(() => Array.from({ length: state.vertexCount }, (_
     <section class="blk">
       <h3>Dimensions</h3>
       <label class="row">Shortest edge (mm) <input type="number" min="8" step="1" v-model.number="P.edgeLengthMm" @input="edit" /></label>
-      <label class="row">Panel thickness (mm) <input type="number" min="0.8" step="0.1" v-model.number="P.panelThicknessMm" @input="edit" /></label>
+      <label class="row">Preset <select @change="applyPreset($event.target.value); $event.target.value = ''"><option value="">— choose —</option><option v-for="p in PRESETS" :key="p.id" :value="p.id">{{ p.label }}</option></select></label>
+      <label class="row">Panel thickness (mm) <input type="number" min="0.2" step="0.1" v-model.number="P.panelThicknessMm" @input="edit" /></label>
       <label class="row">Seam clearance (mm) <input type="number" min="0" step="0.05" v-model.number="P.seamClearanceMm" @input="edit" /></label>
     </section>
 
@@ -154,6 +158,33 @@ const portVertices = computed(() => Array.from({ length: state.vertexCount }, (_
       <div class="row"><label class="up">open G-code <input type="file" accept=".gcode,.gco,.nc,text/plain" @change="onGcode" /></label><button :disabled="!SL.result" @click="downloadGcode">Download G-code</button></div>
       <label class="row">Colour by <select v-model="SL.colorBy"><option value="type">feature type</option><option value="width">line width vs nozzle</option></select></label>
       <p class="note">{{ SL.busy ? (SL.progress || 'Working…') : SL.error || 'Slices the selected plate piece with a built-in preview slicer (walls, skin, rectilinear infill, single colour). For production, export the STL and use the same settings with your slicer, then open its G-code here to inspect it.' }}</p>
+    </section>
+
+    <section class="blk">
+      <h3>Print jobs</h3>
+      <input class="wide" v-model="PJ.url" placeholder="OctoPrint URL, e.g. http://octopi.local" />
+      <input class="wide" type="password" autocomplete="off" v-model="PJ.key" placeholder="OctoPrint API key" />
+      <label class="row"><span><input type="checkbox" v-model="PJ.remember" /> remember key in this browser</span></label>
+      <div class="row"><button :disabled="PJ.busy" @click="octoStatus">Check printer</button><button :disabled="PJ.busy || !SL.result" @click="octoSend(false)">Upload G-code</button></div>
+      <label class="row"><span><input type="checkbox" v-model="PJ.confirm" /> bed is clear and I am at the printer</span></label>
+      <div class="row"><button :disabled="PJ.busy || !SL.result || !PJ.confirm" @click="octoSend(true)">Upload &amp; start print</button></div>
+      <p v-if="PJ.msg" class="note" :class="{ err: PJ.error }">{{ PJ.msg }}</p>
+      <p class="note">Uses the sliced (or opened) G-code. With a slicing server set above, the upload goes through that server (it must list your OctoPrint host); otherwise the browser calls OctoPrint directly, which needs OctoPrint's cross-origin setting on and cannot reach plain http from an https page. Upload only is the default; starting a print needs the checkbox and an idle printer. A Bambu printer is not reachable this way.</p>
+      <input class="wide" v-model="PJ.openLink" placeholder="public link to a 3MF/STL for Bambu Studio" />
+      <div class="row"><button :disabled="!PJ.openLink" @click="openInBambuStudio('bambustudio')">Open in Bambu Studio</button><button :disabled="!PJ.openLink" @click="openInBambuStudio('orcaslicer')">Open in Orca</button></div>
+    </section>
+
+    <section class="blk">
+      <h3>Inventory</h3>
+      <div class="row"><input class="wide" v-model="INV.name" placeholder="part name (default: solid + piece)" /></div>
+      <div class="row"><button @click="invRegister">Register this design as a part</button></div>
+      <div v-for="p in INV.parts" :key="p.id" class="art">
+        <div class="row"><b>{{ p.name }}</b><span>{{ p.onHand }} on hand</span></div>
+        <div class="row"><button @click="invPrinted(p.id, true)">+1 printed</button><button @click="invPrinted(p.id, false)">failed print</button><button :disabled="!p.onHand" @click="invScrap(p.id)">scrap 1</button></div>
+        <p class="note">{{ p.material }}{{ p.gramsEach != null ? ` · ${p.gramsEach} g each` : '' }}</p>
+      </div>
+      <p v-if="INV.msg" class="note" :class="{ err: INV.error }">{{ INV.msg }}</p>
+      <p class="note">Counts are kept in this browser only, as a ledger. A changed design or parameter registers as a new part version. Assemblies (bills of materials), shortages and print plans are in @hyphi/inventory; shared storage across devices needs a database.</p>
     </section>
 
     <section class="blk">

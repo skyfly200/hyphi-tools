@@ -16,7 +16,9 @@ import { faceMountSpec, tieSlotSpecs, truncateVertex } from './lib/lighting.js';
 import { buildReport, pieceSTL, minHingeWidthMm, export3MF } from './lib/export.js';
 import { plateSvg, heightmapPGM, PROCESSES } from './lib/surface.js';
 import { panelProfile } from './lib/panel.js';
-import { importProfile, PRINTERS, createSlicingClient, resolveProfile, validateProfile, generateGcode, parseGcode, analyzeGcode, analyzeNozzles, buildRibbons } from '@hyphi/slicer';
+import { createInventory, createLocalStorageStore, designHash, filamentGrams } from '@hyphi/inventory';
+import { hingePrintIssues, PRESETS } from './lib/printcheck.js';
+import { createOctoPrintClient, slicerOpenUrl, importProfile, PRINTERS, createSlicingClient, resolveProfile, validateProfile, generateGcode, parseGcode, analyzeGcode, analyzeNozzles, buildRibbons } from '@hyphi/slicer';
 
 export const SOLIDS = { ...Object.fromEntries(Object.entries(POLYHEDRA).map(([k, v]) => [k, { id: k, label: v.label, build: v.build }])),
   ...Object.fromEntries(Object.entries(EXTRA_POLYHEDRA).map(([k, v]) => [k, { id: k, label: v.label, build: v.build }])) };
@@ -39,6 +41,8 @@ export const state = reactive({
   colors: { mode: 'single', count: 3, palette: DEFAULT_PALETTE.map(c => ({ ...c })), manual: {}, hingeMode: 'parent', hingeSlot: 0, extruders: 4, active: 0 },
   art: { layers: [], info: {}, customFontName: null, nextId: 1 },
   slicing: { profile: { printer: 'generic', nozzleMm: 0.4, layerHeightMm: 0.2, firstLayerHeightMm: 0.2, walls: 2, topLayers: 4, bottomLayers: 4, infillPct: 15, material: 'PETG' }, where: 'local', server: { url: lsGet('ff.slicer.url') || '', key: lsGet('ff.slicer.key') || '', remember: !!lsGet('ff.slicer.key'), engine: 'builtin', engines: ['builtin'], info: '' }, progress: '', imported: null, piece: 0, busy: false, error: null, nozzleTable: null, result: null, layer: 0, layerMax: 0, colorBy: 'type', stale: false },
+  printer: { url: lsGet('ff.octo.url') || '', key: lsGet('ff.octo.key') || '', remember: !!lsGet('ff.octo.key'), confirm: false, busy: false, msg: '', error: false, openLink: '' },
+  inventory: { parts: [], name: '', msg: '', error: false, ready: false },
   selectedFace: 0,
   fold: 1,                             // 0 flat … 1 closed
   view: 'folded',                      // folded | plate
@@ -155,6 +159,7 @@ export async function rebuild() {
     raw.bodies = markRaw(bodies); raw.faceColors = assign.colors; raw.net = markRaw(net); raw.verify = markRaw(verify); raw.plate = markRaw(plate); raw.meshes = markRaw(meshes); raw.solid = markRaw(cur);
     const report = buildReport(net, verify, plate, { bedMm: state.bedMm, process: state.process, material: state.slicing.profile.material });
     report.bedFinish = state.bedFinish;
+    if (net.hinges.length) { const sp = sliceProfile(); report.issues.push(...hingePrintIssues(net.params, { lineWidthMm: sp.lineWidthMm, firstLayerHeightMm: sp.firstLayerHeightMm, layerHeightMm: sp.layerHeightMm })); }
     for (const i of validateProfile(sliceProfile())) if (i.code === 'plateForMaterial' || i.code === 'plateFinish') report.issues.push(i);
     if (state.bedFinish !== 'smooth' && Object.values(state.surfaces).some(sp => sp.kind !== 'none')) report.issues.push({ level: 'warning', code: 'plateVsPattern', message: `the ${state.bedFinish} plate imprints its own surface on the bed-side faces, which hides or mixes with the relief you designed on them; use the smooth plate for designed patterns` });
     report.issues.push(...artIssues);
@@ -237,6 +242,49 @@ export const importSettings = file => guarded(async () => {
   scheduleRebuild(0);
 });
 export function downloadImportedProfile() { const i = state.slicing.imported; if (i) download(`${i.profile.name || 'imported'}.json`, new TextEncoder().encode(JSON.stringify(i.profile, null, 2)), 'application/json'); }
+export function applyPreset(id) {
+  const P = PRESETS[id]; if (!P) return;
+  Object.assign(state.params, P.params); Object.assign(state.snap, P.snap);
+  state.slicing.profile = { ...state.slicing.profile, ...P.slicing }; state.bedFinish = P.plate;
+  const pr = PRINTERS[P.slicing.printer]; if (pr) state.bedMm = [pr.bed.x, pr.bed.y];
+  scheduleRebuild(0);
+}
+// ---- inventory (this browser; see @hyphi/inventory for BOMs, assemblies and server storage) ----
+async function inv() { if (!raw.inv) raw.inv = await createInventory(createLocalStorageStore()); return raw.inv; }
+async function invRefresh() { const i = await inv(), st = i.stock().parts; state.inventory.parts = Object.values(i.state.parts).map(p => ({ id: p.id, name: p.name, material: p.material, gramsEach: p.gramsEach, onHand: st[p.id] || 0, designId: p.designId })); state.inventory.ready = true; }
+export async function invInit() { try { await invRefresh(); } catch (e) { state.inventory.msg = e.message; state.inventory.error = true; } }
+async function invRun(fn) { const I = state.inventory; I.msg = ''; I.error = false; try { await fn(await inv()); await invRefresh(); } catch (e) { I.msg = e.message; I.error = true; } }
+export const invRegister = () => invRun(async i => {
+  const sp = state.slicing, solid = SOLIDS[state.solidId], res = sp.result?.analysis;
+  const grams = res ? filamentGrams(res.filamentMm, sp.profile.material, sp.profile.filamentDiameterMm || 1.75) : null;
+  const params = { solid: state.solidId, ...state.params, snap: state.snap, plate: state.bedFinish, hingeMode: state.colors.mode, surfaces: state.surfaces, art: state.art.layers.length, material: sp.profile.material, piece: sp.piece };
+  const p = await i.definePart({ name: state.inventory.name || `${solid?.label || state.solidId} piece ${sp.piece + 1}`, designId: `facetfold:${state.solidId}`, params, material: sp.profile.material, profile: sp.profile.printer, gramsEach: grams });
+  state.inventory.msg = `registered ${p.name} (version ${designHash(params)})${grams == null ? ' — slice once to record its filament weight' : ` · ${grams} g`}`;
+});
+export const invPrinted = (id, ok = true) => invRun(i => i.recordPrint(id, 1, { ok, printer: PRINTERS[state.slicing.profile.printer]?.label || '' }));
+export const invScrap = id => invRun(i => i.scrap({ partId: id, qty: 1, reason: 'scrapped in FacetFold' }));
+
+// ---- print jobs: OctoPrint (through the slicing server's bridge when one is configured, otherwise directly) and Bambu Studio ----
+const octoName = () => `${base()}-piece${state.slicing.piece + 1}.gcode`.replace(/[^\w.+-]/g, '-');
+function octoVia() {
+  const P = state.printer; if (!P.url) throw new Error('enter the OctoPrint URL');
+  lsSet('ff.octo.url', P.url); lsSet('ff.octo.key', P.remember ? P.key : '');
+  const S = state.slicing.server;
+  return S.url ? { bridge: createSlicingClient({ baseUrl: S.url, apiKey: S.key }).octoprint, args: { baseUrl: P.url, apiKey: P.key } } : { direct: createOctoPrintClient({ baseUrl: P.url, apiKey: P.key }) };
+}
+async function octoRun(fn) {
+  const P = state.printer; if (P.busy) return; P.busy = true; P.msg = ''; P.error = false;
+  try { P.msg = await fn(); } catch (e) { P.msg = e.message; P.error = true; } finally { P.busy = false; }
+}
+export const octoStatus = () => octoRun(async () => { const v = octoVia(), s = v.bridge ? (await v.bridge.status(v.args)).state : await v.direct.state(); return `${s.text}${s.printing ? ' (busy)' : s.operational ? ' — ready' : ''}`; });
+export const octoSend = start => octoRun(async () => {
+  if (!raw.slice) throw new Error('slice a piece first (or open a G-code file)');
+  if (start && !state.printer.confirm) throw new Error('tick “bed is clear and I am at the printer” to start a print');
+  const v = octoVia(), job = { name: octoName(), gcode: raw.slice.gcode, print: !!start, confirmBedClear: state.printer.confirm };
+  const r = v.bridge ? await v.bridge.send({ ...v.args, ...job }) : await v.direct.uploadAndPrint(job);
+  return start ? `started ${r.uploaded}` : `uploaded ${r.uploaded} (not started)`;
+});
+export function openInBambuStudio(app = 'bambustudio') { try { window.location.href = slicerOpenUrl(state.printer.openLink, app); state.printer.msg = ''; state.printer.error = false; } catch (e) { state.printer.msg = e.message; state.printer.error = true; } }
 export function setPrinter(id) {
   const pr = PRINTERS[id]; if (!pr) return;
   state.slicing.profile.printer = id; state.bedMm = [pr.bed.x, pr.bed.y];
