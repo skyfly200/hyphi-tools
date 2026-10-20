@@ -68,3 +68,24 @@ export function toPrusaIni(prof) {
   };
   return Object.entries(lines).map(([k, v]) => `${k} = ${v}`).join('\n') + '\n';
 }
+
+const s = v => String(v);
+/**
+ * OrcaSlicer machine / process / filament JSON from a profile. `bases` ({machine, process, filament} objects, e.g. exported
+ * from your own Orca install) are used as the starting point and only the keys below are overridden, so your printer
+ * definition, gcode macros and plate settings stay yours. With no bases a minimal generic Marlin-style set is produced.
+ * Key names follow OrcaSlicer's profile format; check one slice on your install (not verified against a real Orca here).
+ */
+export function toOrcaProfiles(prof, bases = {}) {
+  const p = resolveProfile(prof), w = s(p.lineWidthMm), sp = p.speed, name = p.name;
+  const machine = { ...(bases.machine || { gcode_flavor: 'marlin2', machine_start_gcode: p.startGcode, machine_end_gcode: p.endGcode }), type: 'machine', name: `${name}-machine`, from: 'User',
+    nozzle_diameter: [s(p.nozzleMm)], printable_area: [`0x0`, `${p.bed.x}x0`, `${p.bed.x}x${p.bed.y}`, `0x${p.bed.y}`], retraction_length: [s(p.retractMm)], use_relative_e_distances: '1' };
+  const process = { ...(bases.process || {}), type: 'process', name: `${name}-process`, from: 'User',
+    layer_height: s(p.layerHeightMm), initial_layer_print_height: s(p.firstLayerHeightMm), wall_loops: s(p.walls), top_shell_layers: s(p.topLayers), bottom_shell_layers: s(p.bottomLayers),
+    sparse_infill_density: `${p.infillPct}%`, line_width: w, outer_wall_line_width: w, inner_wall_line_width: w, sparse_infill_line_width: w, internal_solid_infill_line_width: w, top_surface_line_width: w, initial_layer_line_width: w,
+    skirt_loops: s(p.skirtLoops), skirt_distance: s(p.skirtDistanceMm), outer_wall_speed: s(sp.outerWall), inner_wall_speed: s(sp.innerWall), sparse_infill_speed: s(sp.infill), internal_solid_infill_speed: s(sp.solid), initial_layer_speed: s(sp.first), travel_speed: s(sp.travel) };
+  const filament = { ...(bases.filament || {}), type: 'filament', name: `${name}-${p.material}`, from: 'User', filament_diameter: [s(p.filamentDiameterMm)],
+    nozzle_temperature: [s(p.nozzleC)], nozzle_temperature_initial_layer: [s(p.nozzleC)], hot_plate_temp: [s(p.bedC)], hot_plate_temp_initial_layer: [s(p.bedC)], textured_plate_temp: [s(p.bedC)], textured_plate_temp_initial_layer: [s(p.bedC)],
+    fan_min_speed: [s(p.fanPct)], fan_max_speed: [s(p.fanPct)], filament_flow_ratio: [s(p.flowMultiplier)] };
+  return { machine, process, filament };
+}

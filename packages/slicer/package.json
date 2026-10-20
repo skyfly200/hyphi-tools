@@ -12,6 +12,7 @@
     "./profile": "./src/profile.js",
     "./server": "./src/server/server.js",
     "./client": "./src/client.js",
+    "./external": "./src/server/external.js",
     "./kernel-node": "./src/kernel-node.js"
   },
   "files": [

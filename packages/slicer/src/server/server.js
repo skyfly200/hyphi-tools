@@ -4,28 +4,27 @@
 //   GET    /v1/jobs/:id/gcode  the G-code (when done)
 //   DELETE /v1/jobs/:id        cancel / discard
 //   GET    /v1/profiles, GET /health
-// Jobs run in worker threads (built-in slicer) or as a child process (PrusaSlicer CLI, if configured).
+// Jobs run in worker threads (built-in slicer) or as a child process (PrusaSlicer / OrcaSlicer CLI, if configured).
 // Node only, no dependencies. Put TLS in front of it (reverse proxy / platform ingress).
 
 import http from 'node:http';
 import { Worker } from 'node:worker_threads';
-import { spawn } from 'node:child_process';
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
-import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { resolveProfile, validateProfile, toPrusaIni } from '../profile.js';
+import { resolveProfile, validateProfile } from '../profile.js';
+import { runExternalSlicer } from './external.js';
 
 const sha = s => createHash('sha256').update(s).digest();
 const HDR = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' };
 
 export function createSlicingServer(opts = {}) {
   const o = { apiKeys: [], allowAnonymous: false, maxBodyBytes: 64 * 1024 * 1024, concurrency: 2, maxQueuePerClient: 5, jobTtlMs: 60 * 60 * 1000, jobTimeoutMs: 5 * 60 * 1000,
-    maxTriangles: 2_000_000, maxLayers: 4000, corsOrigins: [], prusaPath: null, profiles: [], ...opts };
+    maxTriangles: 2_000_000, maxLayers: 4000, corsOrigins: [], prusaPath: null, orca: null, profiles: [], ...opts };
+  // external engines: { prusa: { path, wrapper? }, orca: { path, wrapper?, bases? } }
+  o.external = { ...(o.prusaPath ? { prusa: { path: o.prusaPath } } : {}), ...(o.orca?.path ? { orca: o.orca } : {}), ...(opts.external || {}) };
   if (!o.allowAnonymous && !o.apiKeys.length) throw new Error('refusing to start without API keys (set apiKeys, or allowAnonymous for local development)');
   const keyHashes = o.apiKeys.map(sha), jobs = new Map(), queue = [];
   let running = 0;
-  const engines = ['builtin', ...(o.prusaPath ? ['prusa'] : [])];
+  const engines = ['builtin', ...Object.keys(o.external)];
 
   const clientOf = req => {
     const m = /^Bearer\s+(.+)$/i.exec(req.headers.authorization || ''); if (!m) return o.allowAnonymous ? 'anon' : null;
@@ -68,22 +67,13 @@ export function createSlicingServer(opts = {}) {
       w.on('error', e => { clearTimeout(timer); finish(j, { status: 'failed', error: `worker error: ${e.message}` }); });
       w.on('exit', () => { clearTimeout(timer); if (j.status === 'running') finish(j, { status: 'failed', error: 'worker exited unexpectedly' }); });
     };
-    if (j.engine !== 'prusa') return runWorker({ mode: 'builtin', stl: j.stl });
-    let dir;
+    if (j.engine === 'builtin') return runWorker({ mode: 'builtin', stl: j.stl });
     try {
-      dir = await mkdtemp(join(tmpdir(), 'slice-')); const stlPath = join(dir, 'in.stl'), ini = join(dir, 'p.ini'), out = join(dir, 'out.gcode');
-      await writeFile(stlPath, j.stl); await writeFile(ini, toPrusaIni(j.profile));
-      await new Promise((resolve, reject) => {
-        const c = spawn(o.prusaPath, ['--export-gcode', '--load', ini, '--output', out, stlPath], { stdio: ['ignore', 'ignore', 'pipe'] }); j.child = c;
-        let err = ''; c.stderr.on('data', d => { err = (err + d).slice(-2000); });
-        const t = setTimeout(() => { c.kill('SIGKILL'); reject(new Error('external slicer timed out')); }, o.jobTimeoutMs);
-        c.on('error', e => { clearTimeout(t); reject(e); }); c.on('exit', code => { clearTimeout(t); code === 0 ? resolve() : reject(new Error(`external slicer failed (${code}): ${err.trim().split('\n').pop()}`)); });
-      });
-      const gcode = await readFile(out, 'utf8'); j.child = null;
+      const gcode = await runExternalSlicer(j.engine, { stl: j.stl, profile: j.profile, config: o.external[j.engine], timeoutMs: o.jobTimeoutMs, onChild: c => { j.child = c; } });
+      j.child = null;
       if (j.status === 'cancelled') return;
       runWorker({ mode: 'analyze', gcode, stl: j.stl });
     } catch (e) { finish(j, { status: 'failed', error: String(e.message).slice(0, 300) }); }
-    finally { if (dir) rm(dir, { recursive: true, force: true }).catch(() => {}); }
   }
   function pump() { while (running < o.concurrency && queue.length) execute(queue.shift()); }
 

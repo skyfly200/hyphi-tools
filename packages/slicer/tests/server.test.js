@@ -102,3 +102,28 @@ test('external engine: a configured CLI is run as a child process and its G-code
     try { await assert.rejects(() => createSlicingClient({ baseUrl: `http://127.0.0.1:${p2.port}`, apiKey: KEY }).slice({ stl, engine: 'prusa' }, { pollMs: 30 }), /ENOENT|failed/); } finally { await failing.close(); }
   } finally { await s2.close(); }
 });
+
+test('orca engine: right CLI arguments, per-job datadir, generated profile JSON, G-code picked up from the output dir', async () => {
+  const { mkdtempSync, writeFileSync, chmodSync, readFileSync } = await import('node:fs'), { tmpdir } = await import('node:os'), { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'fake-orca-')), fake = join(dir, 'orca.sh'), log = join(dir, 'args.log');
+  // stand-in for `orca-slicer --datadir D --slice 0 --load-settings "m;p" --load-filaments f --outputdir O in.stl`
+  writeFileSync(fake, `#!/bin/sh
+echo "$@" > "${log}"
+while [ $# -gt 0 ]; do case "$1" in --outputdir) o="$2";; --load-settings) s="$2";; --load-filaments) f="$2";; esac; shift; done
+p="\${s#*;}"; cp "$p" "${dir}/process.seen"; cp "$f" "${dir}/filament.seen"
+mkdir -p "$o"; printf "M83\\n;LAYER_CHANGE\\nG1 Z0.2 F600\\n;TYPE:Outer wall\\nG1 X10 Y0 F1200\\nG1 X20 Y0 E0.4\\n" > "$o/plate_1.gcode"
+`);
+  chmodSync(fake, 0o755);
+  const s2 = createSlicingServer({ apiKeys: [KEY], orca: { path: fake, wrapper: ['env', 'FOO=1'], bases: { process: { inherits: 'My Process', sparse_infill_pattern: 'gyroid' } } } }), { port } = await s2.listen(0);
+  try {
+    const c = createSlicingClient({ baseUrl: `http://127.0.0.1:${port}`, apiKey: KEY });
+    assert.deepEqual((await c.health()).engines, ['builtin', 'orca']);
+    const r = await c.slice({ stl, engine: 'orca', profile: { layerHeightMm: 0.16, walls: 3, infillPct: 20 } }, { pollMs: 50 });
+    assert.match(r.gcode, /Outer wall/); assert.equal(r.summary.analysis.features.outer.moves, 1);
+    const args = readFileSync(log, 'utf8'); assert.match(args, /--datadir \S+datadir --slice 0 --load-settings \S+machine\.json;\S+process\.json --load-filaments \S+filament\.json --outputdir/);
+    const proc = JSON.parse(readFileSync(join(dir, 'process.seen'), 'utf8'));
+    assert.equal(proc.layer_height, '0.16'); assert.equal(proc.wall_loops, '3'); assert.equal(proc.sparse_infill_density, '20%');
+    assert.equal(proc.inherits, 'My Process'); assert.equal(proc.sparse_infill_pattern, 'gyroid');          // your base profile survives
+    assert.equal(JSON.parse(readFileSync(join(dir, 'filament.seen'), 'utf8')).filament_diameter[0], '1.75');
+  } finally { await s2.close(); }
+});
