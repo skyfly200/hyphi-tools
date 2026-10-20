@@ -16,7 +16,7 @@ import { faceMountSpec, tieSlotSpecs, truncateVertex } from './lib/lighting.js';
 import { buildReport, pieceSTL, minHingeWidthMm, export3MF } from './lib/export.js';
 import { plateSvg, heightmapPGM, PROCESSES } from './lib/surface.js';
 import { panelProfile } from './lib/panel.js';
-import { PRINTERS, createSlicingClient, resolveProfile, validateProfile, generateGcode, parseGcode, analyzeGcode, analyzeNozzles, buildRibbons } from '@hyphi/slicer';
+import { importProfile, PRINTERS, createSlicingClient, resolveProfile, validateProfile, generateGcode, parseGcode, analyzeGcode, analyzeNozzles, buildRibbons } from '@hyphi/slicer';
 
 export const SOLIDS = { ...Object.fromEntries(Object.entries(POLYHEDRA).map(([k, v]) => [k, { id: k, label: v.label, build: v.build }])),
   ...Object.fromEntries(Object.entries(EXTRA_POLYHEDRA).map(([k, v]) => [k, { id: k, label: v.label, build: v.build }])) };
@@ -38,7 +38,7 @@ export const state = reactive({
   surfaces: {},                        // face id -> { kind, pitchMm, angleDeg, depthMm, intent }
   colors: { mode: 'single', count: 3, palette: DEFAULT_PALETTE.map(c => ({ ...c })), manual: {}, hingeMode: 'parent', hingeSlot: 0, extruders: 4, active: 0 },
   art: { layers: [], info: {}, customFontName: null, nextId: 1 },
-  slicing: { profile: { printer: 'generic', nozzleMm: 0.4, layerHeightMm: 0.2, firstLayerHeightMm: 0.2, walls: 2, topLayers: 4, bottomLayers: 4, infillPct: 15, material: 'PETG' }, where: 'local', server: { url: lsGet('ff.slicer.url') || '', key: lsGet('ff.slicer.key') || '', remember: !!lsGet('ff.slicer.key'), engine: 'builtin', engines: ['builtin'], info: '' }, progress: '', piece: 0, busy: false, error: null, nozzleTable: null, result: null, layer: 0, layerMax: 0, colorBy: 'type', stale: false },
+  slicing: { profile: { printer: 'generic', nozzleMm: 0.4, layerHeightMm: 0.2, firstLayerHeightMm: 0.2, walls: 2, topLayers: 4, bottomLayers: 4, infillPct: 15, material: 'PETG' }, where: 'local', server: { url: lsGet('ff.slicer.url') || '', key: lsGet('ff.slicer.key') || '', remember: !!lsGet('ff.slicer.key'), engine: 'builtin', engines: ['builtin'], info: '' }, progress: '', imported: null, piece: 0, busy: false, error: null, nozzleTable: null, result: null, layer: 0, layerMax: 0, colorBy: 'type', stale: false },
   selectedFace: 0,
   fold: 1,                             // 0 flat … 1 closed
   view: 'folded',                      // folded | plate
@@ -224,6 +224,19 @@ export function exportReport() { if (state.report) download(`${base()}-report.js
 const tick = () => new Promise(r => setTimeout(r, 20));
 const pieceManifold = () => raw.plate?.components?.[Math.min(state.slicing.piece, (raw.plate?.components?.length || 1) - 1)];
 const sliceProfile = () => resolveProfile({ ...state.slicing.profile, plate: state.bedFinish, name: `facetfold-${state.slicing.profile.nozzleMm}`, bed: { x: state.bedMm[0], y: state.bedMm[1] } });
+export const importSettings = file => guarded(async () => {
+  const u8 = new Uint8Array(await file.arrayBuffer()), zip = u8[0] === 0x50 && u8[1] === 0x4b;
+  const r = await importProfile(zip ? u8 : new TextDecoder().decode(u8), file.name), p = r.profile;
+  if (!r.found.length && r.source !== 'none') throw new Error(`no slicer settings found in ${file.name}`);
+  const keep = ['printer', 'nozzleMm', 'layerHeightMm', 'firstLayerHeightMm', 'walls', 'topLayers', 'bottomLayers', 'infillPct', 'material', 'nozzleC', 'bedC', 'fanPct', 'retractMm', 'lineWidthMm', 'flowMultiplier', 'filamentDiameterMm', 'skirtLoops', 'skirtDistanceMm', 'speed'];
+  const next = { ...state.slicing.profile }; for (const k of keep) if (p[k] !== undefined) next[k] = p[k];
+  state.slicing.profile = next;
+  if (p.plate) state.bedFinish = p.plate;
+  if (r.resolved.bed) state.bedMm = [r.resolved.bed.x, r.resolved.bed.y];
+  state.slicing.imported = { from: r.from, source: r.source, found: r.found, notes: r.notes, measured: r.measured, profile: p };
+  scheduleRebuild(0);
+});
+export function downloadImportedProfile() { const i = state.slicing.imported; if (i) download(`${i.profile.name || 'imported'}.json`, new TextEncoder().encode(JSON.stringify(i.profile, null, 2)), 'application/json'); }
 export function setPrinter(id) {
   const pr = PRINTERS[id]; if (!pr) return;
   state.slicing.profile.printer = id; state.bedMm = [pr.bed.x, pr.bed.y];

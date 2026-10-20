@@ -42,3 +42,15 @@ API (JSON, bearer key): `POST /v1/jobs` (raw STL + `X-Slice-Options` JSON header
 ## Materials and plates
 
 Materials: PLA, PETG, TPU, PVB (generic starting temperatures and fan; check your spool and your printer's own profile). TPU runs at 40 % of the default speeds with short retraction. Plates: textured, smooth, holographic. PETG is restricted to the textured plate (from your experience, encoded in `MATERIAL_PLATES`), and selecting another plate raises a warning. The plate describes the bed-side faces' finish: textured prints copy the texture, holographic prints pick up the diffraction pattern, so designed surface relief on those faces is flagged as hidden or mixed. Hinge strain bands depend on the material: PLA and PVB are treated as brittle (assumed, not measured), TPU as elastic far beyond a single fold. Profiles for both printers in all four materials are in `slicer-profiles/` (`*-petg-0.4-hinge` uses 0.1 mm layers on the 0.4 mm nozzle).
+
+## Recovering settings from a print that worked
+
+Slicers embed their whole configuration in the files they write, so a known-good G-code or project can be turned back into a profile:
+
+- **PrusaSlicer:** G-code (`; prusaslicer_config = begin … end`) or `.3mf` (`Metadata/Slic3r_PE.config`).
+- **OrcaSlicer / Bambu Studio:** G-code (`; CONFIG_BLOCK_START … END`), or a project / `.gcode.3mf` (`Metadata/project_settings.config`). Bed temperature is taken from the plate in use.
+- **Cura:** partial (`;SETTING_` block).
+- **Nothing embedded:** layer height, first layer, speeds per feature, temperatures, fan and retraction are measured from the toolpaths and `M104/M140/M106` commands. Nozzle size, wall/skin counts, infill % and material cannot be measured.
+- **Cross-check:** measured outer-wall width is compared with the configured width; a difference (for example from over-extrusion or a flow ratio) is reported.
+
+Use it from FacetFold (Slicing → import settings, then Save profile) or `node scripts/import-settings.mjs good.gcode --out slicer-profiles/my-good-petg.json`. Key names are matched per slicer version, not guaranteed for all; values given as a percentage of another setting (for example a first-layer speed of 50 %) are skipped and reported. Start G-code and printer macros are not imported.

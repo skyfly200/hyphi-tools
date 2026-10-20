@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue';
-import { state, raw, setFaceColor, scheduleRebuild, toggleHinge, resetHinges, addMount, removeMount, setSurface, applySurfaceToAll, FONTS, addArt, removeArt, copyArtToAllFaces, setSvgFromFile, uploadFont, runNozzleAnalysis, runSlice, loadGcode, downloadGcode, checkServer, cancelSlice, setPrinter, suggestHingeWidth, PROCESSES } from '../store.js';
+import { state, raw, setFaceColor, scheduleRebuild, toggleHinge, resetHinges, addMount, removeMount, setSurface, applySurfaceToAll, FONTS, addArt, removeArt, copyArtToAllFaces, setSvgFromFile, uploadFont, runNozzleAnalysis, runSlice, loadGcode, downloadGcode, checkServer, cancelSlice, setPrinter, importSettings, downloadImportedProfile, suggestHingeWidth, PROCESSES } from '../store.js';
 import { PRINTERS, MATERIALS, PLATES, resolveProfile, validateProfile } from '@hyphi/slicer';
 import { PATTERNS, assessSurface, diffractionAngleDeg, dispersionDeg, maxPitchForDispersionUm } from '../lib/surface.js';
 
@@ -22,6 +22,7 @@ const infoOf = l => state.art.info[l.id] || {};
 const onSvg = (l, e) => { const f = e.target.files[0]; if (f) setSvgFromFile(l.id, f); e.target.value = ''; };
 const onFont = e => { const f = e.target.files[0]; if (f) uploadFont(f); e.target.value = ''; };
 const SL = state.slicing, pieceCount = computed(() => (state.version, raw.plate?.components?.length || 1));
+const onImport = e => { const f = e.target.files[0]; if (f) importSettings(f); e.target.value = ''; };
 const onGcode = e => { const f = e.target.files[0]; if (f) loadGcode(f); e.target.value = ''; };
 const plateNotes = computed(() => validateProfile(resolveProfile({ ...state.slicing.profile, plate: state.bedFinish })).filter(i => i.code === 'plateForMaterial' || i.code === 'plateFinish'));
 const hingeCount = computed(() => state.edgeList.filter(e => e.kind === 'hinge').length);
@@ -129,6 +130,7 @@ const portVertices = computed(() => Array.from({ length: state.vertexCount }, (_
     <section class="blk">
       <h3>Slicing</h3>
       <label class="row">Piece <select v-model.number="SL.piece"><option v-for="i in pieceCount" :key="i" :value="i - 1">{{ i }}</option></select></label>
+      <div class="row"><label class="up">import settings from a good print (.gcode / .3mf) <input type="file" accept=".gcode,.gco,.3mf,text/plain" @change="onImport" /></label><button :disabled="!SL.imported" @click="downloadImportedProfile">Save profile</button></div>
       <label class="row">Printer <select :value="SL.profile.printer" @change="setPrinter($event.target.value)"><option v-for="(p, id) in PRINTERS" :key="id" :value="id">{{ p.label }}</option></select></label>
       <label class="row">Nozzle mm <select v-model.number="SL.profile.nozzleMm"><option v-for="n in PRINTERS[SL.profile.printer].nozzles" :key="n" :value="n">{{ n }}</option></select></label>
       <p v-if="PRINTERS[SL.profile.printer].previewOnly" class="note">Built-in slicing is a preview only for this printer. Print the Orca engine's output (hosted server or local).</p>

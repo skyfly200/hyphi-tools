@@ -34,6 +34,14 @@ const infos = computed(() => (state.issues || []).filter(i => i.level === 'info'
       <div v-for="f in r.fit" :key="f.piece" class="fit" :class="{ bad: !f.fits }">Piece {{ f.piece + 1 }}: {{ f.widthMm.toFixed(0) }} × {{ f.heightMm.toFixed(0) }} mm {{ f.fits ? 'fits the bed' : '— too large' }}</div>
     </section>
 
+    <section class="blk" v-if="SL.imported">
+      <h3>Imported settings ({{ SL.imported.source }})</h3>
+      <div class="kv"><template v-for="f in SL.imported.found" :key="f.key"><span>{{ f.key }}</span><b>{{ typeof f.value === 'object' ? JSON.stringify(f.value) : f.value }}</b></template></div>
+      <div v-for="n in SL.imported.notes" :key="n" class="iss warn">{{ n }}</div>
+      <p v-if="SL.imported.measured" class="note">Measured from the toolpaths: {{ SL.imported.measured.layers }} layers at {{ SL.imported.measured.layerHeightMm }} mm, outer wall {{ SL.imported.measured.outerWidthMm }} mm wide, nozzle {{ SL.imported.measured.nozzleC }} °C, bed {{ SL.imported.measured.bedC }} °C.</p>
+      <p class="note">Applied to the Slicing panel. Source file: {{ SL.imported.from }}.</p>
+    </section>
+
     <section class="blk" v-if="nt">
       <h3>Nozzle fit (piece {{ nt.piece + 1 }})</h3>
       <p class="iss ok">Recommended: <b>{{ nt.recommended.nozzleMm }} mm</b> — {{ nt.recommended.reason }}.</p>
