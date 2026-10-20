@@ -3,6 +3,18 @@
 
 export const NOZZLES = Object.freeze([0.2, 0.25, 0.4, 0.6, 0.8]);
 
+/**
+ * Printers we know about. Bed sizes are the manufacturers' published build volumes.
+ * `previewOnly`: the built-in slicer's G-code uses generic Marlin start/end code, so it is for viewing and analysis; print
+ * from the external slicer's output instead (Bambu printers need Bambu's own start sequence and normally take a 3MF).
+ */
+export const PRINTERS = Object.freeze({
+  'bambu-a1-mini': { label: 'Bambu Lab A1 mini', bed: { x: 180, y: 180 }, maxZ: 180, nozzles: [0.2, 0.4, 0.6, 0.8], previewOnly: true, preferred: 'orca', orcaPrinter: 'Bambu Lab A1 mini', maxNozzleC: 300, maxBedC: 80 },
+  'prusa-mk3s': { label: 'Prusa i3 MK3S/MK3S+', bed: { x: 250, y: 210 }, maxZ: 210, nozzles: [0.25, 0.4, 0.6], previewOnly: false, preferred: 'prusa', prusaPrinter: 'Original Prusa i3 MK3S & MK3S+', maxNozzleC: 300, maxBedC: 120 },
+  generic: { label: 'Generic 256 × 256', bed: { x: 256, y: 256 }, maxZ: 256, nozzles: NOZZLES_ALL(), previewOnly: false, preferred: 'builtin' },
+});
+function NOZZLES_ALL() { return [0.2, 0.25, 0.4, 0.6, 0.8]; }
+
 export const MATERIALS = Object.freeze({
   PLA: { nozzleC: 210, bedC: 60, fanPct: 100, flowMultiplier: 1 },
   PETG: { nozzleC: 240, bedC: 80, fanPct: 40, flowMultiplier: 0.97 },
@@ -34,7 +46,8 @@ export const DEFAULT_PROFILE = Object.freeze({
 
 /** Fill defaults from the material table and check that the numbers make physical sense. */
 export function resolveProfile(p = {}) {
-  const m = { ...DEFAULT_PROFILE, ...p, speed: { ...DEFAULT_PROFILE.speed, ...(p.speed || {}) }, bed: { ...DEFAULT_PROFILE.bed, ...(p.bed || {}) } };
+  const pr = PRINTERS[p.printer];
+  const m = { ...DEFAULT_PROFILE, ...(pr ? { bed: pr.bed } : {}), ...p, speed: { ...DEFAULT_PROFILE.speed, ...(p.speed || {}) }, bed: { ...DEFAULT_PROFILE.bed, ...(pr ? pr.bed : {}), ...(p.bed || {}) } };
   const mat = MATERIALS[m.material] || MATERIALS.PETG;
   m.nozzleC ??= mat.nozzleC; m.bedC ??= mat.bedC; m.fanPct ??= mat.fanPct; m.flowMultiplier ??= mat.flowMultiplier;
   m.lineWidthMm = p.lineWidthMm ?? +(m.nozzleMm * m.lineWidthFactor).toFixed(4);
@@ -51,6 +64,14 @@ export function validateProfile(p) {
   if (p.lineWidthMm < n * 0.9 || p.lineWidthMm > n * 1.6) warn('lineWidth', `line width ${p.lineWidthMm} mm is outside 0.9–1.6 × the nozzle`);
   if (p.walls < 1) warn('walls', 'at least one wall is required', 'error');
   if (p.bed.x < 1 || p.bed.y < 1) warn('bed', 'bed size is invalid', 'error');
+  const pr = PRINTERS[p.printer];
+  if (p.printer && !pr) warn('printer', `unknown printer "${p.printer}"`);
+  if (pr) {
+    if (!pr.nozzles.includes(n)) warn('nozzleForPrinter', `${n} mm is not a stock nozzle size for the ${pr.label} (${pr.nozzles.join(', ')})`);
+    if (p.nozzleC > pr.maxNozzleC) warn('nozzleTemp', `${p.nozzleC} °C exceeds the ${pr.label} limit of ${pr.maxNozzleC} °C`, 'error');
+    if (p.bedC > pr.maxBedC) warn('bedTemp', `${p.bedC} °C exceeds the ${pr.label} bed limit of ${pr.maxBedC} °C`, 'error');
+    if (pr.previewOnly) warn('previewOnly', `the built-in slicer's G-code is for preview/analysis only on the ${pr.label} (it needs the printer's own start sequence); print the ${pr.preferred} engine's output`, 'info');
+  }
   return issues;
 }
 

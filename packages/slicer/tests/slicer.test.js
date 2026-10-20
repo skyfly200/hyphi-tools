@@ -125,3 +125,16 @@ test('nozzle analysis: a vertical feature thinner than the layer height rules la
   assert.match(a.recommended.reason, /thinnest vertical feature/);
   assert.equal(a.table.find(r => r.nozzleMm === 0.8).layerOk, false);
 });
+
+test('printers: A1 mini and MK3S presets set the bed, check nozzle/temps, and flag preview-only G-code', async () => {
+  const { PRINTERS } = await import('../src/index.js');
+  const a1 = resolveProfile({ printer: 'bambu-a1-mini' }), mk = resolveProfile({ printer: 'prusa-mk3s', nozzleMm: 0.25, layerHeightMm: 0.1, firstLayerHeightMm: 0.1 });
+  assert.deepEqual(a1.bed, { x: 180, y: 180 }); assert.deepEqual(mk.bed, { x: 250, y: 210 });
+  assert.ok(validateProfile(a1).some(i => i.code === 'previewOnly'));
+  assert.ok(!validateProfile(mk).some(i => i.level !== 'info'), JSON.stringify(validateProfile(mk)));
+  assert.ok(validateProfile(resolveProfile({ printer: 'prusa-mk3s', nozzleMm: 0.8, layerHeightMm: 0.3 })).some(i => i.code === 'nozzleForPrinter'));
+  assert.ok(validateProfile(resolveProfile({ printer: 'bambu-a1-mini', bedC: 100 })).some(i => i.code === 'bedTemp' && i.level === 'error'));
+  assert.ok(Object.keys(PRINTERS).length >= 3);
+  const r = generateGcode(K, box(10, 10, 2), a1); assert.equal(r.stats.fitsBed, true);
+  const big = generateGcode(K, box(200, 10, 2), a1); assert.equal(big.stats.fitsBed, false);       // wider than the A1 mini bed
+});

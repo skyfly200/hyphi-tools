@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue';
-import { state, raw, setFaceColor, scheduleRebuild, toggleHinge, resetHinges, addMount, removeMount, setSurface, applySurfaceToAll, FONTS, addArt, removeArt, copyArtToAllFaces, setSvgFromFile, uploadFont, runNozzleAnalysis, runSlice, loadGcode, downloadGcode, checkServer, cancelSlice, suggestHingeWidth, PROCESSES } from '../store.js';
+import { state, raw, setFaceColor, scheduleRebuild, toggleHinge, resetHinges, addMount, removeMount, setSurface, applySurfaceToAll, FONTS, addArt, removeArt, copyArtToAllFaces, setSvgFromFile, uploadFont, runNozzleAnalysis, runSlice, loadGcode, downloadGcode, checkServer, cancelSlice, setPrinter, suggestHingeWidth, PROCESSES } from '../store.js';
+import { PRINTERS } from '@hyphi/slicer';
 import { PATTERNS, assessSurface, diffractionAngleDeg, dispersionDeg, maxPitchForDispersionUm } from '../lib/surface.js';
 
 const P = state.params;
@@ -127,7 +128,9 @@ const portVertices = computed(() => Array.from({ length: state.vertexCount }, (_
     <section class="blk">
       <h3>Slicing</h3>
       <label class="row">Piece <select v-model.number="SL.piece"><option v-for="i in pieceCount" :key="i" :value="i - 1">{{ i }}</option></select></label>
-      <label class="row">Nozzle mm <select v-model.number="SL.profile.nozzleMm"><option v-for="n in [0.2, 0.25, 0.4, 0.6, 0.8]" :key="n" :value="n">{{ n }}</option></select></label>
+      <label class="row">Printer <select :value="SL.profile.printer" @change="setPrinter($event.target.value)"><option v-for="(p, id) in PRINTERS" :key="id" :value="id">{{ p.label }}</option></select></label>
+      <label class="row">Nozzle mm <select v-model.number="SL.profile.nozzleMm"><option v-for="n in PRINTERS[SL.profile.printer].nozzles" :key="n" :value="n">{{ n }}</option></select></label>
+      <p v-if="PRINTERS[SL.profile.printer].previewOnly" class="note">Built-in slicing is a preview only for this printer. Print the Orca engine's output (hosted server or local).</p>
       <label class="row">Layer height mm <input type="number" step="0.01" min="0.05" v-model.number="SL.profile.layerHeightMm" @input="SL.profile.firstLayerHeightMm = SL.profile.layerHeightMm" /></label>
       <label class="row">Walls / top / bottom <input type="number" min="1" v-model.number="SL.profile.walls" /><input type="number" min="0" v-model.number="SL.profile.topLayers" /><input type="number" min="0" v-model.number="SL.profile.bottomLayers" /></label>
       <label class="row">Infill % <input type="number" min="0" max="100" v-model.number="SL.profile.infillPct" /></label>

@@ -16,7 +16,7 @@ import { faceMountSpec, tieSlotSpecs, truncateVertex } from './lib/lighting.js';
 import { buildReport, pieceSTL, minHingeWidthMm, export3MF } from './lib/export.js';
 import { plateSvg, heightmapPGM, PROCESSES } from './lib/surface.js';
 import { panelProfile } from './lib/panel.js';
-import { createSlicingClient, resolveProfile, validateProfile, generateGcode, parseGcode, analyzeGcode, analyzeNozzles, buildRibbons } from '@hyphi/slicer';
+import { PRINTERS, createSlicingClient, resolveProfile, validateProfile, generateGcode, parseGcode, analyzeGcode, analyzeNozzles, buildRibbons } from '@hyphi/slicer';
 
 export const SOLIDS = { ...Object.fromEntries(Object.entries(POLYHEDRA).map(([k, v]) => [k, { id: k, label: v.label, build: v.build }])),
   ...Object.fromEntries(Object.entries(EXTRA_POLYHEDRA).map(([k, v]) => [k, { id: k, label: v.label, build: v.build }])) };
@@ -37,7 +37,7 @@ export const state = reactive({
   surfaces: {},                        // face id -> { kind, pitchMm, angleDeg, depthMm, intent }
   colors: { mode: 'single', count: 3, palette: DEFAULT_PALETTE.map(c => ({ ...c })), manual: {}, hingeMode: 'parent', hingeSlot: 0, extruders: 4, active: 0 },
   art: { layers: [], info: {}, customFontName: null, nextId: 1 },
-  slicing: { profile: { nozzleMm: 0.4, layerHeightMm: 0.2, firstLayerHeightMm: 0.2, walls: 2, topLayers: 4, bottomLayers: 4, infillPct: 15, material: 'PETG' }, where: 'local', server: { url: lsGet('ff.slicer.url') || '', key: lsGet('ff.slicer.key') || '', remember: !!lsGet('ff.slicer.key'), engine: 'builtin', engines: ['builtin'], info: '' }, progress: '', piece: 0, busy: false, error: null, nozzleTable: null, result: null, layer: 0, layerMax: 0, colorBy: 'type', stale: false },
+  slicing: { profile: { printer: 'generic', nozzleMm: 0.4, layerHeightMm: 0.2, firstLayerHeightMm: 0.2, walls: 2, topLayers: 4, bottomLayers: 4, infillPct: 15, material: 'PETG' }, where: 'local', server: { url: lsGet('ff.slicer.url') || '', key: lsGet('ff.slicer.key') || '', remember: !!lsGet('ff.slicer.key'), engine: 'builtin', engines: ['builtin'], info: '' }, progress: '', piece: 0, busy: false, error: null, nozzleTable: null, result: null, layer: 0, layerMax: 0, colorBy: 'type', stale: false },
   selectedFace: 0,
   fold: 1,                             // 0 flat … 1 closed
   view: 'folded',                      // folded | plate
@@ -221,6 +221,13 @@ export function exportReport() { if (state.report) download(`${base()}-report.js
 const tick = () => new Promise(r => setTimeout(r, 20));
 const pieceManifold = () => raw.plate?.components?.[Math.min(state.slicing.piece, (raw.plate?.components?.length || 1) - 1)];
 const sliceProfile = () => resolveProfile({ ...state.slicing.profile, name: `facetfold-${state.slicing.profile.nozzleMm}`, bed: { x: state.bedMm[0], y: state.bedMm[1] } });
+export function setPrinter(id) {
+  const pr = PRINTERS[id]; if (!pr) return;
+  state.slicing.profile.printer = id; state.bedMm = [pr.bed.x, pr.bed.y];
+  if (!pr.nozzles.includes(state.slicing.profile.nozzleMm)) state.slicing.profile.nozzleMm = pr.nozzles.includes(0.4) ? 0.4 : pr.nozzles[0];
+  if (pr.preferred !== 'builtin') state.slicing.server.engine = state.slicing.server.engines.includes(pr.preferred) ? pr.preferred : state.slicing.server.engine;
+  scheduleRebuild(0);
+}
 async function guarded(fn) {
   if (state.slicing.busy) return;
   state.slicing.busy = true; state.slicing.error = null; await tick();
