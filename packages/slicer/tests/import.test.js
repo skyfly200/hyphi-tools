@@ -64,3 +64,20 @@ test('files without settings are reported, not guessed', async () => {
   const ex = await extractSettings('G1 X1 Y1 E0.1\n', 'plain.gcode'); assert.equal(ex.source, 'none');
   assert.ok(profileFromSettings({ source: 'orca', settings: {} }).notes.some(n => /no recognisable/.test(n)));
 });
+
+test('bambu plate temperature follows the plate in use (High Temp → hot_plate_temp)', async () => {
+  const mk = bed => `; CONFIG_BLOCK_START\n; curr_bed_type = ${bed}\n; cool_plate_temp = 35\n; hot_plate_temp = 60\n; textured_plate_temp = 65\n; eng_plate_temp = 70\n; CONFIG_BLOCK_END\n`;
+  assert.equal((await importProfile(mk('High Temp Plate'), 'a.gcode')).profile.bedC, 60);
+  assert.equal((await importProfile(mk('Cool Plate'), 'a.gcode')).profile.bedC, 35);
+  assert.equal((await importProfile(mk('Textured PEI Plate'), 'a.gcode')).profile.bedC, 65);
+  assert.equal((await importProfile(mk('Engineering Plate'), 'a.gcode')).profile.bedC, 70);
+});
+
+test('3mf model: external component files and build transforms (scale + placement) are applied', async () => {
+  const { read3MFModel } = await import('../src/index.js');
+  const mesh = `<model unit="millimeter"><resources><object id="1" type="model"><mesh><vertices><vertex x="0" y="0" z="0"/><vertex x="10" y="0" z="0"/><vertex x="0" y="10" z="0"/><vertex x="0" y="0" z="2"/></vertices><triangles><triangle v1="0" v2="2" v3="1"/><triangle v1="0" v2="1" v3="3"/><triangle v1="1" v2="2" v3="3"/><triangle v1="2" v2="0" v3="3"/></triangles></mesh></object></resources></model>`;
+  const root = `<model unit="millimeter"><resources><object id="2" type="model"><components><component p:path="/3D/Objects/o.model" objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 0"/></components></object></resources><build><item objectid="2" transform="0.5 0 0 0 0.5 0 0 0 1 90 80 0.25" printable="1"/></build></model>`;
+  const r = await read3MFModel(new Uint8Array(buildZip({ '3D/3dmodel.model': root, '3D/Objects/o.model': mesh })));
+  assert.deepEqual(r.bbox.min, [90, 80, 0.25]); assert.deepEqual(r.bbox.max, [95, 85, 2.25]); assert.equal(r.indices.length, 12);
+  await assert.rejects(() => read3MFModel(new Uint8Array(buildZip({ 'a.txt': 'x' }))), /no 3D\/3dmodel/);
+});

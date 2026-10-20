@@ -76,7 +76,9 @@ const MAP = {
 };
 
 function guessMaterial(t) { const s = String(t || '').toUpperCase(); return ['PETG', 'PLA', 'TPU', 'PVB'].find(m => s.includes(m)) || (s.includes('PCTG') ? 'PETG' : undefined); }
-function guessPlate(s) { const t = String(s || '').toLowerCase(); return /textured/.test(t) ? 'textured' : /smooth|cool|engineering|high temp|glass/.test(t) ? 'smooth' : /holo/.test(t) ? 'holographic' : undefined; }
+function guessPlate(s) { const t = String(s || '').toLowerCase(); return /textured/.test(t) ? 'textured' : /smooth|cool|engineering|high temp|hot|glass/.test(t) ? 'smooth' : /holo/.test(t) ? 'holographic' : undefined; }
+/** Bambu/Orca keep one bed temperature per plate type; the plate in use decides which one applies. */
+function bedTempKey(plateName) { const t = String(plateName || '').toLowerCase(); return /textured/.test(t) ? 'textured_plate_temp' : /high temp|hot/.test(t) ? 'hot_plate_temp' : /engineering/.test(t) ? 'eng_plate_temp' : /cool|smooth/.test(t) ? 'cool_plate_temp' : 'hot_plate_temp'; }
 function guessPrinter(set) {
   const area = String(set.bed_shape || set.printable_area || ''), m = [...area.matchAll(/(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)/g)].map(x => [+x[1], +x[2]]), bed = m.length ? { x: Math.max(...m.map(p => p[0])), y: Math.max(...m.map(p => p[1])) } : null;
   const name = `${set.printer_model || ''} ${set.printer_settings_id || ''} ${set.printer_notes || ''}`.toLowerCase();
@@ -103,8 +105,7 @@ export function profileFromSettings({ source, settings }, { name = 'imported' } 
   }
   const mat = guessMaterial(settings.filament_type || settings.material_type || settings.filament_settings_id); if (mat) { p.material = mat; found.push({ key: 'material', from: 'filament_type', value: mat }); }
   if (source === 'orca') {   // bed temperature depends on the plate in use
-    const plate = guessPlate(settings.curr_bed_type), bedKeys = { textured: 'textured_plate_temp', smooth: 'cool_plate_temp' };
-    const bk = (plate && bedKeys[plate]) || 'hot_plate_temp'; if (settings[bk] !== undefined) set('bedC', num(settings[bk]), bk);
+    const plate = guessPlate(settings.curr_bed_type), bk = bedTempKey(settings.curr_bed_type); if (settings[bk] !== undefined) set('bedC', num(settings[bk]), bk);
     if (plate) { p.plate = plate; found.push({ key: 'plate', from: 'curr_bed_type', value: plate }); }
   }
   const pr = guessPrinter(settings); if (pr.id) { p.printer = pr.id; found.push({ key: 'printer', from: 'bed shape / printer name', value: pr.id }); } else if (pr.bed) { p.bed = pr.bed; found.push({ key: 'bed', from: 'bed shape', value: `${pr.bed.x}×${pr.bed.y}` }); }
@@ -146,4 +147,52 @@ export async function importProfile(input, filename = '') {
     if (measured.outerWidthMm && cfgW && Math.abs(measured.outerWidthMm / cfgW - 1) > 0.06) notes.push(`outer-wall lines are ${measured.outerWidthMm} mm wide in the G-code vs ${cfgW.toFixed(3)} mm configured/default (${((measured.outerWidthMm / cfgW - 1) * 100).toFixed(0)}%): the extrusion width or flow differs from the plain defaults`);
   }
   return { ...res, notes, measured, from: ex.from, resolved: resolveProfile(res.profile), materials: Object.keys(MATERIALS) };
+}
+
+
+/**
+ * The model(s) in a 3MF as one triangle soup in millimetres, with the build transforms applied (scale, rotation, placement),
+ * so a slicer project can be re-sliced or analysed exactly as it was set up. Handles Bambu/Orca "components in other files".
+ * @returns {Promise<{ positions: number[], indices: number[], objects: number, bbox: {min:number[],max:number[]} }>}
+ */
+export async function read3MFModel(bytes) {
+  const z = await readZip(bytes), names = Object.keys(z), root = names.find(n => /^3D\/3dmodel\.model$/i.test(n));
+  if (!root) throw new Error('no 3D/3dmodel.model in this 3MF');
+  const parseObjects = (xml, scale) => {
+    const objs = {};
+    for (const m of xml.matchAll(/<object\b([^>]*)>([\s\S]*?)<\/object>/g)) {
+      const id = /\bid="([^"]+)"/.exec(m[1])?.[1], body = m[2], o = { comps: [], verts: null, tris: null };
+      for (const c of body.matchAll(/<component\b([^>]*)\/?>/g)) o.comps.push({ id: /objectid="([^"]+)"/.exec(c[1])?.[1], path: /(?:p:)?path="([^"]+)"/.exec(c[1])?.[1], t: /transform="([^"]+)"/.exec(c[1])?.[1] });
+      if (/<mesh>/.test(body)) {
+        o.verts = [...body.matchAll(/<vertex x="([^"]+)" y="([^"]+)" z="([^"]+)"/g)].map(v => [+v[1] * scale, +v[2] * scale, +v[3] * scale]);
+        o.tris = [...body.matchAll(/<triangle v1="(\d+)" v2="(\d+)" v3="(\d+)"/g)].map(t => [+t[1], +t[2], +t[3]]);
+      }
+      objs[id] = o;
+    }
+    return objs;
+  };
+  const unit = xml => ({ millimeter: 1, micron: 0.001, centimeter: 10, meter: 1000, inch: 25.4, foot: 304.8 })[/<model[^>]*unit="([^"]+)"/.exec(xml)?.[1] || 'millimeter'] ?? 1;
+  const rootXml = text(z[root]), u = unit(rootXml), rootObjs = parseObjects(rootXml, u), extCache = {};
+  const mat = t => { const a = (t || '1 0 0 0 1 0 0 0 1 0 0 0').trim().split(/\s+/).map(Number); return a.length === 12 && a.every(Number.isFinite) ? a : [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]; };
+  const apply = (m, p) => [p[0] * m[0] + p[1] * m[3] + p[2] * m[6] + m[9], p[0] * m[1] + p[1] * m[4] + p[2] * m[7] + m[10], p[0] * m[2] + p[1] * m[5] + p[2] * m[8] + m[11]];
+  const compose = (a, b) => { const o = []; // apply a, then b (row-vector convention)
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) o[r * 3 + c] = a[r * 3] * b[c] + a[r * 3 + 1] * b[3 + c] + a[r * 3 + 2] * b[6 + c];
+    for (let c = 0; c < 3; c++) o[9 + c] = a[9] * b[c] + a[10] * b[3 + c] + a[11] * b[6 + c] + b[9 + c]; return o; };
+  const positions = [], indices = []; let objects = 0;
+  const emit = (obj, m, objs) => {
+    if (obj.verts) { const base = positions.length / 3; obj.verts.forEach(v => positions.push(...apply(m, v))); obj.tris.forEach(t => indices.push(base + t[0], base + t[1], base + t[2])); objects++; }
+    for (const c of obj.comps) {
+      let table = objs;
+      if (c.path) { const key = c.path.replace(/^\//, ''); if (!z[key]) throw new Error(`component file ${c.path} is missing`); table = extCache[key] ||= parseObjects(text(z[key]), u); }
+      const child = table[c.id]; if (!child) throw new Error(`component object ${c.id} not found`);
+      emit(child, compose(mat(c.t), m), table);
+    }
+  };
+  const items = [...rootXml.matchAll(/<item\b([^>]*)\/?>/g)].filter(i => !/printable="0"/.test(i[1]));
+  if (!items.length) throw new Error('this 3MF has no build items');
+  for (const it of items) { const o = rootObjs[/objectid="([^"]+)"/.exec(it[1])?.[1]]; if (o) emit(o, mat(/transform="([^"]+)"/.exec(it[1])?.[1]), rootObjs); }
+  if (!positions.length) throw new Error('no mesh geometry found in this 3MF');
+  const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < positions.length; i++) { min[i % 3] = Math.min(min[i % 3], positions[i]); max[i % 3] = Math.max(max[i % 3], positions[i]); }
+  return { positions, indices, objects, bbox: { min, max } };
 }

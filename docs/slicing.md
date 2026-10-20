@@ -54,3 +54,7 @@ Slicers embed their whole configuration in the files they write, so a known-good
 - **Cross-check:** measured outer-wall width is compared with the configured width; a difference (for example from over-extrusion or a flow ratio) is reported.
 
 Use it from FacetFold (Slicing → import settings, then Save profile) or `node scripts/import-settings.mjs good.gcode --out slicer-profiles/my-good-petg.json`. Key names are matched per slicer version, not guaranteed for all; values given as a percentage of another setting (for example a first-layer speed of 50 %) are skipped and reported. Start G-code and printer macros are not imported.
+
+## Inspecting a slicer project (3MF)
+
+`node scripts/inspect-3mf.mjs project.3mf` recovers the settings, reads the model with its build transforms (`read3MFModel`: scale, placement, components in other files), re-slices it with the built-in slicer, runs the nozzle analysis and compares the first-layer time with the project's own estimate when it has one. On a Bambu Studio project for a 100 mm single-colour origami lily (A1 mini, PLA, 0.4 mm nozzle) our first-layer estimate was about 8 % under Bambu's (483 s vs 524 s), which is the expected size of the missing acceleration and travel model.
