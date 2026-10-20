@@ -187,6 +187,20 @@ enclosure:
   battery_bay: { cell: "18650", diameter: 18.5, length: 65.5 }   # TODO confirm bay layout
   openings: [usb_c_on_U1, SW1]
 
+# Blender renders (scripts/render.py). Paths are relative to this file.
+# models: the board GLB from `kicad-cli pcb export glb`, then any Blender-authored
+# parts (.blend/.glb/.stl), e.g. petals or the Build123d enclosure STL.
+render:
+  engine: cycles           # cycles | eevee
+  samples: 128
+  resolution: [1600, 1200]
+  transparent: true
+  views: [hero, top, front, side]
+  models:
+    - kicad/glowflora-home.glb
+    # - blender/petals.blend
+    # - build/enclosure.stl
+
 # Variants override any field above. Current-limit presets map to the jumper
 # matrix in hyphi-wiki/docs/diy/current-limit.md (I_lim mA = 6800 / R_set kΩ).
 variants:
