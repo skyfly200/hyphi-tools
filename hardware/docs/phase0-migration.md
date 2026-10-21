@@ -1,6 +1,6 @@
 # Phase 0: EasyEDA to KiCad migration
 
-First target: Smart Sprout Nano MVP (EasyEDA Pro). GlowFlora Home V1.0 follows. The BOM
+First target: Smart Sprout Nano MVP (EasyEDA Pro). GlowFlora Home V1.0 follows; its BOM
 lives in the wiki at `hyphi-wiki/docs/glowflora/bom.md` and is mirrored into
 [`products/glowflora-home/product.yaml`](../products/glowflora-home/product.yaml).
 
