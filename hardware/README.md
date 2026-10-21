@@ -10,7 +10,7 @@ hardware/
   products/<product>/product.yaml   spec: outline, parts (LCSC), placement, enclosure, variants
   products/<product>/kicad/         KiCad project (imported or generated)
   libs/hyphi/                       project symbol/footprint/3D library (built from specs)
-  scripts/                          pipeline scripts (fetch_parts.py, altium_to_spec.py, render.py)
+  scripts/                          pipeline scripts (fetch_parts.py, altium_to_spec.py, check_board.py, render.py)
   docs/                             how-tos
 ```
 
@@ -28,7 +28,7 @@ hardware/
 
 | Product | Spec | Source |
 |---------|------|--------|
-| Smart Sprout Nano MVP | [product.yaml](products/smart-sprout-nano-mvp/product.yaml) | spec generated from the EasyEDA Pro Altium export; [KiCad project](products/smart-sprout-nano-mvp/kicad/) imported in KiCad 10 (schematic only so far) |
+| Smart Sprout Nano MVP | [product.yaml](products/smart-sprout-nano-mvp/product.yaml) | spec generated from the EasyEDA Pro Altium export; [KiCad project](products/smart-sprout-nano-mvp/kicad/) imported in KiCad 10; `check_board.py` passes |
 | GlowFlora Home | [product.yaml](products/glowflora-home/product.yaml) | hand-seeded from the wiki BOM |
 
 To draft a spec for another board from an EasyEDA Pro Altium export:
@@ -36,6 +36,13 @@ To draft a spec for another board from an EasyEDA Pro Altium export:
 ```sh
 python3 hardware/scripts/altium_to_spec.py "<export>/Smart Sprout/<board folder>" \
   --id <product-id> --name "<Product Name>" --out hardware/products/<product-id>/product.yaml
+```
+
+Check a KiCad board still matches its spec (outline, layer count, every
+part's position, rotation and side; no KiCad install needed):
+
+```sh
+python3 hardware/scripts/check_board.py hardware/products/<id>/product.yaml hardware/products/<id>/kicad/<id>.kicad_pcb
 ```
 
 ## Phase 0 quick start
