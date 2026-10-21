@@ -10,7 +10,7 @@ hardware/
   products/<product>/product.yaml   spec: outline, parts (LCSC), placement, enclosure, variants
   products/<product>/kicad/         KiCad project (imported or generated)
   libs/hyphi/                       project symbol/footprint/3D library (built from specs)
-  scripts/                          pipeline scripts (fetch_parts.py, render.py)
+  scripts/                          pipeline scripts (fetch_parts.py, altium_to_spec.py, render.py)
   docs/                             how-tos
 ```
 
@@ -23,6 +23,20 @@ hardware/
 | 2 | Board-to-enclosure: Build123d for the printable shell (STEP/STL), Blender for organic parts and renders, both reading the spec and the KiCad board export | render script ready |
 | 3 | CI gates: `kicad-cli` ERC/DRC, Gerber/BOM/CPL export, LCSC pricing, cost rollup | not started |
 | 4 | Generative variants from one spec | not started |
+
+## Products
+
+| Product | Spec | Source |
+|---------|------|--------|
+| Smart Sprout Nano MVP | [product.yaml](products/smart-sprout-nano-mvp/product.yaml) | generated from the EasyEDA Pro Altium export |
+| GlowFlora Home | [product.yaml](products/glowflora-home/product.yaml) | hand-seeded from the wiki BOM |
+
+To draft a spec for another board from an EasyEDA Pro Altium export:
+
+```sh
+python3 hardware/scripts/altium_to_spec.py "<export>/Smart Sprout/<board folder>" \
+  --id <product-id> --name "<Product Name>" --out hardware/products/<product-id>/product.yaml
+```
 
 ## Phase 0 quick start
 

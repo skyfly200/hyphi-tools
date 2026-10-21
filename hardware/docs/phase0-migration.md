@@ -1,6 +1,6 @@
 # Phase 0: EasyEDA to KiCad migration
 
-Target: GlowFlora Home V1.0 PCB (Prototype V2), currently in EasyEDA. The BOM
+First target: Smart Sprout Nano MVP (EasyEDA Pro). GlowFlora Home V1.0 follows. The BOM
 lives in the wiki at `hyphi-wiki/docs/glowflora/bom.md` and is mirrored into
 [`products/glowflora-home/product.yaml`](../products/glowflora-home/product.yaml).
 
@@ -17,6 +17,15 @@ Two different jobs, two different tools:
 
 easyeda2kicad converts components, not projects, so the board itself goes
 through KiCad's importer.
+
+**EasyEDA Pro v3 caveat (checked 2026-10-21).** Pro 3.x saves projects as
+`.epro2`, and KiCad 9.0.6 fails to import that
+([KiCad issue 22239](https://gitlab.com/kicad/code/kicad/-/issues/22239)).
+Try the newest KiCad 9 first. EasyEDA's "Altium" export does not help: it is
+Altium's ASCII format, and KiCad's Altium importer reads only binary files (all
+ten Smart Sprout boards failed). That ASCII export does carry the BOM, LCSC
+numbers, outline and placements, so `scripts/altium_to_spec.py` turns it into a
+`product.yaml` either way.
 
 ## 1. Install KiCad 9
 
