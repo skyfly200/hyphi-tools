@@ -28,7 +28,7 @@ hardware/
 
 | Product | Spec | Source |
 |---------|------|--------|
-| Smart Sprout Nano MVP | [product.yaml](products/smart-sprout-nano-mvp/product.yaml) | generated from the EasyEDA Pro Altium export |
+| Smart Sprout Nano MVP | [product.yaml](products/smart-sprout-nano-mvp/product.yaml) | spec generated from the EasyEDA Pro Altium export; [KiCad project](products/smart-sprout-nano-mvp/kicad/) imported in KiCad 10 (schematic only so far) |
 | GlowFlora Home | [product.yaml](products/glowflora-home/product.yaml) | hand-seeded from the wiki BOM |
 
 To draft a spec for another board from an EasyEDA Pro Altium export:
@@ -40,7 +40,7 @@ python3 hardware/scripts/altium_to_spec.py "<export>/Smart Sprout/<board folder>
 
 ## Phase 0 quick start
 
-1. Follow [docs/phase0-migration.md](docs/phase0-migration.md) to install KiCad 9
+1. Follow [docs/phase0-migration.md](docs/phase0-migration.md) to install KiCad 10
    and the plugins and import the EasyEDA project.
 2. Build the project parts library from the spec:
 

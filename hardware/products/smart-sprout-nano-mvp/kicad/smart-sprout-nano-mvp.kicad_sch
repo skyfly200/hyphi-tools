@@ -1,0 +1,101 @@
+(kicad_sch
+	(version 20260306)
+	(generator "eeschema")
+	(generator_version "10.0")
+	(uuid "99bfdf5b-b542-40ce-885c-d08c8f88f92c")
+	(paper "A4")
+	(lib_symbols)
+	(sheet
+		(at 5.08 13.97)
+		(size 12.7 3.81)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "872ca7c4-5d56-4893-b659-14feef1d76c9")
+		(property "Sheetname" "P2"
+			(at 5.08 13.2584 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "2_P2.kicad_sch"
+			(at 5.08 18.3646 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "smart-sprout-nano-mvp"
+				(path "/99bfdf5b-b542-40ce-885c-d08c8f88f92c"
+					(page "2")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 5.08 5.08)
+		(size 12.7 3.81)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "f9a7cf30-f740-4737-8f8c-ccefa5b36e93")
+		(property "Sheetname" "P1"
+			(at 5.08 4.3684 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "1_P1.kicad_sch"
+			(at 5.08 9.4746 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "smart-sprout-nano-mvp"
+				(path "/99bfdf5b-b542-40ce-885c-d08c8f88f92c"
+					(page "1")
+				)
+			)
+		)
+	)
+	(embedded_fonts no)
+)
